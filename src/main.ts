@@ -184,6 +184,7 @@ async function main() {
         game = new Game(state);
         renderer = new GameRenderer(app, game);
         setupDebugCallbacks();
+        setupDiceCallback();
         
         if (isMultiplayer) {
             renderer.isMyTurnFn = isMyTurn;
@@ -208,6 +209,7 @@ async function main() {
         
         renderer = new GameRenderer(app, game);
         setupDebugCallbacks();
+        setupDiceCallback();
         
         if (isMultiplayer) {
             renderer.isMyTurnFn = isMyTurn;
@@ -361,6 +363,17 @@ async function main() {
     // ========================================
     // DEBUG FUNCTIONS
     // ========================================
+
+    function setupDiceCallback(): void {
+        if (!game || !renderer) return;
+        
+        game.onDiceRoll = (result, callback) => {
+            renderer!.showDiceRoll(result, () => {
+                callback();
+                renderer!.renderAll();
+            });
+        };
+    }
 
     function setupDebugCallbacks(): void {
         if (!renderer || !game) return;

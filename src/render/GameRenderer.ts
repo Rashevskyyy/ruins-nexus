@@ -86,6 +86,11 @@ export class GameRenderer {
     private debugPanelLayer = new PIXI.Container();
     private debugPanelVisible = false;
 
+    // Dice Roll UI
+    private diceLayer = new PIXI.Container();
+    private diceResult: { swords: number; skulls: number } | null = null;
+    private diceCallback: (() => void) | null = null;
+
     // Context Menu (actions on tile)
     private contextMenuLayer = new PIXI.Container();
     private contextMenuVisible = false;
@@ -151,6 +156,9 @@ export class GameRenderer {
 
         this.app.stage.addChild(this.contextMenuLayer); // Context Menu on tiles
         this.contextMenuLayer.zIndex = 150;
+
+        this.app.stage.addChild(this.diceLayer); // Dice Roll UI
+        this.diceLayer.zIndex = 400; // Above everything
 
         // Remove old action buttons - now using context menu on tiles
         // this.createActionButtons();
@@ -252,6 +260,9 @@ export class GameRenderer {
     }
 
     renderAll() {
+        // Clear context menu layer (controls are re-added each frame)
+        this.contextMenuLayer.removeChildren();
+        
         this.renderBoard();
         this.renderLabels();
         this.renderRotationIndicators(); // После board, перед players (НЕ кликабельные)
@@ -613,6 +624,11 @@ export class GameRenderer {
                     this.ghostPreviewLayer.addChild(tierText);
                 }
 
+                // Show rotate/place controls below selected ghost tile
+                if (isSelected) {
+                    this.renderTilePlacementControls(x, y);
+                }
+
                 ghostView.visible = true;
             }
         }
@@ -958,8 +974,8 @@ export class GameRenderer {
     private renderHUD() {
         const p = this.game.state.players[this.game.state.currentPlayerIndex];
 
-        // нижняя панель (compact - no action buttons)
-        const panelH = this.game.state.uiMode === "TILE_PLACEMENT" ? 120 : 70;
+        // нижняя панель (compact - all controls on tiles now)
+        const panelH = 60;
         const panelY = this.app.renderer.height - panelH;
         const panelW = this.app.renderer.width;
 
@@ -994,68 +1010,16 @@ export class GameRenderer {
         
         this.hudText.text =
             statusLine + `\n` +
-            `HP: ${p.hp}   🧬${p.biomass}   🧱${p.materials}   ⚙${p.alloys}   ⭐${p.prestige}` +
-            (this.game.state.uiMode === "TILE_PLACEMENT"
-                ? `\nPlace tile: hover on position → rotate → click "Place Tile"`
-                : ``);
+            `HP: ${p.hp}   🧬${p.biomass}   🧱${p.materials}   ⚙${p.alloys}   ⭐${p.prestige}`;
 
         this.hudText.position.set(16, panelY + 14);
 
-        // TILE PLACEMENT controls (Rotate + Place buttons)
-        const rotateBtnVisible = this.game.state.uiMode === "TILE_PLACEMENT";
-        const placeBtnVisible = this.game.state.uiMode === "TILE_PLACEMENT";
-        const rotateBtnW = 100;
-        const rotateBtnH = 36;
-        const placeBtnW = 110;
-        const placeBtnH = 36;
-        const gap = 10;
+        // Hide old HUD buttons (now using on-tile controls)
+        this.rotateButton.bg.visible = false;
+        this.rotateButton.label.visible = false;
+        this.placeTileButton.bg.visible = false;
+        this.placeTileButton.label.visible = false;
 
-        const rotateBtnX = panelW - rotateBtnW - placeBtnW - gap * 2 - 16;
-        const rotateBtnY = panelY + 70;
-
-        this.rotateButton.bg.visible = rotateBtnVisible;
-        this.rotateButton.label.visible = rotateBtnVisible;
-
-        if (rotateBtnVisible) {
-            this.rotateButton.bg.clear();
-            this.rotateButton.bg.roundRect(rotateBtnX, rotateBtnY, rotateBtnW, rotateBtnH, 10);
-            this.rotateButton.bg.fill({ color: 0xffffff, alpha: 0.18 });
-            this.rotateButton.bg.stroke({ color: 0xffffff, alpha: 0.5, width: 1 });
-            this.rotateButton.bg.cursor = "pointer";
-
-            this.rotateButton.label.position.set(rotateBtnX + rotateBtnW / 2, rotateBtnY + rotateBtnH / 2);
-        }
-
-        // Place Tile button (справа от Rotate)
-        const placeBtnEnabled = placeBtnVisible && this.game.state.selectedPlacementPosition !== null;
-        const placeBtnX = rotateBtnX + rotateBtnW + gap;
-        const placeBtnY = rotateBtnY;
-
-        this.placeTileButton.bg.visible = placeBtnVisible;
-        this.placeTileButton.label.visible = placeBtnVisible;
-
-        if (placeBtnVisible) {
-            this.placeTileButton.bg.clear();
-            this.placeTileButton.bg.roundRect(placeBtnX, placeBtnY, placeBtnW, placeBtnH, 10);
-            
-            if (!placeBtnEnabled) {
-                // Disabled state
-                this.placeTileButton.bg.fill({ color: 0x000000, alpha: 0.18 });
-                this.placeTileButton.bg.stroke({ color: 0xffffff, alpha: 0.10, width: 1 });
-                this.placeTileButton.label.alpha = 0.35;
-                this.placeTileButton.bg.cursor = "default";
-                this.placeTileButton.bg.eventMode = "none"; // НЕ кликабельная когда disabled
-            } else {
-                // Enabled state (зеленый = готово к размещению)
-                this.placeTileButton.bg.fill({ color: 0x00ff00, alpha: 0.25 });
-                this.placeTileButton.bg.stroke({ color: 0x00ff00, alpha: 0.8, width: 2 });
-                this.placeTileButton.label.alpha = 1;
-                this.placeTileButton.bg.cursor = "pointer";
-                this.placeTileButton.bg.eventMode = "static"; // Кликабельная когда enabled
-            }
-
-            this.placeTileButton.label.position.set(placeBtnX + placeBtnW / 2, placeBtnY + placeBtnH / 2);
-        }
     }
 
     // --------------------
@@ -2258,6 +2222,139 @@ export class GameRenderer {
 
     private hintContainer: PIXI.Container | null = null;
 
+    // Render rotate/place controls below ghost tile
+    private renderTilePlacementControls(tileX: number, tileY: number): void {
+        // Transform to screen coordinates
+        const screenX = (tileX + this.panX) * this.zoom + this.app.screen.width / 2;
+        const screenY = (tileY + this.panY) * this.zoom + this.app.screen.height / 2;
+        
+        const controlsY = screenY + this.HEX_SIZE * this.zoom + 15;
+        const btnW = 50;
+        const btnH = 36;
+        const gap = 10;
+        
+        // Container for controls
+        const controlsContainer = new PIXI.Container();
+        controlsContainer.position.set(screenX - (btnW * 2 + gap * 1.5 + 70) / 2, controlsY);
+        
+        // Rotate Left button (◀)
+        const rotateLeftBtn = new PIXI.Graphics();
+        rotateLeftBtn.roundRect(0, 0, btnW, btnH, 8);
+        rotateLeftBtn.fill({ color: 0x2d4a6d });
+        rotateLeftBtn.stroke({ color: 0x4a90d9, width: 2 });
+        rotateLeftBtn.eventMode = "static";
+        rotateLeftBtn.cursor = "pointer";
+        rotateLeftBtn.hitArea = new PIXI.Rectangle(0, 0, btnW, btnH);
+        
+        const rotateLeftLabel = new PIXI.Text({
+            text: "◀",
+            style: new PIXI.TextStyle({ fontSize: 18, fill: 0xffffff }),
+        });
+        rotateLeftLabel.anchor.set(0.5);
+        rotateLeftLabel.position.set(btnW / 2, btnH / 2);
+        rotateLeftLabel.eventMode = "none";
+        
+        rotateLeftBtn.addChild(rotateLeftLabel);
+        rotateLeftBtn.on("pointerdown", () => {
+            // Rotate counter-clockwise (subtract)
+            this.game.state.pendingTileRotation = (this.game.state.pendingTileRotation + 5) % 6;
+            this.renderAll();
+        });
+        rotateLeftBtn.on("pointerover", () => {
+            rotateLeftBtn.clear();
+            rotateLeftBtn.roundRect(0, 0, btnW, btnH, 8);
+            rotateLeftBtn.fill({ color: 0x3d6a8d });
+            rotateLeftBtn.stroke({ color: 0x6ab0f9, width: 2 });
+        });
+        rotateLeftBtn.on("pointerout", () => {
+            rotateLeftBtn.clear();
+            rotateLeftBtn.roundRect(0, 0, btnW, btnH, 8);
+            rotateLeftBtn.fill({ color: 0x2d4a6d });
+            rotateLeftBtn.stroke({ color: 0x4a90d9, width: 2 });
+        });
+        
+        controlsContainer.addChild(rotateLeftBtn);
+        
+        // Rotate Right button (▶)
+        const rotateRightBtn = new PIXI.Graphics();
+        rotateRightBtn.roundRect(btnW + gap, 0, btnW, btnH, 8);
+        rotateRightBtn.fill({ color: 0x2d4a6d });
+        rotateRightBtn.stroke({ color: 0x4a90d9, width: 2 });
+        rotateRightBtn.eventMode = "static";
+        rotateRightBtn.cursor = "pointer";
+        rotateRightBtn.hitArea = new PIXI.Rectangle(btnW + gap, 0, btnW, btnH);
+        
+        const rotateRightLabel = new PIXI.Text({
+            text: "▶",
+            style: new PIXI.TextStyle({ fontSize: 18, fill: 0xffffff }),
+        });
+        rotateRightLabel.anchor.set(0.5);
+        rotateRightLabel.position.set(btnW + gap + btnW / 2, btnH / 2);
+        rotateRightLabel.eventMode = "none";
+        
+        rotateRightBtn.addChild(rotateRightLabel);
+        rotateRightBtn.on("pointerdown", () => {
+            // Rotate clockwise (add)
+            this.game.state.pendingTileRotation = (this.game.state.pendingTileRotation + 1) % 6;
+            this.renderAll();
+        });
+        rotateRightBtn.on("pointerover", () => {
+            rotateRightBtn.clear();
+            rotateRightBtn.roundRect(btnW + gap, 0, btnW, btnH, 8);
+            rotateRightBtn.fill({ color: 0x3d6a8d });
+            rotateRightBtn.stroke({ color: 0x6ab0f9, width: 2 });
+        });
+        rotateRightBtn.on("pointerout", () => {
+            rotateRightBtn.clear();
+            rotateRightBtn.roundRect(btnW + gap, 0, btnW, btnH, 8);
+            rotateRightBtn.fill({ color: 0x2d4a6d });
+            rotateRightBtn.stroke({ color: 0x4a90d9, width: 2 });
+        });
+        
+        controlsContainer.addChild(rotateRightBtn);
+        
+        // Place button (✓ PLACE)
+        const placeBtnW = 80;
+        const placeBtnX = (btnW + gap) * 2;
+        const placeBtn = new PIXI.Graphics();
+        placeBtn.roundRect(placeBtnX, 0, placeBtnW, btnH, 8);
+        placeBtn.fill({ color: 0x2d6a4d });
+        placeBtn.stroke({ color: 0x4ade80, width: 2 });
+        placeBtn.eventMode = "static";
+        placeBtn.cursor = "pointer";
+        placeBtn.hitArea = new PIXI.Rectangle(placeBtnX, 0, placeBtnW, btnH);
+        
+        const placeLabel = new PIXI.Text({
+            text: "✓ PLACE",
+            style: new PIXI.TextStyle({ fontSize: 13, fill: 0xffffff, fontWeight: "700" }),
+        });
+        placeLabel.anchor.set(0.5);
+        placeLabel.position.set(placeBtnX + placeBtnW / 2, btnH / 2);
+        placeLabel.eventMode = "none";
+        
+        placeBtn.addChild(placeLabel);
+        placeBtn.on("pointerdown", () => {
+            this.game.placeTileAtSelected();
+            this.renderAll();
+        });
+        placeBtn.on("pointerover", () => {
+            placeBtn.clear();
+            placeBtn.roundRect(placeBtnX, 0, placeBtnW, btnH, 8);
+            placeBtn.fill({ color: 0x3d8a5d });
+            placeBtn.stroke({ color: 0x6afe90, width: 2 });
+        });
+        placeBtn.on("pointerout", () => {
+            placeBtn.clear();
+            placeBtn.roundRect(placeBtnX, 0, placeBtnW, btnH, 8);
+            placeBtn.fill({ color: 0x2d6a4d });
+            placeBtn.stroke({ color: 0x4ade80, width: 2 });
+        });
+        
+        controlsContainer.addChild(placeBtn);
+        
+        this.contextMenuLayer.addChild(controlsContainer);
+    }
+
     private showActionHint(text: string, x: number, y: number): void {
         this.hideActionHint();
         
@@ -2287,5 +2384,144 @@ export class GameRenderer {
             this.contextMenuLayer.removeChild(this.hintContainer);
             this.hintContainer = null;
         }
+    }
+
+    // ===========================================
+    // DICE ROLL UI
+    // ===========================================
+
+    /**
+     * Show animated dice roll
+     * @param result The dice result to show
+     * @param onComplete Callback when animation completes
+     */
+    public showDiceRoll(result: { swords: number; skulls: number }, onComplete?: () => void): void {
+        this.diceResult = result;
+        this.diceCallback = onComplete || null;
+        
+        this.animateDiceRoll();
+    }
+
+    private animateDiceRoll(): void {
+        this.diceLayer.removeChildren();
+        
+        const screenW = this.app.screen.width;
+        const screenH = this.app.screen.height;
+        
+        // Backdrop
+        const backdrop = new PIXI.Graphics();
+        backdrop.rect(0, 0, screenW, screenH);
+        backdrop.fill({ color: 0x000000, alpha: 0.6 });
+        this.diceLayer.addChild(backdrop);
+        
+        // Dice container (centered)
+        const diceSize = 120;
+        const diceX = screenW / 2;
+        const diceY = screenH / 2 - 40;
+        
+        // Animation: show random faces quickly, then settle on result
+        const DICE_FACES = [
+            { emoji: "⚔️⚔️⚔️", color: 0x00ff00 }, // 3 swords
+            { emoji: "⚔️⚔️", color: 0x00dd00 },   // 2 swords
+            { emoji: "⚔️", color: 0x00bb00 },     // 1 sword
+            { emoji: "⚔️💀", color: 0xffaa00 },   // 1 sword + 1 skull
+            { emoji: "💀", color: 0xff4444 },     // 1 skull
+            { emoji: "💀💀", color: 0xff0000 },   // 2 skulls
+        ];
+        
+        // Get the final face based on result
+        let finalFaceIdx = 0;
+        if (this.diceResult!.swords === 3) finalFaceIdx = 0;
+        else if (this.diceResult!.swords === 2 && this.diceResult!.skulls === 0) finalFaceIdx = 1;
+        else if (this.diceResult!.swords === 1 && this.diceResult!.skulls === 0) finalFaceIdx = 2;
+        else if (this.diceResult!.swords === 1 && this.diceResult!.skulls === 1) finalFaceIdx = 3;
+        else if (this.diceResult!.swords === 0 && this.diceResult!.skulls === 1) finalFaceIdx = 4;
+        else if (this.diceResult!.swords === 0 && this.diceResult!.skulls === 2) finalFaceIdx = 5;
+        
+        const finalFace = DICE_FACES[finalFaceIdx];
+        
+        // Animate rolling
+        let frame = 0;
+        const totalFrames = 15;
+        const rollInterval = setInterval(() => {
+            frame++;
+            
+            // Remove old dice
+            for (let i = this.diceLayer.children.length - 1; i > 0; i--) {
+                this.diceLayer.removeChildAt(i);
+            }
+            
+            // Random face during animation
+            const randomFace = DICE_FACES[Math.floor(Math.random() * 6)];
+            const currentFace = frame >= totalFrames ? finalFace : randomFace;
+            
+            // Draw dice
+            const dice = new PIXI.Graphics();
+            const wobble = frame < totalFrames ? Math.sin(frame * 0.8) * 10 : 0;
+            
+            dice.roundRect(diceX - diceSize/2 + wobble, diceY - diceSize/2, diceSize, diceSize, 16);
+            dice.fill({ color: 0x1a1a2e });
+            dice.stroke({ color: currentFace.color, width: 4 });
+            this.diceLayer.addChild(dice);
+            
+            // Dice emoji
+            const diceText = new PIXI.Text({
+                text: currentFace.emoji,
+                style: new PIXI.TextStyle({
+                    fontSize: 40,
+                    fill: 0xffffff,
+                }),
+            });
+            diceText.anchor.set(0.5);
+            diceText.position.set(diceX + wobble, diceY);
+            this.diceLayer.addChild(diceText);
+            
+            // Result text (show after settling)
+            if (frame >= totalFrames) {
+                clearInterval(rollInterval);
+                
+                // Result summary
+                const resultText = new PIXI.Text({
+                    text: `⚔️ ${this.diceResult!.swords} damage   💀 ${this.diceResult!.skulls} wounds`,
+                    style: new PIXI.TextStyle({
+                        fontSize: 24,
+                        fill: 0xffffff,
+                        fontWeight: "700",
+                    }),
+                });
+                resultText.anchor.set(0.5);
+                resultText.position.set(diceX, diceY + diceSize/2 + 30);
+                this.diceLayer.addChild(resultText);
+                
+                // "Click to continue" text
+                const continueText = new PIXI.Text({
+                    text: "Click to continue...",
+                    style: new PIXI.TextStyle({
+                        fontSize: 14,
+                        fill: 0x888888,
+                        fontStyle: "italic",
+                    }),
+                });
+                continueText.anchor.set(0.5);
+                continueText.position.set(diceX, diceY + diceSize/2 + 70);
+                this.diceLayer.addChild(continueText);
+                
+                // Make backdrop clickable to dismiss
+                backdrop.eventMode = "static";
+                backdrop.cursor = "pointer";
+                backdrop.on("pointerdown", () => {
+                    this.hideDiceRoll();
+                    if (this.diceCallback) {
+                        this.diceCallback();
+                    }
+                });
+            }
+        }, 80); // 80ms per frame = ~1.2s total animation
+    }
+
+    private hideDiceRoll(): void {
+        this.diceLayer.removeChildren();
+        this.diceResult = null;
+        this.diceCallback = null;
     }
 }

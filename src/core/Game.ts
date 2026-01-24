@@ -22,6 +22,9 @@ export class Game {
     private combat = new CombatSystem();
     private settlement = new SettlementSystem();
 
+    // Callback for showing dice roll UI
+    public onDiceRoll: ((result: { swords: number; skulls: number }, callback: () => void) => void) | null = null;
+
     constructor(public state: GameState) {
         this.exploration = new ExplorationSystem(state.tileDeck);
     }
@@ -144,6 +147,14 @@ export class Game {
             // AUTO-COMBAT: If there's a threat, fight immediately
             if (newTile.encounterActive === true) {
                 const outcome = this.combat.fightOnce(player, newTile);
+                
+                // Show dice roll UI if callback is set
+                if (this.onDiceRoll) {
+                    this.onDiceRoll(outcome.roll, () => {
+                        // Continue after user dismisses dice
+                    });
+                }
+                
                 this.addLog(
                     `${player.id} fought Threat (⚔${outcome.roll.swords}/💀${outcome.roll.skulls}) ${outcome.killed ? "WON" : "LOST"}`
                 );
@@ -206,6 +217,14 @@ export class Game {
             this.state.phase = Phase.ResolveAction;
 
             const outcome = this.combat.fightOnce(this.currentPlayer, tile);
+            
+            // Show dice roll UI if callback is set
+            if (this.onDiceRoll) {
+                this.onDiceRoll(outcome.roll, () => {
+                    // Continue after user dismisses dice
+                });
+            }
+            
             this.addLog(
                 `${this.currentPlayer.id} fought Threat (⚔${outcome.roll.swords}/💀${outcome.roll.skulls}) ${outcome.killed ? "WON" : "LOST"}`
             );
