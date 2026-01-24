@@ -2012,28 +2012,73 @@ export class GameRenderer {
     // CONTEXT MENU - Actions on tile
     // ===========================================
 
+    // Prevent double-click issues
+    private lastClickTime = 0;
+    private lastClickCoord: HexCoord | null = null;
+    
     private showContextMenu(coord: HexCoord): void {
+        // Debounce clicks (prevent double-click issues from re-render)
+        const now = Date.now();
+        if (this.lastClickCoord && 
+            this.lastClickCoord.q === coord.q && 
+            this.lastClickCoord.r === coord.r && 
+            now - this.lastClickTime < 300) {
+            return; // Ignore rapid clicks on same tile
+        }
+        this.lastClickTime = now;
+        this.lastClickCoord = coord;
+        
         const player = this.game.state.players[this.game.state.currentPlayerIndex];
         const tile = this.game.state.board.getTile(coord);
         const playerPos = player.position;
+        
+        const isOnTile = playerPos.q === coord.q && playerPos.r === coord.r;
+        const isNeighbor = neighbors(playerPos).some(n => n.q === coord.q && n.r === coord.r);
+        
+        // If clicking on a NEIGHBOR discovered tile - auto-move first, then show menu
+        if (!isOnTile && isNeighbor && tile && tile.discovered) {
+            // Auto-move to the tile
+            const prevPos = { ...player.position };
+            this.game.handleHexClick(coord);
+            this.renderAll();
+            
+            // Check if move happened
+            const currentPlayer = this.game.state.players[this.game.state.currentPlayerIndex];
+            const newPos = currentPlayer.position;
+            const didMove = prevPos.q !== newPos.q || prevPos.r !== newPos.r;
+            
+            if (didMove && this.game.state.actionPoints > 0) {
+                // Show menu after move with small delay
+                setTimeout(() => {
+                    if (this.game.state.actionPoints > 0 && this.isMyTurn) {
+                        // Get actions for new position
+                        const newTile = this.game.state.board.getTile(newPos);
+                        const newActions = this.getAvailableActionsForTile(newPos, newPos, newTile);
+                        
+                        if (newActions.length > 0) {
+                            this.contextMenuTile = newPos;
+                            this.contextMenuVisible = true;
+                            this.renderContextMenu(newPos, newActions);
+                        }
+                    }
+                }, 150);
+            }
+            return;
+        }
+        
+        // If clicking on tile where menu is already shown - toggle it off
+        if (this.contextMenuVisible && 
+            this.contextMenuTile?.q === coord.q && 
+            this.contextMenuTile?.r === coord.r) {
+            this.hideContextMenu();
+            return;
+        }
         
         // Calculate what actions are available for this tile
         const actions = this.getAvailableActionsForTile(coord, playerPos, tile);
         
         if (actions.length === 0) {
-            // If clicking same tile as context menu, close it
-            if (this.contextMenuVisible && 
-                this.contextMenuTile?.q === coord.q && 
-                this.contextMenuTile?.r === coord.r) {
-                this.hideContextMenu();
-                return;
-            }
-            
-            // Try to move to this tile instead
-            if (tile && tile.discovered) {
-                this.game.handleHexClick(coord);
-                this.renderAll();
-            }
+            this.hideContextMenu();
             return;
         }
         
@@ -2160,21 +2205,8 @@ export class GameRenderer {
                     }
                 });
             }
-        } else if (isNeighbor) {
-            // Can move to this tile
-            actions.push({
-                key: "MOVE",
-                label: "Move",
-                emoji: "👣",
-                hint: "Move to this tile",
-                enabled: true,
-                action: () => {
-                    this.hideContextMenu();
-                    this.game.handleHexClick(coord);
-                    this.renderAll();
-                }
-            });
         }
+        // Note: MOVE is handled automatically in showContextMenu, not as a menu item
         
         return actions;
     }

@@ -405,37 +405,25 @@ io.on("connection", (socket: Socket) => {
                     disconnectedPlayer: { id: player.id, name: player.name },
                 });
 
-                // If game hasn't started, remove after 30 seconds
-                if (!room.gameStarted) {
+                // If game hasn't started AND room only has this one player, remove after 2 minutes
+                // Otherwise keep the room open for reconnects
+                if (!room.gameStarted && room.players.length === 1) {
                     setTimeout(() => {
                         const currentRoom = rooms.get(code);
                         if (currentRoom) {
                             const currentPlayer = currentRoom.players.find(p => p.sessionId === player.sessionId);
-                            if (currentPlayer && !currentPlayer.connected) {
-                                // Remove player
+                            if (currentPlayer && !currentPlayer.connected && currentRoom.players.length === 1) {
+                                // Only remove if still the only player and still disconnected
                                 currentRoom.players = currentRoom.players.filter(p => p.sessionId !== player.sessionId);
                                 sessions.delete(player.sessionId);
 
                                 if (currentRoom.players.length === 0) {
                                     rooms.delete(code);
-                                    console.log(`[Server] Room ${code} deleted (empty)`);
-                                } else {
-                                    // Reassign admin if needed
-                                    if (player.isAdmin && currentRoom.players.length > 0) {
-                                        currentRoom.players[0].isAdmin = true;
-                                    }
-                                    // Reassign player IDs
-                                    currentRoom.players.forEach((p, i) => {
-                                        p.id = `P${i + 1}`;
-                                    });
-                                    io.to(code).emit("player-left", {
-                                        players: currentRoom.players,
-                                        leftPlayer: { id: player.id, name: player.name },
-                                    });
+                                    console.log(`[Server] Room ${code} deleted (empty after timeout)`);
                                 }
                             }
                         }
-                    }, 30000);
+                    }, 120000); // 2 minutes timeout
                 }
             }
         }
