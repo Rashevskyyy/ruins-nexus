@@ -89,6 +89,8 @@ export class LobbyScreen {
     }
 
     show(): void {
+        // Clear all other elements from stage (game renderer, etc.)
+        this.app.stage.removeChildren();
         this.app.stage.addChild(this.container);
         this.state = "menu";
         this.render();
@@ -98,6 +100,8 @@ export class LobbyScreen {
      * Show lobby directly (for reconnect)
      */
     showLobby(players: LobbyPlayer[]): void {
+        // Clear all other elements from stage
+        this.app.stage.removeChildren();
         this.app.stage.addChild(this.container);
         this.players = players;
         this.state = "in-lobby";
