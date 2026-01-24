@@ -148,16 +148,16 @@ export class Game {
             if (newTile.encounterActive === true) {
                 const outcome = this.combat.fightOnce(player, newTile);
                 
-                // Show dice roll UI if callback is set
-                if (this.onDiceRoll) {
-                    this.onDiceRoll(outcome.roll, () => {
-                        // Continue after user dismisses dice
-                    });
-                }
-                
                 this.addLog(
                     `${player.id} fought Threat (⚔${outcome.roll.swords}/💀${outcome.roll.skulls}) ${outcome.killed ? "WON" : "LOST"}`
                 );
+                
+                // Show dice roll UI if callback is set (after combat resolved)
+                if (this.onDiceRoll) {
+                    this.onDiceRoll(outcome.roll, () => {
+                        // Dice dismissed - state already updated
+                    });
+                }
 
                 if (outcome.killed) {
                     // Victory! Award Prestige based on tier

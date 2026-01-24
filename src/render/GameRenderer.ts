@@ -787,6 +787,11 @@ export class GameRenderer {
             if (res.materials && res.materials > 0) emojis.push("🧱".repeat(res.materials));
             if (res.alloys && res.alloys > 0) emojis.push("⚙".repeat(res.alloys));
             if (emojis.length > 0) return emojis.join("");
+            // DEBUG: resources object exists but empty
+            console.log("[DEBUG] Tile has resources object but no values:", tile.coord, tile.resources);
+        } else if (tile.discovered && !tile.encounterActive && tile.type !== TileType.LandingHub && !tile.ownerId) {
+            // DEBUG: discovered tile without resources
+            console.log("[DEBUG] Discovered tile without resources:", tile.coord, tile);
         }
 
         return "";
