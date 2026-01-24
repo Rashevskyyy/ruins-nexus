@@ -2410,6 +2410,48 @@ export class GameRenderer {
         
         controlsContainer.addChild(placeBtn);
         
+        // Cancel button (✕)
+        const cancelBtnW = 36;
+        const cancelBtnX = placeBtnX + placeBtnW + gap;
+        const cancelBtn = new PIXI.Graphics();
+        cancelBtn.roundRect(cancelBtnX, 0, cancelBtnW, btnH, 8);
+        cancelBtn.fill({ color: 0x6a2d2d });
+        cancelBtn.stroke({ color: 0xde4a4a, width: 2 });
+        cancelBtn.eventMode = "static";
+        cancelBtn.cursor = "pointer";
+        cancelBtn.hitArea = new PIXI.Rectangle(cancelBtnX, 0, cancelBtnW, btnH);
+        
+        const cancelLabel = new PIXI.Text({
+            text: "✕",
+            style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffffff, fontWeight: "700" }),
+        });
+        cancelLabel.anchor.set(0.5);
+        cancelLabel.position.set(cancelBtnX + cancelBtnW / 2, btnH / 2);
+        cancelLabel.eventMode = "none";
+        
+        cancelBtn.addChild(cancelLabel);
+        cancelBtn.on("pointerdown", () => {
+            // Cancel tile placement mode
+            this.game.state.uiMode = "NONE";
+            this.game.state.selectedPlacementPosition = null;
+            this.game.state.pendingTileRotation = 0;
+            this.renderAll();
+        });
+        cancelBtn.on("pointerover", () => {
+            cancelBtn.clear();
+            cancelBtn.roundRect(cancelBtnX, 0, cancelBtnW, btnH, 8);
+            cancelBtn.fill({ color: 0x8a3d3d });
+            cancelBtn.stroke({ color: 0xfe6a6a, width: 2 });
+        });
+        cancelBtn.on("pointerout", () => {
+            cancelBtn.clear();
+            cancelBtn.roundRect(cancelBtnX, 0, cancelBtnW, btnH, 8);
+            cancelBtn.fill({ color: 0x6a2d2d });
+            cancelBtn.stroke({ color: 0xde4a4a, width: 2 });
+        });
+        
+        controlsContainer.addChild(cancelBtn);
+        
         this.contextMenuLayer.addChild(controlsContainer);
     }
 

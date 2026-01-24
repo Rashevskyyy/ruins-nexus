@@ -228,9 +228,18 @@ async function main() {
         game.state.actionPoints = serverState.actionPoints;
         game.state.movedInCurrentSlot = serverState.movedInCurrentSlot;
         game.state.actionUsedInCurrentSlot = serverState.actionUsedInCurrentSlot;
-        game.state.uiMode = serverState.uiMode;
-        game.state.pendingTileRotation = serverState.pendingTileRotation;
-        game.state.selectedPlacementPosition = serverState.selectedPlacementPosition;
+        
+        // IMPORTANT: Reset TILE_PLACEMENT mode on reconnect because tileDeck is not synced
+        // Each client has its own random deck, so we can't restore placement mode
+        if (serverState.uiMode === "TILE_PLACEMENT") {
+            game.state.uiMode = "NONE";
+            game.state.pendingTileRotation = 0;
+            game.state.selectedPlacementPosition = null;
+        } else {
+            game.state.uiMode = serverState.uiMode;
+            game.state.pendingTileRotation = serverState.pendingTileRotation;
+            game.state.selectedPlacementPosition = serverState.selectedPlacementPosition;
+        }
         game.state.eventLog = serverState.eventLog || [];
         game.state.isFinalPhase = serverState.isFinalPhase;
         game.state.finalRoundsLeft = serverState.finalRoundsLeft;
