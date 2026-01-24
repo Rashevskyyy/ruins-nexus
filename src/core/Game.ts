@@ -25,6 +25,9 @@ export class Game {
     // Callback for showing dice roll UI
     public onDiceRoll: ((result: { swords: number; skulls: number }, callback: () => void) => void) | null = null;
 
+    // Callback for toast notifications
+    public onToast: ((message: string, type: "info" | "success" | "warning" | "error") => void) | null = null;
+
     constructor(public state: GameState) {
         this.exploration = new ExplorationSystem(state.tileDeck);
     }
@@ -167,9 +170,15 @@ export class Game {
                     const prestigeGain = newTile.tier === 1 ? 1 : newTile.tier === 2 ? 2 : 3;
                     player.prestige += prestigeGain;
                     this.addLog(`${player.id} +${prestigeGain} Prestige (combat)`);
+                    if (this.onToast) {
+                        this.onToast(`🎉 Threat eliminated! +${prestigeGain} Prestige`, "success");
+                    }
                 } else {
                     // Pushed back to original position
                     player.position = from;
+                    if (this.onToast) {
+                        this.onToast(`💥 Pushed back! Threat HP: ${newTile.enemyHp}`, "error");
+                    }
                 }
             }
 
@@ -237,9 +246,15 @@ export class Game {
                 const prestigeGain = tile.tier === 1 ? 1 : tile.tier === 2 ? 2 : 3;
                 player.prestige += prestigeGain;
                 this.addLog(`${player.id} +${prestigeGain} Prestige (combat)`);
+                if (this.onToast) {
+                    this.onToast(`🎉 Threat eliminated! +${prestigeGain} Prestige`, "success");
+                }
             } else {
                 // Pushed back
                 player.position = from;
+                if (this.onToast) {
+                    this.onToast(`💥 Pushed back! Threat HP: ${tile.enemyHp}`, "error");
+                }
             }
 
             // Combat ends turn
@@ -290,6 +305,9 @@ export class Game {
             if (tile.resources.alloys) parts.push(`${tile.resources.alloys} ⚙`);
 
             this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}`);
+            if (this.onToast) {
+                this.onToast(`📦 Gathered: ${parts.join(", ")}`, "success");
+            }
         }
 
         map[p.id] = this.state.round + 1;
@@ -440,6 +458,9 @@ export class Game {
         p.prestige += 2;
 
         this.addLog(`🏠 ${p.id} built BASE at ${p.position.q},${p.position.r}! +2 Prestige`);
+        if (this.onToast) {
+            this.onToast(`🏠 Base established! +2 Prestige`, "success");
+        }
 
         this.state.actionUsedInCurrentSlot = true;
         this.state.phase = Phase.AwaitInput;
@@ -529,6 +550,9 @@ export class Game {
         // Award Prestige
         p.prestige += totalPrestige;
         this.addLog(`${p.id} +${totalPrestige} Prestige (${validModules.length} modules)`);
+        if (this.onToast) {
+            this.onToast(`🏗️ Built ${validModules.length} module(s)! +${totalPrestige} Prestige`, "success");
+        }
 
         this.state.actionUsedInCurrentSlot = true;
         this.state.phase = Phase.AwaitInput;
@@ -619,6 +643,21 @@ export class Game {
         }
 
         this.state.currentPlayerIndex = nextIndex;
+
+        const currentPlayer = this.state.players[nextIndex];
+
+        // Check if player is KO'd (0 HP) - skip turn and heal
+        if (currentPlayer.hp <= 0) {
+            currentPlayer.hp = 3;
+            this.addLog(`💤 ${currentPlayer.id} was KO'd! Resting... (+3 HP, turn skipped)`);
+            if (this.onToast) {
+                this.onToast(`💤 ${currentPlayer.id} is recovering from wounds...`, "warning");
+            }
+            
+            // Recursively call endTurn to move to next player
+            this.endTurn();
+            return;
+        }
 
         // New turn: 2 action slots
         this.state.actionPoints = 2;

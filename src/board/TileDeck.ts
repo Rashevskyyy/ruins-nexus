@@ -209,4 +209,28 @@ export class TileDeck {
     hasFinalTile(): boolean {
         return this.deck.slice(this.currentIndex).some(t => t.isFinalTile);
     }
+
+    // ========================================
+    // SERIALIZATION (for multiplayer sync)
+    // ========================================
+
+    serialize(): { deck: TileTemplate[]; currentIndex: number } {
+        return {
+            deck: this.deck,
+            currentIndex: this.currentIndex,
+        };
+    }
+
+    static deserialize(data: { deck: TileTemplate[]; currentIndex: number }): TileDeck {
+        const tileDeck = new TileDeck();
+        tileDeck.deck = data.deck;
+        tileDeck.currentIndex = data.currentIndex;
+        return tileDeck;
+    }
+
+    // Restore state from serialized data (mutates this instance)
+    restoreFrom(data: { deck: TileTemplate[]; currentIndex: number }): void {
+        this.deck = data.deck;
+        this.currentIndex = data.currentIndex;
+    }
 }

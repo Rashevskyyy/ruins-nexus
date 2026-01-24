@@ -96,6 +96,15 @@ export class GameRenderer {
     private contextMenuVisible = false;
     private contextMenuTile: HexCoord | null = null;
 
+    // Toast notifications
+    private toastLayer = new PIXI.Container();
+    private activeToasts: { container: PIXI.Container; timer: number }[] = [];
+
+    // Tutorial hints (persisted in localStorage)
+    private tutorialLayer = new PIXI.Container();
+    private shownHints: Set<string>;
+    private currentHint: PIXI.Container | null = null;
+    private static HINTS_STORAGE_KEY = "cosmic_frontier_hints";
 
     // Multiplayer: check if it's my turn (set externally)
     public isMyTurnFn: (() => boolean) | null = null;
@@ -123,6 +132,9 @@ export class GameRenderer {
 
     constructor(private app: PIXI.Application, private game: Game) {
         this.HEX_POINTS = this.buildHexPoints(this.HEX_SIZE - 2);
+
+        // Load shown hints from localStorage
+        this.shownHints = this.loadShownHints();
 
         this.app.stage.addChild(this.boardLayer);
         this.boardLayer.sortableChildren = true; // Enable zIndex sorting
@@ -161,6 +173,12 @@ export class GameRenderer {
 
         this.app.stage.addChild(this.diceLayer); // Dice Roll UI
         this.diceLayer.zIndex = 400; // Above everything
+
+        this.app.stage.addChild(this.toastLayer); // Toast notifications
+        this.toastLayer.zIndex = 450;
+
+        this.app.stage.addChild(this.tutorialLayer); // Tutorial hints
+        this.tutorialLayer.zIndex = 500;
 
         // Remove old action buttons - now using context menu on tiles
         // this.createActionButtons();
@@ -275,6 +293,9 @@ export class GameRenderer {
         this.renderHUD();
         this.renderBuildMenu(); // BUILD MENU modal
         this.renderDebugPanel(); // Debug Panel
+        
+        // Check and show tutorial hints
+        this.checkTutorialHints();
     }
 
     // --------------------
@@ -433,6 +454,21 @@ export class GameRenderer {
             for (const coord of validPositions) {
                 placementTargets.add(hexKey(coord));
             }
+        }
+
+        // Clean up views for tiles that no longer exist (server sync)
+        const allTiles = this.game.state.board.getAllTiles();
+        const currentTileKeys = new Set(allTiles.map(t => hexKey(t.coord)));
+        let removedViews = 0;
+        for (const [key, view] of this.tileViews) {
+            if (!currentTileKeys.has(key)) {
+                this.boardLayer.removeChild(view);
+                this.tileViews.delete(key);
+                removedViews++;
+            }
+        }
+        if (removedViews > 0) {
+            console.log(`[Render] Removed ${removedViews} stale views, board has ${allTiles.length} tiles, views: ${this.tileViews.size}`);
         }
 
         for (const tile of this.game.state.board.getAllTiles()) {
@@ -2530,10 +2566,10 @@ export class GameRenderer {
         
         // Animation: show random faces quickly, then settle on result
         const DICE_FACES = [
-            { emoji: "⚔️⚔️⚔️", color: 0x00ff00 }, // 3 swords
-            { emoji: "⚔️⚔️", color: 0x00dd00 },   // 2 swords
-            { emoji: "⚔️", color: 0x00bb00 },     // 1 sword
-            { emoji: "⚔️💀", color: 0xffaa00 },   // 1 sword + 1 skull
+            { emoji: "🗡️🗡️🗡️", color: 0x00ff00 }, // 3 swords
+            { emoji: "🗡️🗡️", color: 0x00dd00 },   // 2 swords
+            { emoji: "🗡️", color: 0x00bb00 },     // 1 sword
+            { emoji: "🗡️💀", color: 0xffaa00 },   // 1 sword + 1 skull
             { emoji: "💀", color: 0xff4444 },     // 1 skull
             { emoji: "💀💀", color: 0xff0000 },   // 2 skulls
         ];
@@ -2591,7 +2627,7 @@ export class GameRenderer {
                 
                 // Result summary
                 const resultText = new PIXI.Text({
-                    text: `⚔️ ${this.diceResult!.swords} damage   💀 ${this.diceResult!.skulls} wounds`,
+                    text: `🗡️ ${this.diceResult!.swords} damage   💀 ${this.diceResult!.skulls} wounds`,
                     style: new PIXI.TextStyle({
                         fontSize: 24,
                         fill: 0xffffff,
@@ -2632,5 +2668,313 @@ export class GameRenderer {
         this.diceLayer.removeChildren();
         this.diceResult = null;
         this.diceCallback = null;
+    }
+
+    // ========================================
+    // TOAST NOTIFICATIONS
+    // ========================================
+
+    public showToast(message: string, type: "info" | "success" | "warning" | "error" = "info", duration = 3000): void {
+        const colors = {
+            info: { bg: 0x2196f3, text: 0xffffff },
+            success: { bg: 0x4caf50, text: 0xffffff },
+            warning: { bg: 0xff9800, text: 0x000000 },
+            error: { bg: 0xf44336, text: 0xffffff },
+        };
+        const color = colors[type];
+
+        const container = new PIXI.Container();
+        const padding = 16;
+        const maxWidth = 300;
+
+        // Text
+        const text = new PIXI.Text({
+            text: message,
+            style: new PIXI.TextStyle({
+                fontSize: 14,
+                fill: color.text,
+                fontWeight: "600",
+                wordWrap: true,
+                wordWrapWidth: maxWidth - padding * 2,
+            }),
+        });
+
+        // Background
+        const bg = new PIXI.Graphics();
+        const width = Math.min(text.width + padding * 2, maxWidth + padding * 2);
+        const height = text.height + padding * 2;
+        bg.roundRect(0, 0, width, height, 8);
+        bg.fill({ color: color.bg, alpha: 0.95 });
+        bg.stroke({ color: 0x000000, width: 1, alpha: 0.2 });
+
+        text.position.set(padding, padding);
+
+        container.addChild(bg);
+        container.addChild(text);
+
+        // Position: stack from top-center (above the map, clearly visible)
+        const offsetY = this.activeToasts.reduce((sum, t) => sum + (t.container.height || 60) + 10, 60);
+        container.position.set((this.app.screen.width - width) / 2, offsetY);
+
+        // Fade in animation
+        container.alpha = 0;
+        
+        this.toastLayer.addChild(container);
+        this.activeToasts.push({ container, timer: duration });
+
+        // Animate in
+        let fadeIn = 0;
+        const fadeInInterval = setInterval(() => {
+            fadeIn += 0.1;
+            container.alpha = Math.min(1, fadeIn);
+            if (fadeIn >= 1) clearInterval(fadeInInterval);
+        }, 30);
+
+        // Auto dismiss
+        setTimeout(() => this.dismissToast(container), duration);
+    }
+
+    private dismissToast(container: PIXI.Container): void {
+        // Fade out
+        let fadeOut = 1;
+        const fadeOutInterval = setInterval(() => {
+            fadeOut -= 0.1;
+            container.alpha = Math.max(0, fadeOut);
+            if (fadeOut <= 0) {
+                clearInterval(fadeOutInterval);
+                this.toastLayer.removeChild(container);
+                this.activeToasts = this.activeToasts.filter(t => t.container !== container);
+                this.repositionToasts();
+            }
+        }, 30);
+    }
+
+    private repositionToasts(): void {
+        let offsetY = 60;
+        for (const toast of this.activeToasts) {
+            // Center horizontally
+            toast.container.x = (this.app.screen.width - toast.container.width) / 2;
+            toast.container.y = offsetY;
+            offsetY += toast.container.height + 10;
+        }
+    }
+
+    // ========================================
+    // TUTORIAL HINTS
+    // ========================================
+
+    private loadShownHints(): Set<string> {
+        try {
+            const stored = localStorage.getItem(GameRenderer.HINTS_STORAGE_KEY);
+            if (stored) {
+                return new Set(JSON.parse(stored));
+            }
+        } catch (e) {
+            console.warn("Failed to load hints from localStorage:", e);
+        }
+        return new Set();
+    }
+
+    private saveShownHints(): void {
+        try {
+            localStorage.setItem(GameRenderer.HINTS_STORAGE_KEY, JSON.stringify([...this.shownHints]));
+        } catch (e) {
+            console.warn("Failed to save hints to localStorage:", e);
+        }
+    }
+
+    public showHint(id: string, title: string, message: string, options?: { 
+        x?: number; 
+        y?: number; 
+        anchor?: "center" | "top" | "bottom";
+        showOnce?: boolean;
+    }): void {
+        // Skip if already shown (for showOnce hints)
+        if (options?.showOnce !== false && this.shownHints.has(id)) return;
+        this.shownHints.add(id);
+        this.saveShownHints(); // Persist to localStorage
+
+        // Remove current hint if any
+        if (this.currentHint) {
+            this.tutorialLayer.removeChild(this.currentHint);
+        }
+
+        const container = new PIXI.Container();
+        const padding = 20;
+        const maxWidth = 320;
+
+        // Title
+        const titleText = new PIXI.Text({
+            text: title,
+            style: new PIXI.TextStyle({
+                fontSize: 18,
+                fill: 0x4fc3f7,
+                fontWeight: "700",
+            }),
+        });
+
+        // Message
+        const messageText = new PIXI.Text({
+            text: message,
+            style: new PIXI.TextStyle({
+                fontSize: 14,
+                fill: 0xdddddd,
+                wordWrap: true,
+                wordWrapWidth: maxWidth - padding * 2,
+                lineHeight: 20,
+            }),
+        });
+
+        // Dismiss button
+        const dismissBtn = new PIXI.Container();
+        const btnBg = new PIXI.Graphics();
+        btnBg.roundRect(0, 0, 60, 28, 4);
+        btnBg.fill({ color: 0x4fc3f7 });
+        
+        const btnText = new PIXI.Text({
+            text: "OK",
+            style: new PIXI.TextStyle({
+                fontSize: 13,
+                fill: 0x000000,
+                fontWeight: "700",
+            }),
+        });
+        btnText.position.set(30 - btnText.width / 2, 14 - btnText.height / 2);
+        
+        dismissBtn.addChild(btnBg);
+        dismissBtn.addChild(btnText);
+        dismissBtn.eventMode = "static";
+        dismissBtn.cursor = "pointer";
+        dismissBtn.on("pointerdown", () => this.hideHint());
+
+        // Layout
+        titleText.position.set(padding, padding);
+        messageText.position.set(padding, padding + titleText.height + 10);
+        dismissBtn.position.set(padding, padding + titleText.height + 10 + messageText.height + 15);
+
+        const width = Math.min(Math.max(titleText.width, messageText.width) + padding * 2, maxWidth + padding * 2);
+        const height = padding * 2 + titleText.height + 10 + messageText.height + 15 + 28;
+
+        // Background with border
+        const bg = new PIXI.Graphics();
+        bg.roundRect(0, 0, width, height, 12);
+        bg.fill({ color: 0x1a1a2e, alpha: 0.98 });
+        bg.stroke({ color: 0x4fc3f7, width: 2 });
+
+        // Arrow indicator (pointing to target)
+        const arrow = new PIXI.Graphics();
+        arrow.moveTo(width / 2 - 10, height);
+        arrow.lineTo(width / 2, height + 15);
+        arrow.lineTo(width / 2 + 10, height);
+        arrow.fill({ color: 0x1a1a2e });
+
+        container.addChild(bg);
+        container.addChild(arrow);
+        container.addChild(titleText);
+        container.addChild(messageText);
+        container.addChild(dismissBtn);
+
+        // Position
+        const x = options?.x ?? this.app.screen.width / 2;
+        const y = options?.y ?? this.app.screen.height / 2;
+        
+        if (options?.anchor === "top") {
+            container.position.set(x - width / 2, y);
+        } else if (options?.anchor === "bottom") {
+            container.position.set(x - width / 2, y - height - 20);
+        } else {
+            container.position.set(x - width / 2, y - height / 2);
+        }
+
+        // Clamp to screen
+        container.x = Math.max(10, Math.min(this.app.screen.width - width - 10, container.x));
+        container.y = Math.max(10, Math.min(this.app.screen.height - height - 10, container.y));
+
+        // Fade in
+        container.alpha = 0;
+        this.tutorialLayer.addChild(container);
+        this.currentHint = container;
+
+        let fade = 0;
+        const fadeInterval = setInterval(() => {
+            fade += 0.15;
+            container.alpha = Math.min(1, fade);
+            if (fade >= 1) clearInterval(fadeInterval);
+        }, 20);
+    }
+
+    public hideHint(): void {
+        if (!this.currentHint) return;
+
+        const hint = this.currentHint;
+        let fade = 1;
+        const fadeInterval = setInterval(() => {
+            fade -= 0.15;
+            hint.alpha = Math.max(0, fade);
+            if (fade <= 0) {
+                clearInterval(fadeInterval);
+                this.tutorialLayer.removeChild(hint);
+                if (this.currentHint === hint) {
+                    this.currentHint = null;
+                }
+            }
+        }, 20);
+    }
+
+    // Check and show tutorial hints based on game state
+    public checkTutorialHints(): void {
+        const state = this.game.state;
+        const player = state.players[this.myPlayerIndex];
+
+        // First turn hint
+        if (state.round === 1 && state.actionPoints === 2 && !this.shownHints.has("welcome")) {
+            this.showHint(
+                "welcome",
+                "🚀 Welcome, Explorer!",
+                "Click on adjacent tiles to move. Each turn you have 2 action slots.\n\n" +
+                "• Move is FREE but commits a slot\n" +
+                "• Click explored tiles to see available actions\n" +
+                "• Gray tiles with ❓ are unexplored",
+                { anchor: "center" }
+            );
+        }
+
+        // Explore hint (first time seeing fog)
+        if (state.round >= 2 && !this.shownHints.has("explore")) {
+            this.showHint(
+                "explore",
+                "🔍 Exploration",
+                "Click on a gray ❓ tile to explore it. You'll place a new tile and fight any threat present.\n\n" +
+                "Combat ends your turn immediately!",
+                { anchor: "center" }
+            );
+        }
+
+        // Low HP warning
+        if (player.hp <= 2 && player.hp > 0 && !this.shownHints.has("low_hp")) {
+            this.showToast("⚠️ Low HP! Return to Landing Hub to heal.", "warning", 5000);
+            this.shownHints.add("low_hp");
+            this.saveShownHints();
+        }
+
+        // First resource gathered
+        if ((player.biomass > 0 || player.materials > 0 || player.alloys > 0) && !this.shownHints.has("resources")) {
+            this.showHint(
+                "resources",
+                "📦 Resources Collected!",
+                "Use resources to build:\n\n" +
+                "• 🏠 Base (2 Materials) - your outpost\n" +
+                "• 🏗️ Modules - upgrades in your base\n\n" +
+                "Build your Base on any cleared tile!",
+                { anchor: "center" }
+            );
+        }
+
+        // Can build base hint
+        if (player.materials >= 2 && !player.basePosition && !this.shownHints.has("can_build_base")) {
+            this.showToast("💡 You have enough Materials to build a Base!", "info", 4000);
+            this.shownHints.add("can_build_base");
+            this.saveShownHints();
+        }
     }
 }

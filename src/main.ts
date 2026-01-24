@@ -153,10 +153,18 @@ async function main() {
         if (!game || !renderer) return;
         
         const isOwnUpdate = data.fromPlayer === myPlayerId;
+        const beforeTiles = game.state.board.getAllTiles().length;
+        
         console.log(`[Main] Received update from ${data.fromPlayer}:`, data.action.type, `tiles: ${data.state.tiles?.length}`, isOwnUpdate ? "(own)" : "");
         
         // Always apply server state for consistent sync
         applyServerState(data.state);
+        
+        const afterTiles = game.state.board.getAllTiles().length;
+        if (beforeTiles !== afterTiles) {
+            console.log(`[Sync] Tiles changed: ${beforeTiles} -> ${afterTiles}`);
+        }
+        
         renderer.renderAll();
     };
 
@@ -230,17 +238,19 @@ async function main() {
         game.state.movedInCurrentSlot = serverState.movedInCurrentSlot;
         game.state.actionUsedInCurrentSlot = serverState.actionUsedInCurrentSlot;
         
-        // IMPORTANT: Reset TILE_PLACEMENT mode on reconnect because tileDeck is not synced
-        // Each client has its own random deck, so we can't restore placement mode
-        if (serverState.uiMode === "TILE_PLACEMENT") {
+        // Restore UI mode only for the active player (others shouldn't see TILE_PLACEMENT)
+        const isActivePlayer = myPlayerId === `P${serverState.currentPlayerIndex + 1}`;
+        if (isActivePlayer) {
+            game.state.uiMode = serverState.uiMode || "NONE";
+            game.state.pendingTileRotation = serverState.pendingTileRotation || 0;
+            game.state.selectedPlacementPosition = serverState.selectedPlacementPosition || null;
+        } else {
+            // Other players always see NONE mode (can't interact)
             game.state.uiMode = "NONE";
             game.state.pendingTileRotation = 0;
             game.state.selectedPlacementPosition = null;
-        } else {
-            game.state.uiMode = serverState.uiMode;
-            game.state.pendingTileRotation = serverState.pendingTileRotation;
-            game.state.selectedPlacementPosition = serverState.selectedPlacementPosition;
         }
+        
         game.state.eventLog = serverState.eventLog || [];
         game.state.isFinalPhase = serverState.isFinalPhase;
         game.state.finalRoundsLeft = serverState.finalRoundsLeft;
@@ -250,10 +260,17 @@ async function main() {
         game.state.missionFailed = serverState.missionFailed;
         game.state.players = serverState.players;
         
+        // Sync tile deck from server (CRITICAL for consistent tile order!)
+        if (serverState.tileDeck) {
+            game.state.tileDeck.restoreFrom(serverState.tileDeck);
+        }
+        
+        // Replace ALL tiles from server (not merge - full sync!)
         if (serverState.tiles && Array.isArray(serverState.tiles)) {
-            for (const tile of serverState.tiles) {
-                game.state.board.setTile(tile);
-            }
+            const discoveredTiles = serverState.tiles.filter((t: any) => t.discovered);
+            const coords = discoveredTiles.map((t: any) => `${t.coord.q},${t.coord.r}`).sort().join(" | ");
+            console.log(`[Sync] Applying ${serverState.tiles.length} tiles (${discoveredTiles.length} discovered): ${coords}`);
+            game.state.board.replaceAllTiles(serverState.tiles);
         }
     }
 
@@ -278,6 +295,7 @@ async function main() {
             missionFailed: game.state.missionFailed,
             players: game.state.players,
             tiles: game.state.board.getAllTiles(),
+            tileDeck: game.state.tileDeck.serialize(), // Sync tile deck!
         };
     }
 
@@ -385,6 +403,11 @@ async function main() {
                 callback();
                 renderer!.renderAll();
             });
+        };
+        
+        // Connect toast notifications
+        game.onToast = (message, type) => {
+            renderer!.showToast(message, type);
         };
     }
 

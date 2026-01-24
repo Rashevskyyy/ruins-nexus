@@ -18,6 +18,16 @@ export class Board {
         return [...this.tiles.values()];
     }
 
+    /**
+     * Replace all tiles with the given array (for server sync)
+     */
+    replaceAllTiles(tiles: Tile[]): void {
+        this.tiles.clear();
+        for (const tile of tiles) {
+            this.tiles.set(hexKey(tile.coord), tile);
+        }
+    }
+
     static createInitial(): Board {
         const board = new Board();
         const center: HexCoord = { q: 0, r: 0 };
