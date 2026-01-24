@@ -30,7 +30,7 @@ export class Game {
         return this.state.players[this.state.currentPlayerIndex];
     }
 
-    private addLog(message: string) {
+    public addLog(message: string) {
         this.state.eventLog.push(message);
         if (this.state.eventLog.length > 10) {
             this.state.eventLog.shift();
@@ -573,7 +573,7 @@ export class Game {
     // TURN MANAGEMENT
     // ========================================
 
-    private endTurn(): void {
+    public endTurn(): void {
         this.state.phase = Phase.EndTurn;
 
         const prevIndex = this.state.currentPlayerIndex;

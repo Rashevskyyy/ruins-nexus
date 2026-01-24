@@ -6,6 +6,7 @@ import { TileType } from "../board/TileTypes";
 import { canMoveBetween } from "../board/BlockedEdges";
 import { type EdgeIndex, getEdgeVertices } from "../board/HexEdges";
 import type { Tile } from "../board/Tile";
+import { GAME_VERSION } from "../assets/AssetLoader";
 
 type ActionKey = "GATHER" | "TRADE" | "EXPLORE" | "BUILD";
 
@@ -88,6 +89,34 @@ export class GameRenderer {
     // Ghost hex preview texts (отдельный layer для текстов на ghost hexes)
     private ghostPreviewLayer = new PIXI.Container();
 
+    // Debug Panel
+    private debugPanelLayer = new PIXI.Container();
+    private debugPanelVisible = false;
+
+    // Multiplayer: check if it's my turn (set externally)
+    public isMyTurnFn: (() => boolean) | null = null;
+    
+    // Multiplayer: my player ID (set externally)
+    public myPlayerId: string | null = null;
+    
+    // Debug callbacks (set externally)
+    public onDebugReset: (() => void) | null = null;
+    public onDebugAddResources: (() => void) | null = null;
+    public onDebugSkipTurn: (() => void) | null = null;
+    public onDebugHeal: (() => void) | null = null;
+    public onDebugLeaveGame: (() => void) | null = null;
+
+    private get isMyTurn(): boolean {
+        return this.isMyTurnFn ? this.isMyTurnFn() : true;
+    }
+    
+    // Get my player index for Hero Board
+    private get myPlayerIndex(): number {
+        if (!this.myPlayerId) return this.game.state.currentPlayerIndex; // Single player
+        const idx = this.game.state.players.findIndex(p => p.id === this.myPlayerId);
+        return idx >= 0 ? idx : 0;
+    }
+
     constructor(private app: PIXI.Application, private game: Game) {
         this.HEX_POINTS = this.buildHexPoints(this.HEX_SIZE - 2);
 
@@ -118,14 +147,32 @@ export class GameRenderer {
         this.app.stage.addChild(this.deckInfoLayer); // Deck Info
         this.deckInfoLayer.zIndex = 200;
 
+        this.app.stage.addChild(this.debugPanelLayer); // Debug Panel
+        this.debugPanelLayer.zIndex = 300;
+
         this.createActionButtons();
         this.createRotateButton();
         this.createPlaceTileButton();
+        this.createDebugToggleButton();
+        this.createVersionLabel();
         this.setupZoomAndPan();
 
         // HUD должен быть поверх всего
         this.hudLayer.zIndex = 999;
         this.hudLayer.sortableChildren = true;
+    }
+
+    private createVersionLabel() {
+        const versionText = new PIXI.Text({
+            text: GAME_VERSION,
+            style: new PIXI.TextStyle({
+                fontSize: 12,
+                fill: 0x555555,
+                fontFamily: "monospace",
+            }),
+        });
+        versionText.position.set(60, 18); // Right of debug button
+        this.hudLayer.addChild(versionText);
     }
 
     private setupZoomAndPan() {
@@ -211,6 +258,7 @@ export class GameRenderer {
         this.renderDeckInfo(); // NEW: UI колоды
         this.renderHUD();
         this.renderBuildMenu(); // BUILD MENU modal
+        this.renderDebugPanel(); // Debug Panel
     }
 
     // --------------------
@@ -389,12 +437,18 @@ export class GameRenderer {
             }
 
             // Устанавливаем правильные обработчики для РЕАЛЬНОГО тайла
+            // Multiplayer: только если мой ход
+            view.eventMode = this.isMyTurn ? "static" : "none";
+            view.cursor = this.isMyTurn ? "pointer" : "default";
+            
             view.on("pointerdown", () => {
+                if (!this.isMyTurn) return;
                 this.game.handleHexClick(tile.coord);
                 this.renderAll();
             });
 
             view.on("pointerover", () => {
+                if (!this.isMyTurn) return;
                 this.hoveredKey = key;
                 this.renderBoard();
                 this.renderLabels();
@@ -458,7 +512,8 @@ export class GameRenderer {
         // Очищаем preview layer перед рендером
         this.ghostPreviewLayer.removeChildren();
         
-        if (this.game.state.uiMode === "TILE_PLACEMENT") {
+        // Показываем ghost hexes только для активного игрока
+        if (this.game.state.uiMode === "TILE_PLACEMENT" && this.isMyTurn) {
             for (const targetKey of placementTargets) {
                 // Парсим координаты из ключа "q,r"
                 const [q, r] = targetKey.split(",").map(Number);
@@ -468,23 +523,26 @@ export class GameRenderer {
                 if (!ghostView) {
                     ghostView = new PIXI.Graphics();
                     ghostView.hitArea = new PIXI.Polygon(this.HEX_POINTS);
-                    ghostView.eventMode = "static";
-                    ghostView.cursor = "pointer";
-
-                    // NEW: Hover вместо клика для выбора позиции
-                    ghostView.on("pointerover", () => {
-                        this.game.selectPlacementPosition(coord);
-                        this.renderAll();
-                    });
-
-                    ghostView.on("pointerout", () => {
-                        // Не сбрасываем сразу, только при выходе за все ghost hexes
-                        // Это позволяет держать выбор при переходе между hexes
-                    });
-
                     this.tileViews.set(targetKey, ghostView);
                     this.boardLayer.addChildAt(ghostView, 0);
                 }
+                
+                // Multiplayer: только если мой ход
+                ghostView.eventMode = this.isMyTurn ? "static" : "none";
+                ghostView.cursor = this.isMyTurn ? "pointer" : "default";
+                ghostView.removeAllListeners();
+
+                // NEW: Hover вместо клика для выбора позиции
+                ghostView.on("pointerover", () => {
+                    if (!this.isMyTurn) return;
+                    this.game.selectPlacementPosition(coord);
+                    this.renderAll();
+                });
+
+                ghostView.on("pointerout", () => {
+                    // Не сбрасываем сразу, только при выходе за все ghost hexes
+                    // Это позволяет держать выбор при переходе между hexes
+                });
 
                 const { x, y } = this.hexToPixel(coord);
                 ghostView.position.set(x, y);
@@ -692,8 +750,9 @@ export class GameRenderer {
     private renderRotationIndicators() {
         this.rotationIndicatorsLayer.removeChildren(); // Очищаем перед перерисовкой
 
-        // Рисуем индикаторы только в режиме TILE_PLACEMENT
+        // Рисуем индикаторы только в режиме TILE_PLACEMENT и только для активного игрока
         if (this.game.state.uiMode !== "TILE_PLACEMENT") return;
+        if (!this.isMyTurn) return; // Не показывать другим игрокам
 
         // Получаем валидные позиции с учетом blocked edges
         const validPositions = this.getValidPlacementPositions();
@@ -815,6 +874,7 @@ export class GameRenderer {
         label.eventMode = "none";
 
         bg.on("pointerdown", () => {
+            if (!this.isMyTurn) return;
             if (this.game.state.uiMode !== "TILE_PLACEMENT") return;
             this.game.rotatePendingTile();
             this.renderAll();
@@ -832,6 +892,7 @@ export class GameRenderer {
         label.eventMode = "none";
 
         bg.on("pointerdown", () => {
+            if (!this.isMyTurn) return;
             if (this.game.state.uiMode !== "TILE_PLACEMENT") return;
             if (!this.game.state.selectedPlacementPosition) return;
             this.game.placeTileAtSelected();
@@ -843,6 +904,9 @@ export class GameRenderer {
     }
 
     private canUseAction(action: ActionKey): boolean {
+        // Multiplayer: не мой ход - нельзя
+        if (!this.isMyTurn) return false;
+        
         if (this.game.state.actionPoints <= 0) return false;
 
         // По правилам Karak 2: Action недоступен, если уже использовали action в текущем слоте
@@ -906,6 +970,11 @@ export class GameRenderer {
 
         // текст слева
         let statusLine = `Turn: ${p.id}   AP: ${this.game.state.actionPoints}   Round: ${this.game.state.round}`;
+        
+        // Multiplayer: show "waiting" indicator if not my turn
+        if (!this.isMyTurn) {
+            statusLine += `   ⏳ Waiting for ${p.id}...`;
+        }
         
         // Final Phase indicator
         if (this.game.state.isFinalPhase) {
@@ -1064,8 +1133,11 @@ export class GameRenderer {
     // Hero Board
     // --------------------
     private renderHeroBoard() {
-        const p = this.game.state.players[this.game.state.currentPlayerIndex];
-        const playerIndex = this.game.state.currentPlayerIndex;
+        // Show MY player's Hero Board (not the current turn player)
+        const playerIndex = this.myPlayerIndex;
+        const p = this.game.state.players[playerIndex];
+        if (!p) return; // Safety check
+        
         const playerColor = this.PLAYER_COLORS[playerIndex % this.PLAYER_COLORS.length];
         
         this.heroBoardLayer.removeChildren(); // очищаем перед перерисовкой
@@ -1814,6 +1886,148 @@ export class GameRenderer {
             lineText.position.set(deckX + 12, yOffset);
             this.deckInfoLayer.addChild(lineText);
             yOffset += 18;
+        }
+    }
+
+    // ========================================
+    // DEBUG PANEL
+    // ========================================
+
+    private debugToggleButtonContainer = new PIXI.Container();
+    private debugToggleButtonBg = new PIXI.Graphics();
+    private debugToggleButtonIcon = new PIXI.Text({
+        text: "🐛",
+        style: new PIXI.TextStyle({ fontSize: 16 }),
+    });
+
+    private createDebugToggleButton() {
+        this.debugToggleButtonContainer.eventMode = "static";
+        this.debugToggleButtonContainer.cursor = "pointer";
+        
+        this.debugToggleButtonContainer.addChild(this.debugToggleButtonBg);
+        this.debugToggleButtonContainer.addChild(this.debugToggleButtonIcon);
+        this.debugToggleButtonIcon.position.set(20, 13);
+        
+        this.debugToggleButtonContainer.on("pointerdown", () => {
+            this.debugPanelVisible = !this.debugPanelVisible;
+            this.renderDebugPanel();
+        });
+        
+        this.hudLayer.addChild(this.debugToggleButtonContainer);
+    }
+
+    private renderDebugPanel() {
+        // Toggle button (always visible) - top left corner
+        this.debugToggleButtonBg.clear();
+        this.debugToggleButtonBg.roundRect(10, 10, 40, 30, 6);
+        this.debugToggleButtonBg.fill({ color: this.debugPanelVisible ? 0xff6600 : 0x333333, alpha: 0.9 });
+        this.debugToggleButtonBg.stroke({ color: 0xffffff, alpha: 0.3, width: 1 });
+
+        // Clear panel
+        this.debugPanelLayer.removeChildren();
+        
+        if (!this.debugPanelVisible) return;
+
+        // Panel background
+        const panelW = 200;
+        const panelH = 280;
+        const panelX = 10;
+        const panelY = 50;
+
+        const panelBg = new PIXI.Graphics();
+        panelBg.roundRect(panelX, panelY, panelW, panelH, 10);
+        panelBg.fill({ color: 0x1a1a2e, alpha: 0.95 });
+        panelBg.stroke({ color: 0xff6600, width: 2, alpha: 0.8 });
+        this.debugPanelLayer.addChild(panelBg);
+
+        // Title
+        const title = new PIXI.Text({
+            text: "🐛 DEBUG PANEL",
+            style: new PIXI.TextStyle({
+                fontSize: 14,
+                fill: 0xff6600,
+                fontWeight: "700",
+            }),
+        });
+        title.position.set(panelX + 15, panelY + 10);
+        this.debugPanelLayer.addChild(title);
+
+        // Buttons
+        const buttons = [
+            { label: "💰 +10 Resources", callback: () => this.onDebugAddResources?.() },
+            { label: "❤️ Full Heal", callback: () => this.onDebugHeal?.() },
+            { label: "⏭️ Skip Turn", callback: () => this.onDebugSkipTurn?.() },
+            { label: "🔄 Reset Game", callback: () => this.onDebugReset?.() },
+            { label: "🚪 Leave Game", callback: () => this.onDebugLeaveGame?.() },
+        ];
+
+        const btnW = panelW - 20;
+        const btnH = 35;
+        
+        buttons.forEach((btn, index) => {
+            const btnY = panelY + 40 + index * 42;
+            const btnX = panelX + 10;
+            
+            // Button container for proper hit detection
+            const btnContainer = new PIXI.Container();
+            btnContainer.position.set(btnX, btnY);
+            btnContainer.eventMode = "static";
+            btnContainer.cursor = "pointer";
+            btnContainer.hitArea = new PIXI.Rectangle(0, 0, btnW, btnH);
+            
+            const btnBg = new PIXI.Graphics();
+            btnBg.roundRect(0, 0, btnW, btnH, 6);
+            btnBg.fill({ color: 0x2d3748 });
+            btnBg.stroke({ color: 0x4a5568, width: 1 });
+            
+            const label = new PIXI.Text({
+                text: btn.label,
+                style: new PIXI.TextStyle({
+                    fontSize: 13,
+                    fill: 0xffffff,
+                }),
+            });
+            label.position.set(10, 9);
+            label.eventMode = "none";
+            
+            btnContainer.addChild(btnBg);
+            btnContainer.addChild(label);
+            
+            btnContainer.on("pointerover", () => {
+                btnBg.clear();
+                btnBg.roundRect(0, 0, btnW, btnH, 6);
+                btnBg.fill({ color: 0x4a5568 });
+                btnBg.stroke({ color: 0xff6600, width: 1 });
+            });
+            
+            btnContainer.on("pointerout", () => {
+                btnBg.clear();
+                btnBg.roundRect(0, 0, btnW, btnH, 6);
+                btnBg.fill({ color: 0x2d3748 });
+                btnBg.stroke({ color: 0x4a5568, width: 1 });
+            });
+            
+            btnContainer.on("pointerdown", () => {
+                console.log(`[Debug] Button clicked: ${btn.label}`);
+                btn.callback();
+                this.renderAll();
+            });
+            
+            this.debugPanelLayer.addChild(btnContainer);
+        });
+
+        // Player info
+        const myPlayer = this.game.state.players[this.myPlayerIndex];
+        if (myPlayer) {
+            const info = new PIXI.Text({
+                text: `Player: ${myPlayer.id}\n🧬${myPlayer.biomass} 🧱${myPlayer.materials} ⚙${myPlayer.alloys}`,
+                style: new PIXI.TextStyle({
+                    fontSize: 11,
+                    fill: 0x888888,
+                }),
+            });
+            info.position.set(panelX + 15, panelY + panelH - 45);
+            this.debugPanelLayer.addChild(info);
         }
     }
 }
