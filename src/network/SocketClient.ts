@@ -142,19 +142,6 @@ export class SocketClient {
         });
     }
 
-    disconnect(): void {
-        this.socket?.disconnect();
-        this.socket = null;
-        this.connectionState = "disconnected";
-        this.roomCode = null;
-        this.playerId = null;
-        this.sessionId = null;
-        this.players = [];
-        // Clear stored session
-        localStorage.removeItem(SESSION_KEY);
-        localStorage.removeItem(ROOM_KEY);
-    }
-
     // ========================================
     // RECONNECT
     // ========================================
