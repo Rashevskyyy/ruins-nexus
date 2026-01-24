@@ -1,88 +1,96 @@
 /**
- * Buildings - согласно game-design.md
- * Одинаковые для всех кланов
+ * Modules - Cosmic Frontier base upgrades
+ * Universal for all players (board-game friendly)
  */
 
-export type BuildingType = 
-    | "WarriorLodge"  // +1 ⚔ если выпал ⚔
-    | "ShieldHall"    // игнор 1 💀
-    | "AxeHall"       // 1 переброс за бой
-    | "Storehouse"    // +1 ресурс при Gather
-    | "RelicHall"     // активирует реликвии
-    | "Shrine";       // зарезервировано под финальный контент
+export type ModuleType =
+    | "AssaultBay"      // +1 ⚔ when roll has ⚔
+    | "ShieldArray"     // ignore 1 💀
+    | "TacticalUplink"  // 1 reroll per combat
+    | "SupplyDepot"     // +1 resource on Gather
+    | "RelicVault"      // activates relic system (future)
+    | "BeaconSpire";    // reserved for final content
 
-export type BuildingDefinition = {
-    type: BuildingType;
-    cost: { timber: number; iron: number; provisions: number };
+export type ModuleDefinition = {
+    type: ModuleType;
+    cost: { materials: number; alloys: number; biomass: number };
     description: string;
     effect: string;
-    prestigeGain: number; // Prestige за постройку
+    prestigeGain: number;
 };
 
-export const BUILDINGS: Record<BuildingType, BuildingDefinition> = {
-    WarriorLodge: {
-        type: "WarriorLodge",
-        cost: { timber: 2, iron: 1, provisions: 0 },
-        description: "Warrior Lodge",
+export const MODULES: Record<ModuleType, ModuleDefinition> = {
+    AssaultBay: {
+        type: "AssaultBay",
+        cost: { materials: 2, alloys: 1, biomass: 0 },
+        description: "Assault Bay",
         effect: "+1 ⚔ damage when you roll ⚔",
         prestigeGain: 1,
     },
-    ShieldHall: {
-        type: "ShieldHall",
-        cost: { timber: 2, iron: 1, provisions: 0 },
-        description: "Shield Hall",
+    ShieldArray: {
+        type: "ShieldArray",
+        cost: { materials: 2, alloys: 1, biomass: 0 },
+        description: "Shield Array",
         effect: "Ignore 1 💀 per combat",
         prestigeGain: 1,
     },
-    AxeHall: {
-        type: "AxeHall",
-        cost: { timber: 1, iron: 2, provisions: 0 },
-        description: "Axe Hall",
+    TacticalUplink: {
+        type: "TacticalUplink",
+        cost: { materials: 1, alloys: 2, biomass: 0 },
+        description: "Tactical Uplink",
         effect: "1 reroll per combat",
         prestigeGain: 1,
     },
-    Storehouse: {
-        type: "Storehouse",
-        cost: { timber: 3, iron: 0, provisions: 0 },
-        description: "Storehouse",
+    SupplyDepot: {
+        type: "SupplyDepot",
+        cost: { materials: 3, alloys: 0, biomass: 0 },
+        description: "Supply Depot",
         effect: "+1 resource when Gather",
         prestigeGain: 1,
     },
-    RelicHall: {
-        type: "RelicHall",
-        cost: { timber: 2, iron: 2, provisions: 0 },
-        description: "Relic Hall",
-        effect: "Activates clan relics",
+    RelicVault: {
+        type: "RelicVault",
+        cost: { materials: 2, alloys: 2, biomass: 0 },
+        description: "Relic Vault",
+        effect: "Activates relic system (future)",
         prestigeGain: 2,
     },
-    Shrine: {
-        type: "Shrine",
-        cost: { timber: 3, iron: 3, provisions: 0 },
-        description: "Shrine",
-        effect: "Reserved for final content",
+    BeaconSpire: {
+        type: "BeaconSpire",
+        cost: { materials: 3, alloys: 3, biomass: 0 },
+        description: "Beacon Spire",
+        effect: "Reserved for final content hooks",
         prestigeGain: 3,
     },
 };
 
+// Legacy aliases for compatibility
+export type BuildingType = ModuleType;
+export const BUILDINGS = MODULES;
+export type BuildingDefinition = ModuleDefinition;
+
 /**
- * Получить список всех доступных зданий
+ * Get all available modules
  */
-export function getAllBuildings(): BuildingDefinition[] {
-    return Object.values(BUILDINGS);
+export function getAllModules(): ModuleDefinition[] {
+    return Object.values(MODULES);
 }
 
 /**
- * Проверить, может ли игрок построить здание
+ * Check if player can afford a module
  */
-export function canAffordBuilding(
-    building: BuildingDefinition,
-    timber: number,
-    iron: number,
-    provisions: number
+export function canAffordModule(
+    module: ModuleDefinition,
+    materials: number,
+    alloys: number,
+    biomass: number
 ): boolean {
     return (
-        timber >= building.cost.timber &&
-        iron >= building.cost.iron &&
-        provisions >= building.cost.provisions
+        materials >= module.cost.materials &&
+        alloys >= module.cost.alloys &&
+        biomass >= module.cost.biomass
     );
 }
+
+// Legacy alias
+export const canAffordBuilding = canAffordModule;

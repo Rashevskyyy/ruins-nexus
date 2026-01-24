@@ -8,8 +8,15 @@ import { CombatSystem } from "../systems/CombatSystem";
 import { SettlementSystem } from "../systems/SettlementSystem";
 import { applyRotation, canMoveBetween } from "../board/BlockedEdges";
 import type { Tile } from "../board/Tile";
-import { BUILDINGS, type BuildingType, canAffordBuilding } from "../entities/BuildingType";
+import { MODULES, type ModuleType, canAffordModule } from "../entities/BuildingType";
 
+/**
+ * Game - Cosmic Frontier
+ * 
+ * - Tile Placement (players build the map via Explore)
+ * - Base + Modules system
+ * - Final Threat (40 HP shared boss, 6 rounds countdown)
+ */
 export class Game {
     private exploration: ExplorationSystem;
     private combat = new CombatSystem();
@@ -25,28 +32,23 @@ export class Game {
 
     private addLog(message: string) {
         this.state.eventLog.push(message);
-        // Храним только последние 10 событий
         if (this.state.eventLog.length > 10) {
             this.state.eventLog.shift();
         }
-        console.log(message); // дублируем в консоль для dev
+        console.log(message);
     }
 
     /**
-     * По правилам Karak 2: Move требует доступного action слота.
-     * Если в текущем слоте уже что-то делали (move/action) → нужно начать новый слот.
-     * 
-     * Возвращает false, если слоты закончились (нужно прервать текущее действие).
+     * Karak 2 rules: Move requires an available action slot.
+     * If current slot is used (move/action) → finish it and start new slot.
      */
     private tryFinishCurrentSlotAndStartNew(): boolean {
-        // Если текущий слот "активен" (хоть что-то делали) → завершаем его
         if (this.state.movedInCurrentSlot || this.state.actionUsedInCurrentSlot) {
             this.state.actionPoints -= 1;
             if (this.state.actionPoints <= 0) {
                 this.endTurn();
-                return false; // слоты закончились
+                return false;
             }
-            // Начинаем новый слот
             this.state.movedInCurrentSlot = false;
             this.state.actionUsedInCurrentSlot = false;
         }
@@ -54,26 +56,29 @@ export class Game {
     }
 
     private forceEndTurnAfterEncounter() {
-        // сжигаем оставшиеся действия
         this.state.actionPoints = 0;
         this.endTurn();
     }
 
+    // ========================================
+    // HEX CLICK (MOVEMENT + TILE PLACEMENT)
+    // ========================================
+
     handleHexClick(target: HexCoord): void {
         if (this.state.phase !== Phase.AwaitInput) return;
         if (this.state.actionPoints <= 0) return;
+        if (this.state.gameOver) return;
 
         const player = this.currentPlayer;
         const from = player.position;
         const isSame = from.q === target.q && from.r === target.r;
 
-        // Tile Placement mode: игрок выбирает куда поставить новый тайл
+        // Tile Placement mode: player selects where to place new tile
         if (this.state.uiMode === "TILE_PLACEMENT") {
-            // Проверяем, что target — валидная позиция (нет тайла, рядом с открытым)
             const existingTile = this.state.board.getTile(target);
-            if (existingTile) return; // уже есть тайл
+            if (existingTile) return; // tile already exists
 
-            // Проверяем, что хотя бы один сосед target — открытый тайл
+            // Must have at least one discovered neighbor
             const hasOpenNeighbor = neighbors(target).some((n) => {
                 const t = this.state.board.getTile(n);
                 return t && t.discovered;
@@ -84,7 +89,7 @@ export class Game {
             this.state.phase = Phase.ResolveAction;
             this.state.uiMode = "NONE";
 
-            // Создаём пустой тайл с координатами
+            // Create empty tile
             const newTile: Tile = {
                 coord: target,
                 discovered: false,
@@ -93,7 +98,7 @@ export class Game {
 
             this.state.board.setTile(newTile);
 
-            // Вытягиваем тайл из колоды и применяем template
+            // Draw tile from deck and apply template
             const applied = this.exploration.applyTemplate(newTile);
             if (!applied) {
                 this.addLog("Tile deck exhausted!");
@@ -101,7 +106,7 @@ export class Game {
                 return;
             }
 
-            // Применяем rotation к blockedEdges
+            // Apply rotation to blockedEdges
             if (newTile.blockedEdges && this.state.pendingTileRotation > 0) {
                 newTile.blockedEdges = applyRotation(
                     newTile.blockedEdges,
@@ -110,51 +115,64 @@ export class Game {
             }
             newTile.rotation = this.state.pendingTileRotation;
 
-            // Сбрасываем rotation и выбранную позицию
+            // Reset rotation and selected position
             this.state.pendingTileRotation = 0;
             this.state.selectedPlacementPosition = null;
 
-            // ПРАВИЛЬНЫЕ ПРАВИЛА KARAK 2:
-            // Explore = размещение тайла (Action), игрок НЕ двигается!
-            // Движение на новый тайл = отдельный Move в следующем слоте (с проверкой гор)
-            
-            // Prestige за исследование Tier II+
+            // Prestige for exploring Tier 2+
             if (newTile.tier && newTile.tier >= 2) {
                 const prestigeGain = newTile.tier === 2 ? 1 : 2;
                 player.prestige += prestigeGain;
                 this.addLog(`${player.id} +${prestigeGain} Prestige (explore Tier ${newTile.tier})`);
             }
-            
-            // Final Tile - триггерит финальную фазу!
+
+            // Final Tile - triggers Final Phase!
             if (newTile.isFinalTile) {
                 this.state.isFinalPhase = true;
-                this.state.finalPhaseRoundsLeft = 2; // 2 раунда до конца
-                this.addLog(`⚔️ FINAL TILE REVEALED! 2 rounds remaining!`);
+                this.state.finalRoundsLeft = 6; // 6 rounds countdown
+                this.state.finalThreatHp = 40;  // 40 HP shared boss
+                this.addLog(`🚨 FINAL TILE REVEALED! Final Threat spawned (40 HP)! 6 rounds remaining!`);
             }
-            
+
             this.addLog(
                 `[Round ${this.state.round}] ${player.id} placed tile at ${target.q},${target.r} (Tier ${newTile.tier}${newTile.isFinalTile ? " - FINAL" : ""})`
             );
 
-            // Explore = Action, завершаем текущий слот
-            this.state.actionUsedInCurrentSlot = true;
-            this.state.phase = Phase.AwaitInput;
-            
-            // Пытаемся начать новый слот
-            this.tryFinishCurrentSlotAndStartNew();
+            // AUTO-MOVE: Player moves onto the new tile
+            player.position = target;
 
+            // AUTO-COMBAT: If there's a threat, fight immediately
+            if (newTile.encounterActive === true) {
+                const outcome = this.combat.fightOnce(player, newTile);
+                this.addLog(
+                    `${player.id} fought Threat (⚔${outcome.roll.swords}/💀${outcome.roll.skulls}) ${outcome.killed ? "WON" : "LOST"}`
+                );
+
+                if (outcome.killed) {
+                    // Victory! Award Prestige based on tier
+                    const prestigeGain = newTile.tier === 1 ? 1 : newTile.tier === 2 ? 2 : 3;
+                    player.prestige += prestigeGain;
+                    this.addLog(`${player.id} +${prestigeGain} Prestige (combat)`);
+                } else {
+                    // Pushed back to original position
+                    player.position = from;
+                }
+            }
+
+            // Explore + auto-move + combat = turn ends
+            this.forceEndTurnAfterEncounter();
             return;
         }
 
-        // Обычный клик по карте = Move (только перед действием!)
+        // Regular click = Move (only before action!)
         if (!isSame && !isNeighbor(from, target)) return;
 
-        // По правилам Karak 2: Movement всегда ПЕРЕД action, никогда после!
+        // Karak 2: Movement is always BEFORE action, never after!
         if (this.state.actionUsedInCurrentSlot) {
-            return; // уже делали action в слоте → move запрещён
+            return; // already did action in slot → move forbidden
         }
 
-        // Если уже двигались в текущем слоте → нужно завершить текущий слот и начать новый
+        // If already moved in current slot → finish and start new slot
         if (this.state.movedInCurrentSlot) {
             if (!this.tryFinishCurrentSlotAndStartNew()) return;
         }
@@ -162,13 +180,13 @@ export class Game {
         const moved = !isSame && isNeighbor(from, target);
 
         if (moved) {
-            // Проверяем blocked edges (горы)
+            // Check blocked edges (mountains/cliffs)
             const fromTile = this.state.board.getTile(from);
             const targetTile = this.state.board.getTile(target) || null;
-            
+
             if (fromTile && !canMoveBetween(fromTile, target, targetTile)) {
-                this.addLog(`[Round ${this.state.round}] ${player.id} cannot move - blocked by mountains!`);
-                return; // движение заблокировано горами
+                this.addLog(`[Round ${this.state.round}] ${player.id} cannot move - blocked by terrain!`);
+                return;
             }
 
             player.position = target;
@@ -178,43 +196,46 @@ export class Game {
         const tile = this.state.board.getTile(target);
         if (!tile) return;
 
-        // Вход в туман: reveal (ресурс + монстр)
+        // Enter fog: reveal (resources + threat)
         if (!tile.discovered) {
             this.exploration.reveal(tile);
         }
 
-        // Монстр активен => бой обязателен => это Action в слоте => ход заканчивается
+        // Local threat active → combat → turn ends
         if (tile.encounterActive === true) {
             this.state.phase = Phase.ResolveAction;
 
             const outcome = this.combat.fightOnce(this.currentPlayer, tile);
             this.addLog(
-                `${this.currentPlayer.id} fought Enemy (S${outcome.roll.swords}/K${outcome.roll.skulls}) ${outcome.killed ? "WON" : "LOST"}`
+                `${this.currentPlayer.id} fought Threat (⚔${outcome.roll.swords}/💀${outcome.roll.skulls}) ${outcome.killed ? "WON" : "LOST"}`
             );
 
             if (outcome.killed) {
-                // Победа! Начисляем Prestige
+                // Victory! Award Prestige
                 const prestigeGain = tile.tier === 1 ? 1 : tile.tier === 2 ? 2 : 3;
                 player.prestige += prestigeGain;
                 this.addLog(`${player.id} +${prestigeGain} Prestige (combat)`);
             } else {
-                // не убил => откат назад
+                // Pushed back
                 player.position = from;
             }
 
-            // Бой = Action, заканчивает ход
+            // Combat ends turn
             this.forceEndTurnAfterEncounter();
             return;
         } else {
-            // монстра нет: просто стоим на клетке после move, можно делать action
             this.state.phase = Phase.AwaitInput;
         }
     }
 
+    // ========================================
+    // GATHER
+    // ========================================
+
     doGather(): boolean {
         if (this.state.phase !== Phase.AwaitInput) return false;
         if (this.state.actionPoints <= 0) return false;
-        if (this.state.actionUsedInCurrentSlot) return false; // уже делали action в слоте
+        if (this.state.actionUsedInCurrentSlot) return false;
 
         const p = this.currentPlayer;
         const tile = this.state.board.getTile(p.position);
@@ -224,11 +245,9 @@ export class Game {
         if (tile.type !== TileType.Resource) return false;
         if (tile.encounterActive === true) return false;
 
-        // NEW: Проверяем множественные ресурсы
+        // Check resources
         const hasResources = tile.resources && Object.keys(tile.resources).length > 0;
-        const hasOldResource = tile.resource; // обратная совместимость
-        
-        if (!hasResources && !hasOldResource) return false;
+        if (!hasResources) return false;
 
         const map = (tile.cooldownUntilRoundByPlayer ??= {});
         const cooldown = map[p.id] ?? 0;
@@ -236,28 +255,19 @@ export class Game {
 
         this.state.phase = Phase.ResolveAction;
 
-        // NEW: Собираем все ресурсы с тайла
+        // Collect all resources
         if (tile.resources) {
-            if (tile.resources.Provisions) p.provisions += tile.resources.Provisions;
-            if (tile.resources.Timber) p.timber += tile.resources.Timber;
-            if (tile.resources.Iron) p.iron += tile.resources.Iron;
+            if (tile.resources.biomass) p.biomass += tile.resources.biomass;
+            if (tile.resources.materials) p.materials += tile.resources.materials;
+            if (tile.resources.alloys) p.alloys += tile.resources.alloys;
 
-            // Лог
+            // Log
             const parts: string[] = [];
-            if (tile.resources.Provisions) parts.push(`${tile.resources.Provisions} 🍖`);
-            if (tile.resources.Timber) parts.push(`${tile.resources.Timber} 🪵`);
-            if (tile.resources.Iron) parts.push(`${tile.resources.Iron} ⚙️`);
-            
-            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}`);
-        } else if (tile.resource) {
-            // OLD: обратная совместимость
-            const res = tile.resource;
-            if (res.kind === "Provisions") p.provisions += res.amount;
-            if (res.kind === "Timber") p.timber += res.amount;
-            if (res.kind === "Iron") p.iron += res.amount;
+            if (tile.resources.biomass) parts.push(`${tile.resources.biomass} 🧬`);
+            if (tile.resources.materials) parts.push(`${tile.resources.materials} 🧱`);
+            if (tile.resources.alloys) parts.push(`${tile.resources.alloys} ⚙`);
 
-            const emoji = res.kind === "Provisions" ? "🍖" : res.kind === "Timber" ? "🪵" : "⚙️";
-            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${res.amount} ${emoji}`);
+            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}`);
         }
 
         map[p.id] = this.state.round + 1;
@@ -266,25 +276,28 @@ export class Game {
         this.state.uiMode = "NONE";
         this.state.phase = Phase.AwaitInput;
 
-        // Action завершает текущий слот
         this.tryFinishCurrentSlotAndStartNew();
         return true;
     }
 
+    // ========================================
+    // TRADE
+    // ========================================
+
     doTrade(): boolean {
         if (this.state.phase !== Phase.AwaitInput) return false;
         if (this.state.actionPoints <= 0) return false;
-        if (this.state.actionUsedInCurrentSlot) return false; // уже делали action в слоте
+        if (this.state.actionUsedInCurrentSlot) return false;
 
         const p = this.currentPlayer;
         const tile = this.state.board.getTile(p.position);
-        if (!tile || tile.type !== TileType.Settlement) return false;
+        if (!tile || tile.type !== TileType.LandingHub) return false;
 
         this.state.phase = Phase.ResolveAction;
         const didTrade = this.settlement.trade(p);
 
         if (didTrade) {
-            this.addLog(`${p.id} TRADE in Settlement`);
+            this.addLog(`${p.id} TRADE at Landing Hub`);
         }
 
         this.state.actionUsedInCurrentSlot = true;
@@ -292,7 +305,6 @@ export class Game {
         this.state.phase = Phase.AwaitInput;
 
         if (didTrade) {
-            // Trade завершает текущий слот
             this.tryFinishCurrentSlotAndStartNew();
             return true;
         }
@@ -301,54 +313,93 @@ export class Game {
     }
 
     // ========================================
-    // OUTPOST & DISTRICTS SYSTEM
+    // FINAL THREAT COMBAT
     // ========================================
-    
-    /**
-     * Проверить, может ли игрок построить Outpost (город)
-     */
-    canBuildOutpost(): boolean {
-        const p = this.currentPlayer;
-        const tile = this.state.board.getTile(p.position);
-        
-        // Нельзя если уже есть город
-        if (p.outpostPosition) return false;
-        
-        // Нельзя на Settlement
-        if (!tile || tile.type === TileType.Settlement) return false;
-        
-        // Только на открытых тайлах
-        if (!tile.discovered) return false;
-        
-        // Нельзя если монстр активен
-        if (tile.encounterActive) return false;
-        
-        // Нельзя если уже чей-то город
-        if (tile.ownerId) return false;
-        
-        // Нельзя если на клетке стоит другой игрок!
-        const otherPlayersHere = this.state.players.filter(
-            other => other.id !== p.id && 
-            other.position.q === p.position.q && 
-            other.position.r === p.position.r
-        );
-        if (otherPlayersHere.length > 0) return false;
-        
-        // Нужно 2 Timber
-        if (p.timber < 2) return false;
-        
+
+    canAttackFinalThreat(): boolean {
+        if (!this.state.isFinalPhase) return false;
+        if (this.state.finalThreatHp <= 0) return false;
+        if (this.state.actionUsedInCurrentSlot) return false;
         return true;
     }
-    
+
+    doAttackFinalThreat(): boolean {
+        if (!this.canAttackFinalThreat()) return false;
+
+        const p = this.currentPlayer;
+        this.state.phase = Phase.ResolveAction;
+
+        // Roll Hero Die
+        const roll = this.combat.rollDie();
+
+        // Apply damage
+        this.state.finalThreatHp = Math.max(0, this.state.finalThreatHp - roll.swords);
+        p.hp = Math.max(0, p.hp - roll.skulls);
+
+        this.addLog(`${p.id} attacks Final Threat! (⚔${roll.swords}/💀${roll.skulls}) HP: ${this.state.finalThreatHp}/40`);
+
+        // Check if Final Threat is defeated
+        if (this.state.finalThreatHp <= 0) {
+            this.addLog(`🏆 ${p.id} DEFEATED the Final Threat!`);
+            this.state.winnerId = p.id;
+            this.state.gameOver = true;
+            return true;
+        }
+
+        // Combat ends turn
+        this.forceEndTurnAfterEncounter();
+        return true;
+    }
+
+    // ========================================
+    // BASE & MODULES SYSTEM
+    // ========================================
+
     /**
-     * Построить Outpost (город) на текущей клетке
-     * Стоит 2 Timber, можно только 1 на игрока
+     * Check if player can build Base
      */
-    doBuildOutpost(): boolean {
+    canBuildBase(): boolean {
+        const p = this.currentPlayer;
+        const tile = this.state.board.getTile(p.position);
+
+        // Can't if already have a Base
+        if (p.basePosition) return false;
+
+        // Can't on Landing Hub
+        if (!tile || tile.type === TileType.LandingHub) return false;
+
+        // Only on discovered tiles
+        if (!tile.discovered) return false;
+
+        // Can't if threat is active
+        if (tile.encounterActive) return false;
+
+        // Can't if already someone's Base
+        if (tile.ownerId) return false;
+
+        // Can't if another player is standing here
+        const otherPlayersHere = this.state.players.filter(
+            other => other.id !== p.id &&
+                other.position.q === p.position.q &&
+                other.position.r === p.position.r
+        );
+        if (otherPlayersHere.length > 0) return false;
+
+        // Need 2 Materials
+        if (p.materials < 2) return false;
+
+        return true;
+    }
+
+    /**
+     * Build Base on current tile
+     * Cost: 2 Materials, only 1 per player
+     */
+    doBuildBase(): boolean {
         if (this.state.phase !== Phase.AwaitInput) return false;
         if (this.state.actionPoints <= 0) return false;
         if (this.state.actionUsedInCurrentSlot) return false;
-        if (!this.canBuildOutpost()) return false;
+        if (!this.canBuildBase()) return false;
 
         const p = this.currentPlayer;
         const tile = this.state.board.getTile(p.position);
@@ -356,155 +407,143 @@ export class Game {
 
         this.state.phase = Phase.ResolveAction;
 
-        // Тратим ресурсы
-        p.timber -= 2;
+        // Spend resources
+        p.materials -= 2;
 
-        // Отмечаем тайл как город игрока
+        // Mark tile as player's Base
         tile.ownerId = p.id;
-        p.outpostPosition = { ...p.position };
+        p.basePosition = { ...p.position };
 
-        // Prestige за город
+        // Prestige for Base
         p.prestige += 2;
 
-        this.addLog(`🏰 ${p.id} built OUTPOST at ${p.position.q},${p.position.r}! +2 Prestige`);
+        this.addLog(`🏠 ${p.id} built BASE at ${p.position.q},${p.position.r}! +2 Prestige`);
 
         this.state.actionUsedInCurrentSlot = true;
         this.state.phase = Phase.AwaitInput;
         this.tryFinishCurrentSlotAndStartNew();
         return true;
     }
-    
+
     /**
-     * Проверить, стоит ли игрок в своём городе
+     * Check if player is in their own Base
      */
-    isInOwnOutpost(): boolean {
+    isInOwnBase(): boolean {
         const p = this.currentPlayer;
         const tile = this.state.board.getTile(p.position);
         return tile?.ownerId === p.id;
     }
-    
+
     /**
-     * Получить список районов, которые можно построить
+     * Get list of modules player can build
      */
-    getAvailableDistricts(): BuildingType[] {
+    getAvailableModules(): ModuleType[] {
         const p = this.currentPlayer;
-        
-        // Должен стоять в своём городе
-        if (!this.isInOwnOutpost()) return [];
-        
-        return (Object.keys(BUILDINGS) as BuildingType[]).filter(type => {
-            const building = BUILDINGS[type];
+
+        // Must be in own Base
+        if (!this.isInOwnBase()) return [];
+
+        return (Object.keys(MODULES) as ModuleType[]).filter(type => {
+            const module = MODULES[type];
             return (
-                !p.buildings.includes(type) &&
-                canAffordBuilding(building, p.timber, p.iron, p.provisions)
+                !p.modules.includes(type) &&
+                canAffordModule(module, p.materials, p.alloys, p.biomass)
             );
         });
     }
-    
+
     /**
-     * Построить районы в своём городе
-     * ВАЖНО: за 1 действие можно построить ЛЮБОЕ количество районов!
+     * Build modules in own Base
+     * KEY: can build ANY number of modules in ONE action (1 slot)!
      */
-    doBuildDistricts(districtTypes: BuildingType[]): boolean {
+    doBuildModules(moduleTypes: ModuleType[]): boolean {
         if (this.state.phase !== Phase.AwaitInput) return false;
         if (this.state.actionPoints <= 0) return false;
         if (this.state.actionUsedInCurrentSlot) return false;
-        if (!this.isInOwnOutpost()) return false;
-        if (districtTypes.length === 0) return false;
+        if (!this.isInOwnBase()) return false;
+        if (moduleTypes.length === 0) return false;
 
         const p = this.currentPlayer;
-        
-        // Проверяем что все районы можно построить
-        let totalTimber = 0, totalIron = 0, totalProvisions = 0;
+
+        // Check if all modules can be built
+        let totalMaterials = 0, totalAlloys = 0, totalBiomass = 0;
         let totalPrestige = 0;
-        const validDistricts: BuildingType[] = [];
-        
-        for (const type of districtTypes) {
-            const building = BUILDINGS[type];
-            if (!building) continue;
-            if (p.buildings.includes(type)) continue; // уже есть
-            
-            totalTimber += building.cost.timber;
-            totalIron += building.cost.iron;
-            totalProvisions += building.cost.provisions;
-            totalPrestige += building.prestigeGain;
-            validDistricts.push(type);
+        const validModules: ModuleType[] = [];
+
+        for (const type of moduleTypes) {
+            const module = MODULES[type];
+            if (!module) continue;
+            if (p.modules.includes(type)) continue; // already have it
+
+            totalMaterials += module.cost.materials;
+            totalAlloys += module.cost.alloys;
+            totalBiomass += module.cost.biomass;
+            totalPrestige += module.prestigeGain;
+            validModules.push(type);
         }
-        
-        // Проверяем хватает ли ресурсов на ВСЕ районы
-        if (p.timber < totalTimber || p.iron < totalIron || p.provisions < totalProvisions) {
-            this.addLog(`${p.id} cannot afford all selected districts`);
+
+        // Check if can afford ALL modules
+        if (p.materials < totalMaterials || p.alloys < totalAlloys || p.biomass < totalBiomass) {
+            this.addLog(`${p.id} cannot afford all selected modules`);
             return false;
         }
-        
-        if (validDistricts.length === 0) return false;
+
+        if (validModules.length === 0) return false;
 
         this.state.phase = Phase.ResolveAction;
 
-        // Тратим ресурсы
-        p.timber -= totalTimber;
-        p.iron -= totalIron;
-        p.provisions -= totalProvisions;
+        // Spend resources
+        p.materials -= totalMaterials;
+        p.alloys -= totalAlloys;
+        p.biomass -= totalBiomass;
 
-        // Добавляем районы
-        for (const type of validDistricts) {
-            p.buildings.push(type);
-            const building = BUILDINGS[type];
-            this.addLog(`🏗️ ${p.id} built ${building.description}`);
+        // Add modules
+        for (const type of validModules) {
+            p.modules.push(type);
+            const module = MODULES[type];
+            this.addLog(`🏗 ${p.id} built ${module.description}`);
         }
 
-        // Начисляем Prestige
+        // Award Prestige
         p.prestige += totalPrestige;
-        this.addLog(`${p.id} +${totalPrestige} Prestige (${validDistricts.length} districts)`);
+        this.addLog(`${p.id} +${totalPrestige} Prestige (${validModules.length} modules)`);
 
         this.state.actionUsedInCurrentSlot = true;
         this.state.phase = Phase.AwaitInput;
         this.tryFinishCurrentSlotAndStartNew();
         return true;
     }
-    
-    /**
-     * Legacy метод для совместимости
-     */
-    doBuild(buildingType: BuildingType): boolean {
-        return this.doBuildDistricts([buildingType]);
-    }
-    
-    /**
-     * Legacy метод для совместимости
-     */
-    getAvailableBuildings(): BuildingType[] {
-        if (this.canBuildOutpost()) return []; // Сначала нужен город
-        return this.getAvailableDistricts();
-    }
 
-    /**
-     * Explore = создать новый тайл и разместить его на карте (tile placement).
-     * Игрок выбирает куда поставить тайл (соседи открытых тайлов).
-     * После размещения → move на тайл, reveal, бой.
-     */
+    // Legacy aliases for compatibility
+    canBuildOutpost = this.canBuildBase.bind(this);
+    doBuildOutpost = this.doBuildBase.bind(this);
+    isInOwnOutpost = this.isInOwnBase.bind(this);
+    getAvailableDistricts = this.getAvailableModules.bind(this);
+    doBuildDistricts = this.doBuildModules.bind(this);
+
+    // ========================================
+    // EXPLORE
+    // ========================================
+
     doExplore(): boolean {
         if (this.state.phase !== Phase.AwaitInput) return false;
         if (this.state.actionPoints <= 0) return false;
         if (this.state.actionUsedInCurrentSlot) return false;
 
-        // Если уже двигались (без action) → завершаем текущий слот перед Explore
+        // If already moved (without action) → finish current slot before Explore
         if (this.state.movedInCurrentSlot && !this.state.actionUsedInCurrentSlot) {
             if (!this.tryFinishCurrentSlotAndStartNew()) return false;
         }
 
-        // Определяем tier нового тайла (пока всегда tier 1, позже можно рандомизировать)
-        const newTileTier = 1; // TODO: вытягивать из колоды/мешка
-
-        // toggle режима размещения
+        // Toggle placement mode
         if (this.state.uiMode === "TILE_PLACEMENT") {
             this.state.uiMode = "NONE";
             this.state.pendingTileTier = undefined;
             this.state.pendingTileRotation = 0;
         } else {
             this.state.uiMode = "TILE_PLACEMENT";
-            this.state.pendingTileTier = newTileTier;
-            this.state.pendingTileRotation = 0; // сбрасываем rotation
+            this.state.pendingTileTier = 1; // Will be determined by deck
+            this.state.pendingTileRotation = 0;
         }
 
         return true;
@@ -512,35 +551,27 @@ export class Game {
 
     rotatePendingTile(): void {
         if (this.state.uiMode !== "TILE_PLACEMENT") return;
-        // Поворот на 60° (0 → 1 → 2 → 3 → 4 → 5 → 0)
         this.state.pendingTileRotation = (this.state.pendingTileRotation + 1) % 6;
-        // Сбрасываем выбранную позицию при rotation (может стать недоступной)
         this.state.selectedPlacementPosition = null;
     }
 
-    /**
-     * Выбрать позицию для размещения тайла (hover на ghost hex)
-     */
     selectPlacementPosition(coord: HexCoord | null): void {
         if (this.state.uiMode !== "TILE_PLACEMENT") return;
         this.state.selectedPlacementPosition = coord;
     }
 
-    /**
-     * Разместить тайл на выбранной позиции (кнопка Place Tile)
-     */
     placeTileAtSelected(): boolean {
         if (this.state.uiMode !== "TILE_PLACEMENT") return false;
         if (!this.state.selectedPlacementPosition) return false;
 
         const target = this.state.selectedPlacementPosition;
-        
-        // Используем существующую логику handleHexClick для TILE_PLACEMENT
-        // Но теперь вызываем её явно через кнопку
         this.handleHexClick(target);
-        
         return true;
     }
+
+    // ========================================
+    // TURN MANAGEMENT
+    // ========================================
 
     private endTurn(): void {
         this.state.phase = Phase.EndTurn;
@@ -548,18 +579,18 @@ export class Game {
         const prevIndex = this.state.currentPlayerIndex;
         const nextIndex = (prevIndex + 1) % this.state.players.length;
 
-        // Новый раунд?
+        // New round?
         if (nextIndex === 0) {
             this.state.round += 1;
-            
-            // Final Phase: уменьшаем счётчик раундов
-            if (this.state.isFinalPhase && this.state.finalPhaseRoundsLeft > 0) {
-                this.state.finalPhaseRoundsLeft--;
-                this.addLog(`⏳ Final Phase: ${this.state.finalPhaseRoundsLeft} rounds left`);
-                
-                // Игра окончена?
-                if (this.state.finalPhaseRoundsLeft === 0) {
-                    this.endGame();
+
+            // Final Phase: decrease round counter
+            if (this.state.isFinalPhase && this.state.finalRoundsLeft > 0) {
+                this.state.finalRoundsLeft--;
+                this.addLog(`⏳ Final Phase: ${this.state.finalRoundsLeft} rounds left`);
+
+                // Game over?
+                if (this.state.finalRoundsLeft === 0 && this.state.finalThreatHp > 0) {
+                    this.endGameMissionFailed();
                     return;
                 }
             }
@@ -567,7 +598,7 @@ export class Game {
 
         this.state.currentPlayerIndex = nextIndex;
 
-        // новый ход: 2 action слота
+        // New turn: 2 action slots
         this.state.actionPoints = 2;
         this.state.movedInCurrentSlot = false;
         this.state.actionUsedInCurrentSlot = false;
@@ -575,28 +606,13 @@ export class Game {
 
         this.state.phase = Phase.AwaitInput;
     }
-    
-    private endGame(): void {
+
+    private endGameMissionFailed(): void {
         this.state.gameOver = true;
-        
-        // Определяем победителя по Prestige
-        let maxPrestige = -1;
-        let winnerId: string | null = null;
-        
-        for (const player of this.state.players) {
-            if (player.prestige > maxPrestige) {
-                maxPrestige = player.prestige;
-                winnerId = player.id;
-            }
-        }
-        
-        this.state.winnerId = winnerId;
-        
-        // Логируем финальные результаты
-        this.addLog(`🏆 GAME OVER! Winner: ${winnerId} with ${maxPrestige} Prestige!`);
-        
-        for (const player of this.state.players) {
-            this.addLog(`   ${player.id}: ${player.prestige} Prestige`);
-        }
+        this.state.missionFailed = true;
+        this.state.winnerId = null;
+
+        this.addLog(`💀 MISSION FAILED! Final Threat survived (${this.state.finalThreatHp} HP left)`);
+        this.addLog(`No winner - expedition failed.`);
     }
 }

@@ -235,7 +235,7 @@ export class GameRenderer {
         if (!discovered) return 0x0f1822; // fog
 
         switch (type) {
-            case TileType.Settlement:
+            case TileType.LandingHub:
                 return 0x9a7440;
             case TileType.Resource:
                 return 0x4a9158;
@@ -276,19 +276,18 @@ export class GameRenderer {
         // Нельзя собирать ресурсы на клетке с городом!
         if (here.ownerId) return false;
         
-        // NEW: Проверяем множественные ресурсы
+        // Check resources
         const hasResources = here.resources && Object.keys(here.resources).length > 0;
-        const hasOldResource = here.resource;
-        if (!hasResources && !hasOldResource) return false;
+        if (!hasResources) return false;
 
         const cooldown = here.cooldownUntilRoundByPlayer?.[p.id] ?? 0;
         return cooldown <= this.game.state.round;
     }
 
     // --------------------
-    // Outpost (город игрока)
+    // Base (player's base)
     // --------------------
-    private drawOutpost(view: PIXI.Graphics, ownerId: string) {
+    private drawBase(view: PIXI.Graphics, ownerId: string) {
         // Получаем индекс игрока из ownerId (P1 -> 0, P2 -> 1, etc)
         const playerIndex = parseInt(ownerId.replace("P", "")) - 1;
         const color = this.PLAYER_COLORS[playerIndex] || 0xffffff;
@@ -437,9 +436,9 @@ export class GameRenderer {
                 this.drawMountains(view, tile.blockedEdges);
             }
             
-            // Рисуем город (Outpost) если есть
+            // Draw Base if exists
             if (tile.ownerId) {
-                this.drawOutpost(view, tile.ownerId);
+                this.drawBase(view, tile.ownerId);
             }
 
             this.drawHoverOverlay(key, x, y, this.hoveredKey === key);
@@ -514,9 +513,9 @@ export class GameRenderer {
 
                     // Показываем ресурсы (эмодзи) - В ОТДЕЛЬНОМ LAYER!
                     const resourceEmojis: string[] = [];
-                    if (nextTile.resources.Provisions) resourceEmojis.push("🍖".repeat(nextTile.resources.Provisions));
-                    if (nextTile.resources.Timber) resourceEmojis.push("🪵".repeat(nextTile.resources.Timber));
-                    if (nextTile.resources.Iron) resourceEmojis.push("⚙️".repeat(nextTile.resources.Iron));
+                    if (nextTile.resources.biomass) resourceEmojis.push("🧬".repeat(nextTile.resources.biomass));
+                    if (nextTile.resources.materials) resourceEmojis.push("🧱".repeat(nextTile.resources.materials));
+                    if (nextTile.resources.alloys) resourceEmojis.push("⚙".repeat(nextTile.resources.alloys));
                     
                     if (resourceEmojis.length > 0) {
                         const previewText = new PIXI.Text({
@@ -569,10 +568,10 @@ export class GameRenderer {
 
         if (!tile.discovered) return "";
 
-        // Settlement
-        if (tile.type === TileType.Settlement) return "🏛️";
+        // Landing Hub
+        if (tile.type === TileType.LandingHub) return "🚀";
         
-        // Город игрока (Outpost)
+        // Player's Base
         if (tile.ownerId) {
             return "🏰";
         }
@@ -587,15 +586,15 @@ export class GameRenderer {
             // NEW: Множественные ресурсы
             if (tile.resources) {
                 const emojis: string[] = [];
-                if (tile.resources.Provisions) emojis.push("🍖".repeat(tile.resources.Provisions));
-                if (tile.resources.Timber) emojis.push("🪵".repeat(tile.resources.Timber));
-                if (tile.resources.Iron) emojis.push("⚙️".repeat(tile.resources.Iron));
+                if (tile.resources.biomass) emojis.push("🧬".repeat(tile.resources.biomass));
+                if (tile.resources.materials) emojis.push("🧱".repeat(tile.resources.materials));
+                if (tile.resources.alloys) emojis.push("⚙".repeat(tile.resources.alloys));
                 return emojis.join("");
             }
 
             // OLD: Обратная совместимость
             const kind = tile.resource?.kind;
-            const emoji = kind === "Provisions" ? "🍖" : kind === "Timber" ? "🪵" : kind === "Iron" ? "⚙️" : "📦";
+            const emoji = kind === "Biomass" ? "🧬" : kind === "Materials" ? "🧱" : kind === "Alloys" ? "⚙" : "📦";
             return emoji;
         }
 
@@ -853,17 +852,17 @@ export class GameRenderer {
         const here = this.game.state.board.getTile(p.position);
 
         if (action === "BUILD") {
-            // BUILD: либо строим Outpost, либо в своём городе (меню всегда доступно)
-            if (this.game.canBuildOutpost()) return true;
-            if (this.game.isInOwnOutpost()) return true; // Меню открывается всегда, даже без ресов
+            // BUILD: либо строим Base, либо в своей базе (меню всегда доступно)
+            if (this.game.canBuildBase()) return true;
+            if (this.game.isInOwnBase()) return true; // Меню открывается всегда, даже без ресов
             return false;
         }
 
         if (action === "TRADE") {
             // MVP: разрешаем только если стоим в поселении
-            if (here?.type !== TileType.Settlement) return false;
-            // и есть что обменять по текущим правилам SettlementSystem
-            return p.provisions >= 2 || p.timber >= 2;
+            if (here?.type !== TileType.LandingHub) return false;
+            // и есть что обменять по текущим правилам
+            return p.biomass >= 2 || p.materials >= 2;
         }
 
         if (action === "GATHER") {
@@ -908,19 +907,24 @@ export class GameRenderer {
         // текст слева
         let statusLine = `Turn: ${p.id}   AP: ${this.game.state.actionPoints}   Round: ${this.game.state.round}`;
         
-        // Final Phase индикация
+        // Final Phase indicator
         if (this.game.state.isFinalPhase) {
-            statusLine += `   ⚔️ FINAL PHASE (${this.game.state.finalPhaseRoundsLeft} rounds left)`;
+            statusLine += `   🚨 FINAL PHASE (${this.game.state.finalRoundsLeft} rounds)`;
+            statusLine += `   👾 Threat: ${this.game.state.finalThreatHp}/40 HP`;
         }
         
         // Game Over
         if (this.game.state.gameOver) {
-            statusLine = `🏆 GAME OVER! Winner: ${this.game.state.winnerId}`;
+            if (this.game.state.missionFailed) {
+                statusLine = `💀 MISSION FAILED! Final Threat survived (${this.game.state.finalThreatHp} HP)`;
+            } else {
+                statusLine = `🏆 VICTORY! ${this.game.state.winnerId} defeated the Final Threat!`;
+            }
         }
         
         this.hudText.text =
             statusLine + `\n` +
-            `HP: ${p.hp}   P: ${p.provisions}   T: ${p.timber}   I: ${p.iron}   ⭐${p.prestige}` +
+            `HP: ${p.hp}   🧬${p.biomass}   🧱${p.materials}   ⚙${p.alloys}   ⭐${p.prestige}` +
             (this.game.state.uiMode === "TILE_PLACEMENT"
                 ? `\nPlace tile: hover on position → rotate → click "Place Tile"`
                 : ``);
@@ -977,10 +981,10 @@ export class GameRenderer {
             
             // Динамический лейбл для BUILD
             if (btn.key === "BUILD") {
-                if (this.game.canBuildOutpost()) {
-                    btn.label.text = "🏰 OUTPOST";
-                } else if (this.game.isInOwnOutpost()) {
-                    btn.label.text = "🏗️ DISTRICTS";
+                if (this.game.canBuildBase()) {
+                    btn.label.text = "🏠 BASE";
+                } else if (this.game.isInOwnBase()) {
+                    btn.label.text = "🏗 MODULES";
                 } else {
                     btn.label.text = "BUILD";
                 }
@@ -1152,9 +1156,9 @@ export class GameRenderer {
         resourceContainer.position.set(panelX + 16, yOffset);
 
         const resources = [
-            { label: "P:", value: p.provisions, color: 0xffd700 }, // золотой
-            { label: "T:", value: p.timber, color: 0x8b4513 },     // коричневый
-            { label: "I:", value: p.iron, color: 0x708090 },       // серый
+            { label: "🧬", value: p.biomass, color: 0x00ff88 },    // green
+            { label: "🧱", value: p.materials, color: 0xd97706 },  // orange
+            { label: "⚙", value: p.alloys, color: 0x708090 },      // grey
         ];
 
         let xOffset = 0;
@@ -1186,8 +1190,8 @@ export class GameRenderer {
         this.renderDivider(panelX + 16, yOffset, panelW - 32);
         yOffset += 12;
 
-        // Building Tokens
-        this.renderBuildingTokens(p, panelX + 16, yOffset);
+        // Module Tokens
+        this.renderModuleTokens(p, panelX + 16, yOffset);
         yOffset += 60;
 
         // Разделитель
@@ -1255,15 +1259,15 @@ export class GameRenderer {
         this.heroBoardLayer.addChild(label);
     }
 
-    private renderBuildingTokens(p: { buildings: string[] }, x: number, y: number) {
+    private renderModuleTokens(p: { modules: string[] }, x: number, y: number) {
         const label = new PIXI.Text({
-            text: "Buildings:",
+            text: "Modules:",
             style: new PIXI.TextStyle({ fontSize: 14, fill: 0xffffff, fontWeight: "600" }),
         });
         label.position.set(x, y);
         this.heroBoardLayer.addChild(label);
 
-        if (p.buildings.length === 0) {
+        if (p.modules.length === 0) {
             const none = new PIXI.Text({
                 text: "None",
                 style: new PIXI.TextStyle({ fontSize: 12, fill: 0x888888 }),
@@ -1275,19 +1279,19 @@ export class GameRenderer {
 
         const tokenSize = 30;
         const gap = 8;
-        for (let i = 0; i < p.buildings.length; i++) {
+        for (let i = 0; i < p.modules.length; i++) {
             const token = new PIXI.Graphics();
             token.rect(0, 0, tokenSize, tokenSize);
-            token.fill({ color: 0x8b7355, alpha: 1 });
-            token.stroke({ color: 0xffd700, width: 2 });
+            token.fill({ color: 0x4a5568, alpha: 1 });
+            token.stroke({ color: 0x00ffff, width: 2 });
 
-            const buildingLabel = new PIXI.Text({
-                text: p.buildings[i][0], // первая буква названия
+            const moduleLabel = new PIXI.Text({
+                text: p.modules[i][0], // first letter of name
                 style: new PIXI.TextStyle({ fontSize: 14, fill: 0xffffff, fontWeight: "700" }),
             });
-            buildingLabel.anchor.set(0.5);
-            buildingLabel.position.set(tokenSize / 2, tokenSize / 2);
-            token.addChild(buildingLabel);
+            moduleLabel.anchor.set(0.5);
+            moduleLabel.position.set(tokenSize / 2, tokenSize / 2);
+            token.addChild(moduleLabel);
 
             token.position.set(x + 90 + i * (tokenSize + gap), y - 2);
             this.heroBoardLayer.addChild(token);
@@ -1472,8 +1476,8 @@ export class GameRenderer {
         this.buildMenuLayer.addChild(panel);
         
         // Заголовок
-        const isOutpost = this.game.canBuildOutpost();
-        const titleText = isOutpost ? "🏰 Build Outpost" : "🏗️ Build Districts";
+        const isBase = this.game.canBuildBase();
+        const titleText = isBase ? "🏠 Build Base" : "🏗 Build Modules";
         
         const title = new PIXI.Text({
             text: titleText,
@@ -1489,7 +1493,7 @@ export class GameRenderer {
         
         // Ресурсы игрока
         const resourceText = new PIXI.Text({
-            text: `Your resources: 🪵${p.timber}  ⚙️${p.iron}  🍖${p.provisions}`,
+            text: `Your resources: 🧱${p.materials}  ⚙${p.alloys}  🧬${p.biomass}`,
             style: new PIXI.TextStyle({ fontSize: 14, fill: 0xa0aec0, fontWeight: "600" }),
         });
         resourceText.position.set(panelX + 20, panelY + 50);
@@ -1518,16 +1522,16 @@ export class GameRenderer {
         
         let yOffset = panelY + 80;
         
-        if (isOutpost) {
-            // Показываем карточку Outpost
+        if (isBase) {
+            // Show Base card
             this.renderBuildingCard(panelX + 16, yOffset, panelW - 32, {
-                name: "Outpost",
-                emoji: "🏰",
-                cost: "2 🪵",
-                effect: "Your city - build districts here",
-                canAfford: p.timber >= 2,
+                name: "Base",
+                emoji: "🏠",
+                cost: "2 🧱",
+                effect: "Your base - build modules here",
+                canAfford: p.materials >= 2,
                 onBuild: () => {
-                    this.game.doBuildOutpost();
+                    this.game.doBuildBase();
                     this.game.state.uiMode = "NONE";
                     this.renderAll();
                 },
@@ -1535,16 +1539,16 @@ export class GameRenderer {
         } else {
             // Показываем все здания (districts)
             const buildings = [
-                { type: "WarriorLodge", emoji: "⚔️", name: "Warrior Lodge", cost: "2🪵 1⚙️", effect: "+1 damage on ⚔ roll", costCheck: p.timber >= 2 && p.iron >= 1 },
-                { type: "ShieldHall", emoji: "🛡️", name: "Shield Hall", cost: "2🪵 1⚙️", effect: "Ignore 1 💀 per combat", costCheck: p.timber >= 2 && p.iron >= 1 },
-                { type: "AxeHall", emoji: "🪓", name: "Axe Hall", cost: "1🪵 2⚙️", effect: "1 reroll per combat", costCheck: p.timber >= 1 && p.iron >= 2 },
-                { type: "Storehouse", emoji: "📦", name: "Storehouse", cost: "3🪵", effect: "+1 resource on Gather", costCheck: p.timber >= 3 },
-                { type: "RelicHall", emoji: "🏛️", name: "Relic Hall", cost: "2🪵 2⚙️", effect: "Activates relics", costCheck: p.timber >= 2 && p.iron >= 2 },
-                { type: "Shrine", emoji: "⛩️", name: "Shrine", cost: "3🪵 3⚙️", effect: "Ultimate power", costCheck: p.timber >= 3 && p.iron >= 3 },
+                { type: "AssaultBay", emoji: "⚔️", name: "Assault Bay", cost: "2🧱 1⚙", effect: "+1 damage on ⚔ roll", costCheck: p.materials >= 2 && p.alloys >= 1 },
+                { type: "ShieldArray", emoji: "🛡️", name: "Shield Array", cost: "2🧱 1⚙", effect: "Ignore 1 💀 per combat", costCheck: p.materials >= 2 && p.alloys >= 1 },
+                { type: "TacticalUplink", emoji: "📡", name: "Tactical Uplink", cost: "1🧱 2⚙", effect: "1 reroll per combat", costCheck: p.materials >= 1 && p.alloys >= 2 },
+                { type: "SupplyDepot", emoji: "📦", name: "Supply Depot", cost: "3🧱", effect: "+1 resource on Gather", costCheck: p.materials >= 3 },
+                { type: "RelicVault", emoji: "🔮", name: "Relic Vault", cost: "2🧱 2⚙", effect: "Activates relics", costCheck: p.materials >= 2 && p.alloys >= 2 },
+                { type: "BeaconSpire", emoji: "📡", name: "Beacon Spire", cost: "3🧱 3⚙", effect: "Ultimate power", costCheck: p.materials >= 3 && p.alloys >= 3 },
             ];
             
             for (const b of buildings) {
-                const alreadyBuilt = p.buildings.includes(b.type as any);
+                const alreadyBuilt = p.modules.includes(b.type as any);
                 
                 this.renderBuildingCard(panelX + 16, yOffset, panelW - 32, {
                     name: b.name,
@@ -1554,7 +1558,7 @@ export class GameRenderer {
                     canAfford: b.costCheck && !alreadyBuilt,
                     alreadyBuilt,
                     onBuild: () => {
-                        this.game.doBuildDistricts([b.type as any]);
+                        this.game.doBuildModules([b.type as any]);
                         this.renderAll(); // Обновляем UI, не закрываем меню
                     },
                 });

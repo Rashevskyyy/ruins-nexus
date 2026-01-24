@@ -1,7 +1,7 @@
 export enum TileType {
-    Settlement = "Settlement",
+    LandingHub = "LandingHub", // Center tile (was Settlement)
     Empty = "Empty",
     Resource = "Resource",
-    Enemy = "Enemy",
-    Final = "Final", // Финальный тайл - триггерит конец игры
+    FinalTile = "FinalTile",
+    Base = "Base", // Player's base (was City)
 }

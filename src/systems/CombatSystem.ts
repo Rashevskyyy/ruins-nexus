@@ -1,11 +1,21 @@
 import type { Player } from "../entities/Player";
 import type { Tile } from "../board/Tile";
-import { DiceResolver } from "./DiceResolver";
+import { DiceResolver, type DiceResult } from "./DiceResolver";
 
 export class CombatSystem {
     private dice = new DiceResolver();
 
-    fightOnce(player: Player, tile: Tile): { killed: boolean; roll: { swords: number; skulls: number } } {
+    /**
+     * Roll Hero Die (for Final Threat combat)
+     */
+    rollDie(): DiceResult {
+        return this.dice.rollHeroDie();
+    }
+
+    /**
+     * Fight local threat on a tile
+     */
+    fightOnce(player: Player, tile: Tile): { killed: boolean; roll: DiceResult } {
         const hp = tile.enemyHp ?? 2;
         tile.enemyHp = hp;
 

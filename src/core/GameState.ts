@@ -11,32 +11,34 @@ export type GameState = {
     players: Player[];
     currentPlayerIndex: number;
     phase: Phase;
-    round: number; // полный круг по всем игрокам
-    actionPoints: number; // 2 "слота действий" (по правилам Karak 2)
+    round: number; // full round = all players had a turn
+    actionPoints: number; // 2 action slots per turn (Karak 2 rules)
     uiMode: UIMode;
-    
-    // По правилам Karak 2: каждый слот = optional Move (перед) + optional Action (после)
-    // Movement всегда ПЕРЕД action, никогда после!
-    // Move без action = "пропуск слота" (слот всё равно тратится)
+
+    // Karak 2 rules: each slot = optional Move (before) + optional Action (after)
+    // Movement is always BEFORE action, never after!
+    // Move without action = slot consumed (wasted)
     movedInCurrentSlot: boolean;
     actionUsedInCurrentSlot: boolean;
 
-    // NEW: Колода тайлов (40 Tier 1 + 20 Tier 2 + Final Tile)
+    // Tile Deck (40 T1 + 20 T2 + Final Tile)
     tileDeck: TileDeck;
 
-    // Tile placement (для Explore)
-    pendingTileTier?: number; // tier тайла, который нужно разместить
-    pendingTileRotation: number; // 0-5 (0° - 300°, шаг 60°)
-    selectedPlacementPosition: HexCoord | null; // Выбранная позиция для размещения (hover)
+    // Tile placement (for Explore)
+    pendingTileTier?: number;
+    pendingTileRotation: number; // 0-5 (0° - 300°, step 60°)
+    selectedPlacementPosition: HexCoord | null;
 
-    // Event log (последние события для UI)
-    eventLog: string[]; // последние 10 событий
-    
+    // Event log (last 10 events for UI)
+    eventLog: string[];
+
     // Final Phase
-    isFinalPhase: boolean;        // триггерится когда вытянут Final Tile
-    finalPhaseRoundsLeft: number; // сколько раундов до конца игры (обычно 2)
-    gameOver: boolean;            // игра завершена
-    winnerId: string | null;      // ID победителя
+    isFinalPhase: boolean;
+    finalRoundsLeft: number; // 6 rounds after Final Tile
+    finalThreatHp: number;   // 40 HP shared boss
+    gameOver: boolean;
+    winnerId: string | null;
+    missionFailed: boolean;  // true if Final Threat survives countdown
 };
 
 export function createInitialState(): GameState {
@@ -47,17 +49,17 @@ export function createInitialState(): GameState {
         position: { q: 0, r: 0 },
         hp: 5,
         maxHp: 5,
-        provisions: 0,
-        timber: 0,
-        iron: 0,
+        biomass: 0,
+        materials: 0,
+        alloys: 0,
         inventory: {
             weapons: [null, null, null, null],
             spells: [null, null, null, null],
             amulet: null,
         },
-        buildings: [],
-        prestige: 0, // Очки победы
-        outpostPosition: null, // Город (только 1)
+        modules: [],
+        prestige: 0,
+        basePosition: null,
     }));
 
     return {
@@ -76,8 +78,10 @@ export function createInitialState(): GameState {
         eventLog: [],
         // Final Phase
         isFinalPhase: false,
-        finalPhaseRoundsLeft: 0,
+        finalRoundsLeft: 0,
+        finalThreatHp: 0, // Set to 40 when Final Tile is revealed
         gameOver: false,
         winnerId: null,
+        missionFailed: false,
     };
 }

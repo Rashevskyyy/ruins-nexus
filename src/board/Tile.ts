@@ -1,8 +1,8 @@
-import type {HexCoord} from "./Hex.ts";
-import type {TileType} from "./TileTypes.ts";
-import type {ResourceMap} from "./TileDeck.ts";
+import type { HexCoord } from "./Hex.ts";
+import type { TileType } from "./TileTypes.ts";
+import type { ResourceMap } from "./TileDeck.ts";
 
-export type ResourceKind = "Provisions" | "Timber" | "Iron";
+export type ResourceKind = "Biomass" | "Materials" | "Alloys";
 
 export type TileTier = 1 | 2 | 3;
 
@@ -10,30 +10,25 @@ export type Tile = {
     coord: HexCoord;
     discovered: boolean;
     type: TileType;
-    tier?: TileTier; // 1 = easy (1 монстр), 2 = medium (2 монстра), 3 = hard (события/реликвии)
+    tier?: TileTier; // 1 = easy, 2 = medium, 3 = Final
 
-    // NEW: Множественные ресурсы (как в Караке)
-    resources?: ResourceMap; // { Provisions: 1, Timber: 1 } или { Timber: 3 }
-    
-    // OLD (для обратной совместимости, удалим позже)
-    resource?: { kind: ResourceKind; amount: number };
+    // Resources (Cosmic Frontier)
+    resources?: ResourceMap; // { biomass: 1, materials: 1 } etc.
 
-    // NEW: Непроходимые горы на гранях (0-5, после rotation)
-    blockedEdges?: number[]; // [0, 2, 4] = грани 0, 2, 4 заблокированы
-    rotation?: number; // 0-5 (поворот тайла)
+    // Blocked edges (mountains/cliffs) - 0-5, after rotation
+    blockedEdges?: number[];
+    rotation?: number; // 0-5 (tile rotation)
 
-    // персональный кулдаун сбора
+    // Per-player gather cooldown
     cooldownUntilRoundByPlayer?: Record<string, number>;
 
-    // Энкаунтер на тайле
+    // Local threat (encounter)
     encounterActive?: boolean;
-    enemyHp?: number; // зависит от tier: tier 1 = 2 HP, tier 2 = 4 HP, tier 3 = 6 HP
-    
-    // Final Tile - триггерит конец игры
-    isFinalTile?: boolean;
-    
-    // Постройка на тайле (город/аутпост игрока)
-    ownerId?: string;           // ID игрока который построил здесь
-    buildingType?: string;      // Тип здания
-};
+    enemyHp?: number; // tier 1 = 2 HP, tier 2 = 4 HP
 
+    // Final Tile - triggers Final Phase
+    isFinalTile?: boolean;
+
+    // Player's Base on this tile
+    ownerId?: string;
+};

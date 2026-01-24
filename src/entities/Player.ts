@@ -1,6 +1,6 @@
 import type { HexCoord } from "../board/Hex";
 import type { Item } from "./Item";
-import type { BuildingType } from "./BuildingType";
+import type { ModuleType } from "./BuildingType";
 
 export type Player = {
     id: string;
@@ -8,9 +8,10 @@ export type Player = {
     hp: number;
     maxHp: number; // для отрисовки всех слотов HP
 
-    provisions: number;
-    timber: number;
-    iron: number;
+    // Resources (Cosmic Frontier theme)
+    biomass: number;   // 🧬 healing/support, crew upkeep
+    materials: number; // 🧱 base modules, infrastructure
+    alloys: number;    // ⚙ advanced modules, upgrades
 
     // Hero Board
     inventory: {
@@ -18,12 +19,13 @@ export type Player = {
         spells: (Item | null)[];  // 4 слота
         amulet: Item | null;      // 1 слот
     };
-    buildings: BuildingType[]; // построенные районы в городе
     
-    // Prestige - очки победы
-    // Начисляются за: победу над монстрами, постройки, исследование Tier II
+    // Built modules in player's Base
+    modules: ModuleType[];
+    
+    // Prestige - victory points
     prestige: number;
     
-    // Outpost (город) - только 1 на игрока
-    outpostPosition: HexCoord | null;
+    // Base (only 1 per player)
+    basePosition: HexCoord | null;
 };

@@ -1,44 +1,45 @@
 import type { Tile } from "../board/Tile";
 import { TileType } from "../board/TileTypes";
-import type { TileDeck, TileTemplate } from "../board/TileDeck";
+import type { TileDeck } from "../board/TileDeck";
 
 export class ExplorationSystem {
     constructor(private tileDeck: TileDeck) {}
 
     /**
-     * Вытягивает тайл из колоды и применяет к Tile
-     * NEW: работает с колодой вместо рандомной генерации
+     * Draw tile from deck and apply to Tile
      */
     applyTemplate(tile: Tile): boolean {
         if (tile.discovered) return false;
 
-        // Вытягиваем тайл из колоды
+        // Draw from deck
         const template = this.tileDeck.drawTile();
         if (!template) {
-            // Колода кончилась
             console.warn("Tile deck exhausted!");
             return false;
         }
 
-        // Применяем данные из template к tile
+        // Apply template data to tile
         tile.discovered = true;
-        tile.type = template.isFinalTile ? TileType.Final : TileType.Resource;
-        tile.tier = template.tier;
+        tile.type = template.isFinalTile ? TileType.FinalTile : TileType.Resource;
+        tile.tier = template.tier as 1 | 2 | 3;
         tile.resources = template.resources;
         tile.blockedEdges = template.blockedEdges;
         tile.isFinalTile = template.isFinalTile;
-        // rotation применится позже при размещении
+        // rotation is applied later during placement
 
-        // Монстр
-        tile.encounterActive = true;
-        tile.enemyHp = template.enemyHp;
+        // Local threat (Final Tile has no regular encounter - Final Threat is global)
+        if (!template.isFinalTile) {
+            tile.encounterActive = true;
+            tile.enemyHp = template.enemyHp;
+        } else {
+            tile.encounterActive = false;
+        }
 
         return true;
     }
 
     /**
-     * OLD reveal method (для обратной совместимости)
-     * TODO: удалить после полного перехода на applyTemplate
+     * Legacy reveal method (for compatibility)
      */
     reveal(tile: Tile): void {
         this.applyTemplate(tile);
