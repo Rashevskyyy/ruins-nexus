@@ -109,6 +109,9 @@ export class Game {
                 return;
             }
 
+            // Mark tile as discovered
+            newTile.discovered = true;
+
             // Apply rotation to blockedEdges
             if (newTile.blockedEdges && this.state.pendingTileRotation > 0) {
                 newTile.blockedEdges = applyRotation(

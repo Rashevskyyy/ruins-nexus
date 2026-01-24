@@ -125,7 +125,9 @@ export class GameRenderer {
         this.HEX_POINTS = this.buildHexPoints(this.HEX_SIZE - 2);
 
         this.app.stage.addChild(this.boardLayer);
+        this.boardLayer.sortableChildren = true; // Enable zIndex sorting
         this.boardLayer.addChild(this.labelsLayer);
+        this.labelsLayer.zIndex = 100; // Labels поверх tiles
 
         this.app.stage.addChild(this.ghostPreviewLayer); // Тексты на ghost hexes
         this.ghostPreviewLayer.eventMode = "none"; // НЕ кликабельный!
@@ -454,25 +456,25 @@ export class GameRenderer {
             // Multiplayer: только если мой ход
             view.eventMode = this.isMyTurn ? "static" : "none";
             view.cursor = this.isMyTurn ? "pointer" : "default";
-            
-            view.on("pointerdown", () => {
+
+                view.on("pointerdown", () => {
                 if (!this.isMyTurn) return;
                 // Show context menu on tile instead of direct action
                 this.showContextMenu(tile.coord);
-            });
+                });
 
-            view.on("pointerover", () => {
+                view.on("pointerover", () => {
                 if (!this.isMyTurn) return;
-                this.hoveredKey = key;
-                this.renderBoard();
-                this.renderLabels();
-            });
+                    this.hoveredKey = key;
+                    this.renderBoard();
+                    this.renderLabels();
+                });
 
-            view.on("pointerout", () => {
-                if (this.hoveredKey === key) this.hoveredKey = null;
-                this.renderBoard();
-                this.renderLabels();
-            });
+                view.on("pointerout", () => {
+                    if (this.hoveredKey === key) this.hoveredKey = null;
+                    this.renderBoard();
+                    this.renderLabels();
+                });
 
             const { x, y } = this.hexToPixel(tile.coord);
             view.position.set(x, y);
@@ -531,8 +533,25 @@ export class GameRenderer {
             // Получаем ВСЕ позиции (включая заблокированные)
             const allPositions = this.getAllPlacementPositions();
             
+            // Если позиция уже выбрана, показываем только её
+            const hasSelectedPosition = this.game.state.selectedPlacementPosition !== null;
+            
             for (const { coord, blocked } of allPositions) {
                 const targetKey = hexKey(coord);
+
+                // Проверяем выбрана ли эта позиция
+                const isSelected = this.game.state.selectedPlacementPosition 
+                    && this.game.state.selectedPlacementPosition.q === coord.q 
+                    && this.game.state.selectedPlacementPosition.r === coord.r;
+
+                // Если есть выбранная позиция и это не она - скрываем
+                if (hasSelectedPosition && !isSelected) {
+                    const ghostView = this.tileViews.get(targetKey);
+                    if (ghostView) {
+                        ghostView.visible = false;
+                    }
+                    continue;
+                }
 
                 let ghostView = this.tileViews.get(targetKey);
                 if (!ghostView) {
@@ -562,11 +581,6 @@ export class GameRenderer {
                 const { x, y } = this.hexToPixel(coord);
                 ghostView.position.set(x, y);
                 ghostView.visible = true;
-
-                // Проверяем выбрана ли эта позиция
-                const isSelected = this.game.state.selectedPlacementPosition 
-                    && this.game.state.selectedPlacementPosition.q === coord.q 
-                    && this.game.state.selectedPlacementPosition.r === coord.r;
 
                 ghostView.clear();
                 ghostView.poly(this.HEX_POINTS);
@@ -773,35 +787,39 @@ export class GameRenderer {
             return "🏰";
         }
 
-        // Any discovered tile can show resources (if it has them)
-        // если монстр жив — показываем HP врага
-        if (tile.encounterActive) {
-            return `⚔️${tile.enemyHp || "?"}`;
-        }
-
-        // Множественные ресурсы - check for any tile
+        // Show resources first (always if tile has them)
+        const emojis: string[] = [];
         if (tile.resources) {
-            const emojis: string[] = [];
             const res = tile.resources;
             if (res.biomass && res.biomass > 0) emojis.push("🧬".repeat(res.biomass));
             if (res.materials && res.materials > 0) emojis.push("🧱".repeat(res.materials));
             if (res.alloys && res.alloys > 0) emojis.push("⚙".repeat(res.alloys));
-            if (emojis.length > 0) return emojis.join("");
-            // DEBUG: resources object exists but empty
-            console.log("[DEBUG] Tile has resources object but no values:", tile.coord, tile.resources);
-        } else if (tile.discovered && !tile.encounterActive && tile.type !== TileType.LandingHub && !tile.ownerId) {
-            // DEBUG: discovered tile without resources
-            console.log("[DEBUG] Discovered tile without resources:", tile.coord, tile);
         }
 
-        return "";
+        // If monster is alive, show HP after resources
+        if (tile.encounterActive) {
+            emojis.push(`⚔️${tile.enemyHp || "?"}`);
+        }
+
+        return emojis.join(" ");
     }
 
-    private ensureLabel(key: string): PIXI.Text {
-        let label = this.tileLabels.get(key);
-        if (!label) {
-            label = new PIXI.Text({
-                text: "",
+    private renderLabels() {
+        // Clear all existing labels and recreate
+        // This ensures labels are always in sync with tile data
+        this.labelsLayer.removeChildren();
+        this.tileLabels.clear();
+        
+        const allTiles = this.game.state.board.getAllTiles();
+        
+        for (const tile of allTiles) {
+            const key = hexKey(tile.coord);
+            const text = this.getTileLabel(tile);
+            
+            if (!text) continue; // Skip empty labels
+
+            const label = new PIXI.Text({
+                text: text,
                 style: new PIXI.TextStyle({
                     fontSize: 14,
                     fill: 0xffffff,
@@ -810,23 +828,12 @@ export class GameRenderer {
             });
             label.anchor.set(0.5);
             label.eventMode = "none";
+            
+            const { x, y } = this.hexToPixel(tile.coord);
+            label.position.set(x, y);
+            
             this.tileLabels.set(key, label);
             this.labelsLayer.addChild(label);
-        }
-        return label;
-    }
-
-    private renderLabels() {
-        for (const tile of this.game.state.board.getAllTiles()) {
-            const key = hexKey(tile.coord);
-            const text = this.getTileLabel(tile);
-
-            const label = this.ensureLabel(key);
-            const { x, y } = this.hexToPixel(tile.coord);
-
-            label.text = text;
-            label.position.set(x, y);
-            label.visible = text.length > 0;
         }
     }
 
@@ -891,6 +898,9 @@ export class GameRenderer {
         // Рисуем индикаторы только в режиме TILE_PLACEMENT и только для активного игрока
         if (this.game.state.uiMode !== "TILE_PLACEMENT") return;
         if (!this.isMyTurn) return; // Не показывать другим игрокам
+
+        // Если позиция уже выбрана - не показываем точки (они не нужны)
+        if (this.game.state.selectedPlacementPosition !== null) return;
 
         // Получаем валидные позиции с учетом blocked edges
         const validPositions = this.getValidPlacementPositions();
@@ -1412,7 +1422,7 @@ export class GameRenderer {
             itemText.anchor.set(0.5);
             itemText.position.set(size / 2, size / 2);
             container.addChild(itemText);
-        } else {
+            } else {
             // Пустой слот с subtle inner shadow эффектом
             bg.fill({ color: 0x1a1f2e, alpha: 0.8 });
             bg.stroke({ color: 0x2d3748, width: 2 });

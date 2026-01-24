@@ -151,10 +151,11 @@ async function main() {
 
     socketClient.onGameUpdate = (data: { action: any; state: any; fromPlayer: string }) => {
         if (!game || !renderer) return;
-        if (data.fromPlayer === myPlayerId) return;
         
-        console.log(`[Main] Received update from ${data.fromPlayer}:`, data.action.type);
+        const isOwnUpdate = data.fromPlayer === myPlayerId;
+        console.log(`[Main] Received update from ${data.fromPlayer}:`, data.action.type, `tiles: ${data.state.tiles?.length}`, isOwnUpdate ? "(own)" : "");
         
+        // Always apply server state for consistent sync
         applyServerState(data.state);
         renderer.renderAll();
     };
@@ -377,6 +378,9 @@ async function main() {
         if (!game || !renderer) return;
         
         game.onDiceRoll = (result, callback) => {
+            // IMPORTANT: Render BEFORE showing dice so tiles are updated
+            renderer!.renderAll();
+            
             renderer!.showDiceRoll(result, () => {
                 callback();
                 renderer!.renderAll();
