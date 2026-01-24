@@ -528,10 +528,11 @@ export class GameRenderer {
         
         // Показываем ghost hexes только для активного игрока
         if (this.game.state.uiMode === "TILE_PLACEMENT" && this.isMyTurn) {
-            for (const targetKey of placementTargets) {
-                // Парсим координаты из ключа "q,r"
-                const [q, r] = targetKey.split(",").map(Number);
-                const coord = { q, r };
+            // Получаем ВСЕ позиции (включая заблокированные)
+            const allPositions = this.getAllPlacementPositions();
+            
+            for (const { coord, blocked } of allPositions) {
+                const targetKey = hexKey(coord);
 
                 let ghostView = this.tileViews.get(targetKey);
                 if (!ghostView) {
@@ -543,24 +544,24 @@ export class GameRenderer {
                 
                 // Multiplayer: только если мой ход
                 ghostView.eventMode = this.isMyTurn ? "static" : "none";
-                ghostView.cursor = this.isMyTurn ? "pointer" : "default";
+                ghostView.cursor = blocked ? "not-allowed" : "pointer";
                 ghostView.removeAllListeners();
 
-                // NEW: Hover вместо клика для выбора позиции
+                // Hover для выбора позиции (только если не заблокировано)
                 ghostView.on("pointerover", () => {
                     if (!this.isMyTurn) return;
+                    // Выбираем позицию даже если заблокирована (чтобы показать preview)
                     this.game.selectPlacementPosition(coord);
                     this.renderAll();
                 });
 
                 ghostView.on("pointerout", () => {
                     // Не сбрасываем сразу, только при выходе за все ghost hexes
-                    // Это позволяет держать выбор при переходе между hexes
                 });
 
                 const { x, y } = this.hexToPixel(coord);
                 ghostView.position.set(x, y);
-                ghostView.visible = true; // Делаем видимым (был скрыт выше)
+                ghostView.visible = true;
 
                 // Проверяем выбрана ли эта позиция
                 const isSelected = this.game.state.selectedPlacementPosition 
@@ -569,8 +570,24 @@ export class GameRenderer {
 
                 ghostView.clear();
                 ghostView.poly(this.HEX_POINTS);
-                ghostView.fill({ color: isSelected ? 0x00ff00 : 0x00ffff, alpha: isSelected ? 0.25 : 0.15 });
-                ghostView.stroke({ color: isSelected ? 0x00ff00 : 0x00ffff, width: isSelected ? 6 : 4, alpha: 1 });
+                
+                // Цвет зависит от состояния: заблокированный = красный, выбран = зеленый, обычный = голубой
+                let fillColor = 0x00ffff;
+                let strokeColor = 0x00ffff;
+                let alpha = 0.15;
+                
+                if (blocked) {
+                    fillColor = 0xff4444;
+                    strokeColor = 0xff4444;
+                    alpha = 0.2;
+                } else if (isSelected) {
+                    fillColor = 0x00ff00;
+                    strokeColor = 0x00ff00;
+                    alpha = 0.25;
+                }
+                
+                ghostView.fill({ color: fillColor, alpha });
+                ghostView.stroke({ color: strokeColor, width: isSelected ? 6 : 4, alpha: 1 });
 
                 // PREVIEW: Показываем что будет на тайле
                 const nextTile = this.game.state.tileDeck.peekNextTile();
@@ -615,18 +632,33 @@ export class GameRenderer {
                         text: `T${nextTile.tier}`,
                         style: new PIXI.TextStyle({
                             fontSize: 12,
-                            fill: 0x00ffff,
+                            fill: blocked ? 0xff6666 : 0x00ffff,
                             fontWeight: "600",
                         }),
                     });
                     tierText.anchor.set(0.5);
                     tierText.position.set(x, y + 15); // Абсолютные координаты
                     this.ghostPreviewLayer.addChild(tierText);
+                    
+                    // Показываем "BLOCKED" если заблокировано
+                    if (blocked) {
+                        const blockedText = new PIXI.Text({
+                            text: "🚫 ROTATE",
+                            style: new PIXI.TextStyle({
+                                fontSize: 11,
+                                fill: 0xff6666,
+                                fontWeight: "700",
+                            }),
+                        });
+                        blockedText.anchor.set(0.5);
+                        blockedText.position.set(x, y + 30);
+                        this.ghostPreviewLayer.addChild(blockedText);
+                    }
                 }
 
                 // Show rotate/place controls below selected ghost tile
                 if (isSelected) {
-                    this.renderTilePlacementControls(x, y);
+                    this.renderTilePlacementControls(x, y, blocked);
                 }
 
                 ghostView.visible = true;
@@ -889,17 +921,17 @@ export class GameRenderer {
     }
     
     /**
-     * Получить валидные позиции для размещения тайла
-     * Учитывает blocked edges с учетом текущего rotation
+     * Получить все соседние позиции для размещения тайла
+     * Возвращает позиции с флагом blocked
      */
-    private getValidPlacementPositions(): HexCoord[] {
+    private getAllPlacementPositions(): Array<{ coord: HexCoord; blocked: boolean }> {
         const current = this.game.state.players[this.game.state.currentPlayerIndex];
         const currentTile = this.game.state.board.getTile(current.position);
         const nextTile = this.game.state.tileDeck.peekNextTile();
         
         if (!currentTile || !nextTile) return [];
         
-        const validPositions: HexCoord[] = [];
+        const positions: Array<{ coord: HexCoord; blocked: boolean }> = [];
         
         for (const neighborCoord of neighbors(current.position)) {
             const existing = this.game.state.board.getTile(neighborCoord);
@@ -919,14 +951,21 @@ export class GameRenderer {
             };
             
             // Проверяем можно ли зайти
-            if (!canMoveBetween(currentTile, neighborCoord, tempTile)) {
-                continue; // Заблокировано горами
-            }
+            const blocked = !canMoveBetween(currentTile, neighborCoord, tempTile);
             
-            validPositions.push(neighborCoord);
+            positions.push({ coord: neighborCoord, blocked });
         }
         
-        return validPositions;
+        return positions;
+    }
+
+    /**
+     * Получить только валидные позиции (без заблокированных)
+     */
+    private getValidPlacementPositions(): HexCoord[] {
+        return this.getAllPlacementPositions()
+            .filter(p => !p.blocked)
+            .map(p => p.coord);
     }
 
     // --------------------
@@ -2223,7 +2262,7 @@ export class GameRenderer {
     private hintContainer: PIXI.Container | null = null;
 
     // Render rotate/place controls below ghost tile
-    private renderTilePlacementControls(tileX: number, tileY: number): void {
+    private renderTilePlacementControls(tileX: number, tileY: number, blocked: boolean = false): void {
         // Transform to screen coordinates
         const screenX = (tileX + this.panX) * this.zoom + this.app.screen.width / 2;
         const screenY = (tileY + this.panY) * this.zoom + this.app.screen.height / 2;
@@ -2313,42 +2352,59 @@ export class GameRenderer {
         
         controlsContainer.addChild(rotateRightBtn);
         
-        // Place button (✓ PLACE)
+        // Place button (✓ PLACE) - disabled if blocked
         const placeBtnW = 80;
         const placeBtnX = (btnW + gap) * 2;
         const placeBtn = new PIXI.Graphics();
         placeBtn.roundRect(placeBtnX, 0, placeBtnW, btnH, 8);
-        placeBtn.fill({ color: 0x2d6a4d });
-        placeBtn.stroke({ color: 0x4ade80, width: 2 });
-        placeBtn.eventMode = "static";
-        placeBtn.cursor = "pointer";
+        
+        if (blocked) {
+            // Disabled state - gray
+            placeBtn.fill({ color: 0x444444 });
+            placeBtn.stroke({ color: 0x666666, width: 2 });
+            placeBtn.eventMode = "none";
+            placeBtn.cursor = "not-allowed";
+        } else {
+            // Enabled state - green
+            placeBtn.fill({ color: 0x2d6a4d });
+            placeBtn.stroke({ color: 0x4ade80, width: 2 });
+            placeBtn.eventMode = "static";
+            placeBtn.cursor = "pointer";
+        }
         placeBtn.hitArea = new PIXI.Rectangle(placeBtnX, 0, placeBtnW, btnH);
         
         const placeLabel = new PIXI.Text({
-            text: "✓ PLACE",
-            style: new PIXI.TextStyle({ fontSize: 13, fill: 0xffffff, fontWeight: "700" }),
+            text: blocked ? "🚫 BLOCKED" : "✓ PLACE",
+            style: new PIXI.TextStyle({ 
+                fontSize: blocked ? 11 : 13, 
+                fill: blocked ? 0x888888 : 0xffffff, 
+                fontWeight: "700" 
+            }),
         });
         placeLabel.anchor.set(0.5);
         placeLabel.position.set(placeBtnX + placeBtnW / 2, btnH / 2);
         placeLabel.eventMode = "none";
         
         placeBtn.addChild(placeLabel);
-        placeBtn.on("pointerdown", () => {
-            this.game.placeTileAtSelected();
-            this.renderAll();
-        });
-        placeBtn.on("pointerover", () => {
-            placeBtn.clear();
-            placeBtn.roundRect(placeBtnX, 0, placeBtnW, btnH, 8);
-            placeBtn.fill({ color: 0x3d8a5d });
-            placeBtn.stroke({ color: 0x6afe90, width: 2 });
-        });
-        placeBtn.on("pointerout", () => {
-            placeBtn.clear();
-            placeBtn.roundRect(placeBtnX, 0, placeBtnW, btnH, 8);
-            placeBtn.fill({ color: 0x2d6a4d });
-            placeBtn.stroke({ color: 0x4ade80, width: 2 });
-        });
+        
+        if (!blocked) {
+            placeBtn.on("pointerdown", () => {
+                this.game.placeTileAtSelected();
+                this.renderAll();
+            });
+            placeBtn.on("pointerover", () => {
+                placeBtn.clear();
+                placeBtn.roundRect(placeBtnX, 0, placeBtnW, btnH, 8);
+                placeBtn.fill({ color: 0x3d8a5d });
+                placeBtn.stroke({ color: 0x6afe90, width: 2 });
+            });
+            placeBtn.on("pointerout", () => {
+                placeBtn.clear();
+                placeBtn.roundRect(placeBtnX, 0, placeBtnW, btnH, 8);
+                placeBtn.fill({ color: 0x2d6a4d });
+                placeBtn.stroke({ color: 0x4ade80, width: 2 });
+            });
+        }
         
         controlsContainer.addChild(placeBtn);
         
