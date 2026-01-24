@@ -774,19 +774,20 @@ export class GameRenderer {
         }
 
         // Resource: показываем эмодзи для ресурсов
-        if (tile.type === TileType.Resource) {
+        if (tile.type === TileType.Resource || tile.type === TileType.FinalTile) {
             // если монстр жив — показываем HP врага
             if (tile.encounterActive) {
                 return `⚔️${tile.enemyHp || "?"}`;
             }
 
-            // NEW: Множественные ресурсы
+            // Множественные ресурсы
             if (tile.resources) {
                 const emojis: string[] = [];
-                if (tile.resources.biomass) emojis.push("🧬".repeat(tile.resources.biomass));
-                if (tile.resources.materials) emojis.push("🧱".repeat(tile.resources.materials));
-                if (tile.resources.alloys) emojis.push("⚙".repeat(tile.resources.alloys));
-                return emojis.join("");
+                const res = tile.resources;
+                if (res.biomass && res.biomass > 0) emojis.push("🧬".repeat(res.biomass));
+                if (res.materials && res.materials > 0) emojis.push("🧱".repeat(res.materials));
+                if (res.alloys && res.alloys > 0) emojis.push("⚙".repeat(res.alloys));
+                if (emojis.length > 0) return emojis.join("");
             }
 
             // OLD: Обратная совместимость
@@ -2267,7 +2268,8 @@ export class GameRenderer {
         const screenX = (tileX + this.panX) * this.zoom + this.app.screen.width / 2;
         const screenY = (tileY + this.panY) * this.zoom + this.app.screen.height / 2;
         
-        const controlsY = screenY + this.HEX_SIZE * this.zoom + 15;
+        // Подняли кнопки ближе к тайлу (было +15, стало -5)
+        const controlsY = screenY + this.HEX_SIZE * this.zoom * 0.6;
         const btnW = 50;
         const btnH = 36;
         const gap = 10;
