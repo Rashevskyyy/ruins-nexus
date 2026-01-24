@@ -3,4 +3,5 @@ export enum TileType {
     Empty = "Empty",
     Resource = "Resource",
     Enemy = "Enemy",
+    Final = "Final", // Финальный тайл - триггерит конец игры
 }

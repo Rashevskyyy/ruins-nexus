@@ -29,16 +29,16 @@ window.addEventListener("keydown", (e) => {
     // Работает независимо от раскладки (EN/RU/UA)
     switch (e.code) {
         case "Digit1":
-            game.setSelectedAction("PRIMARY");
+            game.doGather();
             break;
         case "Digit2":
-            game.setSelectedAction("GATHER");
+            game.doTrade();
             break;
         case "Digit3":
-            game.setSelectedAction("EXPLORE");
+            game.doExplore();
             break;
         case "Digit4":
-            game.setSelectedAction("SETTLEMENT");
+            // Build (MVP: not implemented yet)
             break;
         default:
             return;
@@ -46,4 +46,5 @@ window.addEventListener("keydown", (e) => {
 
     // чтобы не было побочных эффектов типа скролла/быстрого поиска
     e.preventDefault();
+    renderer.renderAll();
 });

@@ -3,21 +3,36 @@ import type { Game } from "../core/Game";
 import type { HexCoord } from "../board/Hex";
 import { hexKey, neighbors } from "../board/Hex";
 import { TileType } from "../board/TileTypes";
+import { canMoveBetween } from "../board/BlockedEdges";
+import { type EdgeIndex, getEdgeVertices } from "../board/HexEdges";
+import type { Tile } from "../board/Tile";
 
-type ActionKey = "PRIMARY" | "GATHER" | "EXPLORE" | "SETTLEMENT";
+type ActionKey = "GATHER" | "TRADE" | "EXPLORE" | "BUILD";
 
 export class GameRenderer {
-    private HEX_SIZE = 42;
+    private HEX_SIZE = 50;
     private HEX_POINTS: number[];
 
     private boardLayer = new PIXI.Container();
     private playersLayer = new PIXI.Container();
     private hudLayer = new PIXI.Container();
     private labelsLayer = new PIXI.Container();
+    private heroBoardLayer = new PIXI.Container(); // NEW: Hero Board panel
+    private rotationIndicatorsLayer = new PIXI.Container(); // НЕ кликабельный слой для индикаторов
+    private buildMenuLayer = new PIXI.Container(); // BUILD MENU panel
 
     private tileViews = new Map<string, PIXI.Graphics>();
     private tileLabels = new Map<string, PIXI.Text>();
     private playerViews: PIXI.Graphics[] = [];
+
+    // Zoom & Pan
+    private zoom = 1;
+    private minZoom = 0.5;
+    private maxZoom = 2;
+    private panX = 0;
+    private panY = 0;
+    private isDragging = false;
+    private dragStart = { x: 0, y: 0 };
 
     private hoverOverlays = new Map<string, PIXI.Graphics>();
     private hoveredKey: string | null = null;
@@ -38,30 +53,164 @@ export class GameRenderer {
         label: PIXI.Text;
     }> = [];
 
+    // Rotate button (только для TILE_PLACEMENT)
+    private rotateButton = {
+        bg: new PIXI.Graphics(),
+        label: new PIXI.Text({
+            text: "🔄 Rotate",
+            style: new PIXI.TextStyle({
+                fontSize: 12,
+                fill: 0xffffff,
+                fontWeight: "700",
+            }),
+        }),
+    };
+
+    // Place Tile button (только для TILE_PLACEMENT)
+    private placeTileButton = {
+        bg: new PIXI.Graphics(),
+        label: new PIXI.Text({
+            text: "✓ Place Tile",
+            style: new PIXI.TextStyle({
+                fontSize: 12,
+                fill: 0xffffff,
+                fontWeight: "700",
+            }),
+        }),
+    };
+
+    // Event Log
+    private eventLogLayer = new PIXI.Container();
+
+    // Deck Info (UI колоды)
+    private deckInfoLayer = new PIXI.Container();
+
+    // Ghost hex preview texts (отдельный layer для текстов на ghost hexes)
+    private ghostPreviewLayer = new PIXI.Container();
+
     constructor(private app: PIXI.Application, private game: Game) {
         this.HEX_POINTS = this.buildHexPoints(this.HEX_SIZE - 2);
 
         this.app.stage.addChild(this.boardLayer);
         this.boardLayer.addChild(this.labelsLayer);
 
+        this.app.stage.addChild(this.ghostPreviewLayer); // Тексты на ghost hexes
+        this.ghostPreviewLayer.eventMode = "none"; // НЕ кликабельный!
+
+        this.app.stage.addChild(this.rotationIndicatorsLayer); // Поверх board
+        this.rotationIndicatorsLayer.eventMode = "none"; // НЕ кликабельный!
+
         this.app.stage.addChild(this.playersLayer);
+
+        this.app.stage.addChild(this.heroBoardLayer); // Hero Board panel
+        this.heroBoardLayer.zIndex = 100;
+
+        this.app.stage.addChild(this.buildMenuLayer); // Build Menu (modal)
+        this.buildMenuLayer.zIndex = 200;
 
         this.app.stage.addChild(this.hudLayer);
         this.hudLayer.addChild(this.hudBg);
         this.hudLayer.addChild(this.hudText);
 
+        this.app.stage.addChild(this.eventLogLayer); // Event Log
+        this.eventLogLayer.zIndex = 200;
+
+        this.app.stage.addChild(this.deckInfoLayer); // Deck Info
+        this.deckInfoLayer.zIndex = 200;
+
         this.createActionButtons();
+        this.createRotateButton();
+        this.createPlaceTileButton();
+        this.setupZoomAndPan();
 
         // HUD должен быть поверх всего
         this.hudLayer.zIndex = 999;
         this.hudLayer.sortableChildren = true;
     }
 
+    private setupZoomAndPan() {
+        // Zoom через колесо мыши (простая версия)
+        this.app.canvas.addEventListener("wheel", (e: WheelEvent) => {
+            e.preventDefault();
+
+            const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+            this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * zoomFactor));
+
+            this.applyTransform();
+            this.renderAll();
+        });
+
+        // Pan через ПКМ drag (правая кнопка мыши)
+        this.app.canvas.addEventListener("mousedown", (e: MouseEvent) => {
+            if (e.button === 2) {
+                // Правая кнопка = pan
+                e.preventDefault();
+                this.isDragging = true;
+                this.dragStart = { x: e.clientX - this.panX, y: e.clientY - this.panY };
+                this.app.canvas.style.cursor = "grab";
+            }
+        });
+
+        this.app.canvas.addEventListener("mousemove", (e: MouseEvent) => {
+            if (this.isDragging) {
+                this.panX = e.clientX - this.dragStart.x;
+                this.panY = e.clientY - this.dragStart.y;
+                this.applyTransform();
+                this.app.canvas.style.cursor = "grabbing";
+            }
+        });
+
+        this.app.canvas.addEventListener("mouseup", () => {
+            if (this.isDragging) {
+                this.isDragging = false;
+                this.app.canvas.style.cursor = "default";
+            }
+        });
+
+        this.app.canvas.addEventListener("mouseleave", () => {
+            if (this.isDragging) {
+                this.isDragging = false;
+                this.app.canvas.style.cursor = "default";
+            }
+        });
+
+        // Отключаем контекстное меню на ПКМ
+        this.app.canvas.addEventListener("contextmenu", (e: MouseEvent) => {
+            e.preventDefault();
+        });
+    }
+
+    private applyTransform() {
+        const centerX = this.app.renderer.width / 2 + this.panX;
+        const centerY = this.app.renderer.height / 2 + this.panY;
+        
+        this.boardLayer.scale.set(this.zoom);
+        this.boardLayer.position.set(centerX, centerY);
+
+        this.ghostPreviewLayer.scale.set(this.zoom);
+        this.ghostPreviewLayer.position.set(centerX, centerY);
+
+        this.rotationIndicatorsLayer.scale.set(this.zoom);
+        this.rotationIndicatorsLayer.position.set(centerX, centerY
+        );
+
+        this.playersLayer.scale.set(this.zoom);
+        this.playersLayer.position.set(
+            this.app.renderer.width / 2 + this.panX,
+            this.app.renderer.height / 2 + this.panY
+        );
+    }
+
     renderAll() {
         this.renderBoard();
         this.renderLabels();
+        this.renderRotationIndicators(); // После board, перед players (НЕ кликабельные)
         this.renderPlayers();
+        this.renderHeroBoard();
+        this.renderEventLog();
+        this.renderDeckInfo(); // NEW: UI колоды
         this.renderHUD();
+        this.renderBuildMenu(); // BUILD MENU modal
     }
 
     // --------------------
@@ -98,10 +247,82 @@ export class GameRenderer {
 
     private getAllowedHexKeys(): Set<string> {
         const current = this.game.state.players[this.game.state.currentPlayerIndex];
-        return new Set<string>([
-            hexKey(current.position),
-            ...neighbors(current.position).map(hexKey),
-        ]);
+        const allowed = [hexKey(current.position)];
+
+        // По правилам Karak 2: Movement разрешён только ПЕРЕД action (не после)
+        if (!this.game.state.actionUsedInCurrentSlot) {
+            // NEW: Только соседи где ЕСТЬ тайл (не fog!)
+            const validNeighbors = neighbors(current.position).filter(coord => {
+                const tile = this.game.state.board.getTile(coord);
+                return tile !== undefined; // Тайл должен существовать
+            });
+            allowed.push(...validNeighbors.map(hexKey));
+        }
+
+        return new Set<string>(allowed);
+    }
+
+    private canGatherHere(): boolean {
+        if (this.game.state.actionPoints <= 0) return false;
+
+        const p = this.game.state.players[this.game.state.currentPlayerIndex];
+        const here = this.game.state.board.getTile(p.position);
+
+        if (!here) return false;
+        if (!here.discovered) return false;
+        if (here.type !== TileType.Resource) return false;
+        if (here.encounterActive === true) return false;
+        
+        // Нельзя собирать ресурсы на клетке с городом!
+        if (here.ownerId) return false;
+        
+        // NEW: Проверяем множественные ресурсы
+        const hasResources = here.resources && Object.keys(here.resources).length > 0;
+        const hasOldResource = here.resource;
+        if (!hasResources && !hasOldResource) return false;
+
+        const cooldown = here.cooldownUntilRoundByPlayer?.[p.id] ?? 0;
+        return cooldown <= this.game.state.round;
+    }
+
+    // --------------------
+    // Outpost (город игрока)
+    // --------------------
+    private drawOutpost(view: PIXI.Graphics, ownerId: string) {
+        // Получаем индекс игрока из ownerId (P1 -> 0, P2 -> 1, etc)
+        const playerIndex = parseInt(ownerId.replace("P", "")) - 1;
+        const color = this.PLAYER_COLORS[playerIndex] || 0xffffff;
+        
+        // Толстая рамка цвета игрока
+        view.poly(this.HEX_POINTS);
+        view.stroke({ color, width: 6, alpha: 0.9 });
+        
+        // Внутренний круг с иконкой города
+        view.circle(0, 0, 18);
+        view.fill({ color: 0x2d3748, alpha: 0.9 });
+        view.circle(0, 0, 18);
+        view.stroke({ color, width: 3, alpha: 1 });
+    }
+
+    // --------------------
+    // Mountains (blocked edges)
+    // --------------------
+    private drawMountains(view: PIXI.Graphics, blockedEdges: number[]) {
+        // Рисуем темные толстые линии на заблокированных гранях
+        // Используем единую систему нумерации из HexEdges.ts
+        for (const edge of blockedEdges) {
+            const [x1, y1, x2, y2] = getEdgeVertices(edge as EdgeIndex, this.HEX_SIZE - 2);
+            
+            // Рисуем толстую темную линию (горы)
+            view.moveTo(x1, y1);
+            view.lineTo(x2, y2);
+            view.stroke({ color: 0x2d3748, width: 8, alpha: 1 }); // Темно-серый
+            
+            // Внутренняя линия для объема
+            view.moveTo(x1, y1);
+            view.lineTo(x2, y2);
+            view.stroke({ color: 0x1a202c, width: 4, alpha: 1 }); // Еще темнее
+        }
     }
 
     // --------------------
@@ -135,32 +356,19 @@ export class GameRenderer {
     // Board render
     // --------------------
     private renderBoard() {
-        this.boardLayer.position.set(this.app.renderer.width / 2, this.app.renderer.height / 2);
+        this.applyTransform(); // Применяем zoom/pan
         const allowed = this.getAllowedHexKeys();
 
-        // Target highlighting by selected action
-        const mode: ActionKey = this.game.state.selectedAction;
         const current = this.game.state.players[this.game.state.currentPlayerIndex];
-        const neigh = neighbors(current.position);
 
-        const exploreTargets = new Set<string>();
-        const gatherTargets = new Set<string>();
+        const placementTargets = new Set<string>();
+        const gatherHere = this.canGatherHere();
 
-        if (mode === "EXPLORE") {
-            for (const c of neigh) {
-                const t = this.game.state.board.getTile(c);
-                if (t && !t.discovered) exploreTargets.add(hexKey(c));
-            }
-        }
-
-        if (mode === "GATHER") {
-            const candidates = [current.position, ...neigh];
-            for (const c of candidates) {
-                const t = this.game.state.board.getTile(c);
-                // можно собирать: discovered resource и монстра нет
-                if (t && t.discovered && t.type === TileType.Resource && t.encounterActive !== true) {
-                    gatherTargets.add(hexKey(c));
-                }
+        // TILE_PLACEMENT: показываем валидные позиции (только соседи текущей позиции игрока!)
+        if (this.game.state.uiMode === "TILE_PLACEMENT") {
+            const validPositions = this.getValidPlacementPositions();
+            for (const coord of validPositions) {
+                placementTargets.add(hexKey(coord));
             }
         }
 
@@ -168,32 +376,36 @@ export class GameRenderer {
             const key = hexKey(tile.coord);
 
             let view = this.tileViews.get(key);
+            
             if (!view) {
                 view = new PIXI.Graphics();
                 view.hitArea = new PIXI.Polygon(this.HEX_POINTS);
                 view.eventMode = "static";
                 view.cursor = "pointer";
-
-                view.on("pointerdown", () => {
-                    this.game.handleHexClick(tile.coord);
-                    this.renderAll();
-                });
-
-                view.on("pointerover", () => {
-                    this.hoveredKey = key;
-                    this.renderBoard();
-                    this.renderLabels();
-                });
-
-                view.on("pointerout", () => {
-                    if (this.hoveredKey === key) this.hoveredKey = null;
-                    this.renderBoard();
-                    this.renderLabels();
-                });
-
                 this.tileViews.set(key, view);
                 this.boardLayer.addChildAt(view, 0);
+            } else {
+                // Если view существует (был ghost hex), убираем все старые обработчики
+                view.removeAllListeners();
             }
+
+            // Устанавливаем правильные обработчики для РЕАЛЬНОГО тайла
+            view.on("pointerdown", () => {
+                this.game.handleHexClick(tile.coord);
+                this.renderAll();
+            });
+
+            view.on("pointerover", () => {
+                this.hoveredKey = key;
+                this.renderBoard();
+                this.renderLabels();
+            });
+
+            view.on("pointerout", () => {
+                if (this.hoveredKey === key) this.hoveredKey = null;
+                this.renderBoard();
+                this.renderLabels();
+            });
 
             const { x, y } = this.hexToPixel(tile.coord);
             view.position.set(x, y);
@@ -215,16 +427,134 @@ export class GameRenderer {
                 view.stroke({ color: 0xffffff, width: 4, alpha: 0.9 });
             }
 
-            // action target highlights
-            if (mode === "EXPLORE" && exploreTargets.has(key)) {
-                view.stroke({ color: 0x00ffff, width: 4, alpha: 0.65 });
-            }
-
-            if (mode === "GATHER" && gatherTargets.has(key)) {
+            // gather highlight: только текущая клетка (если можно собирать)
+            if (gatherHere && key === hexKey(current.position)) {
                 view.stroke({ color: 0x00ff88, width: 4, alpha: 0.65 });
             }
 
+            // Рисуем горы (blocked edges)
+            if (tile.discovered && tile.blockedEdges && tile.blockedEdges.length > 0) {
+                this.drawMountains(view, tile.blockedEdges);
+            }
+            
+            // Рисуем город (Outpost) если есть
+            if (tile.ownerId) {
+                this.drawOutpost(view, tile.ownerId);
+            }
+
             this.drawHoverOverlay(key, x, y, this.hoveredKey === key);
+        }
+
+        // TILE_PLACEMENT: рисуем ghost hexes для валидных позиций (пустых слотов)
+        // Сначала скрываем ВСЕ ghost hexes (если нет реального тайла)
+        for (const [key, view] of this.tileViews) {
+            const [q, r] = key.split(",").map(Number);
+            const tile = this.game.state.board.getTile({ q, r });
+            if (!tile) {
+                // Это ghost hex - скрываем по умолчанию
+                view.visible = false;
+            }
+        }
+
+        // Очищаем preview layer перед рендером
+        this.ghostPreviewLayer.removeChildren();
+        
+        if (this.game.state.uiMode === "TILE_PLACEMENT") {
+            for (const targetKey of placementTargets) {
+                // Парсим координаты из ключа "q,r"
+                const [q, r] = targetKey.split(",").map(Number);
+                const coord = { q, r };
+
+                let ghostView = this.tileViews.get(targetKey);
+                if (!ghostView) {
+                    ghostView = new PIXI.Graphics();
+                    ghostView.hitArea = new PIXI.Polygon(this.HEX_POINTS);
+                    ghostView.eventMode = "static";
+                    ghostView.cursor = "pointer";
+
+                    // NEW: Hover вместо клика для выбора позиции
+                    ghostView.on("pointerover", () => {
+                        this.game.selectPlacementPosition(coord);
+                        this.renderAll();
+                    });
+
+                    ghostView.on("pointerout", () => {
+                        // Не сбрасываем сразу, только при выходе за все ghost hexes
+                        // Это позволяет держать выбор при переходе между hexes
+                    });
+
+                    this.tileViews.set(targetKey, ghostView);
+                    this.boardLayer.addChildAt(ghostView, 0);
+                }
+
+                const { x, y } = this.hexToPixel(coord);
+                ghostView.position.set(x, y);
+                ghostView.visible = true; // Делаем видимым (был скрыт выше)
+
+                // Проверяем выбрана ли эта позиция
+                const isSelected = this.game.state.selectedPlacementPosition 
+                    && this.game.state.selectedPlacementPosition.q === coord.q 
+                    && this.game.state.selectedPlacementPosition.r === coord.r;
+
+                ghostView.clear();
+                ghostView.poly(this.HEX_POINTS);
+                ghostView.fill({ color: isSelected ? 0x00ff00 : 0x00ffff, alpha: isSelected ? 0.25 : 0.15 });
+                ghostView.stroke({ color: isSelected ? 0x00ff00 : 0x00ffff, width: isSelected ? 6 : 4, alpha: 1 });
+
+                // PREVIEW: Показываем что будет на тайле
+                const nextTile = this.game.state.tileDeck.peekNextTile();
+                if (nextTile) {
+                    // Показываем горы (с учетом rotation)
+                    if (nextTile.blockedEdges && nextTile.blockedEdges.length > 0) {
+                        const rotatedEdges = nextTile.blockedEdges.map(
+                            edge => (edge + this.game.state.pendingTileRotation) % 6
+                        );
+                        this.drawMountains(ghostView, rotatedEdges);
+                    }
+
+                    // Показываем ресурсы (эмодзи) - В ОТДЕЛЬНОМ LAYER!
+                    const resourceEmojis: string[] = [];
+                    if (nextTile.resources.Provisions) resourceEmojis.push("🍖".repeat(nextTile.resources.Provisions));
+                    if (nextTile.resources.Timber) resourceEmojis.push("🪵".repeat(nextTile.resources.Timber));
+                    if (nextTile.resources.Iron) resourceEmojis.push("⚙️".repeat(nextTile.resources.Iron));
+                    
+                    if (resourceEmojis.length > 0) {
+                        const previewText = new PIXI.Text({
+                            text: resourceEmojis.join(" "),
+                            style: new PIXI.TextStyle({
+                                fontSize: 20,
+                                fill: 0xffffff,
+                                fontWeight: "700",
+                                dropShadow: {
+                                    alpha: 0.8,
+                                    angle: 90,
+                                    blur: 3,
+                                    color: 0x000000,
+                                    distance: 2,
+                                },
+                            }),
+                        });
+                        previewText.anchor.set(0.5);
+                        previewText.position.set(x, y - 10); // Абсолютные координаты
+                        this.ghostPreviewLayer.addChild(previewText);
+                    }
+
+                    // Показываем tier - В ОТДЕЛЬНОМ LAYER!
+                    const tierText = new PIXI.Text({
+                        text: `T${nextTile.tier}`,
+                        style: new PIXI.TextStyle({
+                            fontSize: 12,
+                            fill: 0x00ffff,
+                            fontWeight: "600",
+                        }),
+                    });
+                    tierText.anchor.set(0.5);
+                    tierText.position.set(x, y + 15); // Абсолютные координаты
+                    this.ghostPreviewLayer.addChild(tierText);
+                }
+
+                ghostView.visible = true;
+            }
         }
     }
 
@@ -232,19 +562,41 @@ export class GameRenderer {
     // Labels (dev overlay)
     // --------------------
     private getTileLabel(tile: any): string {
+        // DEV: показываем tier для неоткрытых тайлов
+        if (!tile.discovered && tile.tier) {
+            return `T${tile.tier}`;
+        }
+
         if (!tile.discovered) return "";
 
         // Settlement
-        if (tile.type === TileType.Settlement) return "S";
+        if (tile.type === TileType.Settlement) return "🏛️";
+        
+        // Город игрока (Outpost)
+        if (tile.ownerId) {
+            return "🏰";
+        }
 
-        // Resource: показываем тип ресурса (dev), а если монстр жив — знак опасности
+        // Resource: показываем эмодзи для ресурсов
         if (tile.type === TileType.Resource) {
-            const kind = tile.resource?.kind;
-            const base = kind === "Provisions" ? "P" : kind === "Timber" ? "T" : kind === "Iron" ? "I" : "R";
+            // если монстр жив — показываем HP врага
+            if (tile.encounterActive) {
+                return `⚔️${tile.enemyHp || "?"}`;
+            }
 
-            // если монстр жив — показываем "!" (не спойлер ресурса можно убрать позже)
-            if (tile.encounterActive) return "!";
-            return base;
+            // NEW: Множественные ресурсы
+            if (tile.resources) {
+                const emojis: string[] = [];
+                if (tile.resources.Provisions) emojis.push("🍖".repeat(tile.resources.Provisions));
+                if (tile.resources.Timber) emojis.push("🪵".repeat(tile.resources.Timber));
+                if (tile.resources.Iron) emojis.push("⚙️".repeat(tile.resources.Iron));
+                return emojis.join("");
+            }
+
+            // OLD: Обратная совместимость
+            const kind = tile.resource?.kind;
+            const emoji = kind === "Provisions" ? "🍖" : kind === "Timber" ? "🪵" : kind === "Iron" ? "⚙️" : "📦";
+            return emoji;
         }
 
         return "";
@@ -307,7 +659,7 @@ export class GameRenderer {
 
     private renderPlayers() {
         this.ensurePlayersCreated();
-        this.playersLayer.position.copyFrom(this.boardLayer.position);
+        // Position уже синхронизирован через applyTransform()
 
         for (let i = 0; i < this.game.state.players.length; i++) {
             const p = this.game.state.players[i];
@@ -336,10 +688,87 @@ export class GameRenderer {
     }
 
     // --------------------
+    // Rotation Indicators (НЕ кликабельные маркеры на ghost hexes)
+    // --------------------
+    private renderRotationIndicators() {
+        this.rotationIndicatorsLayer.removeChildren(); // Очищаем перед перерисовкой
+
+        // Рисуем индикаторы только в режиме TILE_PLACEMENT
+        if (this.game.state.uiMode !== "TILE_PLACEMENT") return;
+
+        // Получаем валидные позиции с учетом blocked edges
+        const validPositions = this.getValidPlacementPositions();
+
+        const rotation = this.game.state.pendingTileRotation; // 0-5
+        const angle = (rotation * 60) * (Math.PI / 180); // 0°, 60°, 120°, ...
+        const markerDist = this.HEX_SIZE - 10; // радиус от центра гекса
+        const markerRadius = 14; // УВЕЛИЧЕННЫЙ радиус точки
+
+        for (const coord of validPositions) {
+            const { x, y } = this.hexToPixel(coord);
+
+            const markerX = Math.cos(angle - Math.PI / 2) * markerDist;
+            const markerY = Math.sin(angle - Math.PI / 2) * markerDist;
+
+            const indicator = new PIXI.Graphics();
+            indicator.eventMode = "none"; // НЕ кликабельный!
+            indicator.position.set(x + markerX, y + markerY);
+
+            // Рисуем большую яркую точку с обводкой
+            indicator.circle(0, 0, markerRadius);
+            indicator.fill({ color: 0xff6600, alpha: 1 });
+            indicator.stroke({ color: 0xffffff, width: 3, alpha: 1 });
+
+            this.rotationIndicatorsLayer.addChild(indicator);
+        }
+    }
+    
+    /**
+     * Получить валидные позиции для размещения тайла
+     * Учитывает blocked edges с учетом текущего rotation
+     */
+    private getValidPlacementPositions(): HexCoord[] {
+        const current = this.game.state.players[this.game.state.currentPlayerIndex];
+        const currentTile = this.game.state.board.getTile(current.position);
+        const nextTile = this.game.state.tileDeck.peekNextTile();
+        
+        if (!currentTile || !nextTile) return [];
+        
+        const validPositions: HexCoord[] = [];
+        
+        for (const neighborCoord of neighbors(current.position)) {
+            const existing = this.game.state.board.getTile(neighborCoord);
+            if (existing) continue; // Уже есть тайл
+            
+            // Применяем rotation к blocked edges
+            const rotatedEdges = nextTile.blockedEdges && nextTile.blockedEdges.length > 0
+                ? nextTile.blockedEdges.map(edge => (edge + this.game.state.pendingTileRotation) % 6)
+                : [];
+            
+            // Создаем временный тайл для проверки
+            const tempTile: Tile = {
+                coord: neighborCoord,
+                discovered: true,
+                type: TileType.Resource,
+                blockedEdges: rotatedEdges,
+            };
+            
+            // Проверяем можно ли зайти
+            if (!canMoveBetween(currentTile, neighborCoord, tempTile)) {
+                continue; // Заблокировано горами
+            }
+            
+            validPositions.push(neighborCoord);
+        }
+        
+        return validPositions;
+    }
+
+    // --------------------
     // HUD + Buttons
     // --------------------
     private createActionButtons() {
-        const actions: ActionKey[] = ["PRIMARY", "GATHER", "EXPLORE", "SETTLEMENT"];
+        const actions: ActionKey[] = ["GATHER", "TRADE", "EXPLORE", "BUILD"];
 
         for (const key of actions) {
             const bg = new PIXI.Graphics();
@@ -359,10 +788,17 @@ export class GameRenderer {
 
             bg.on("pointerdown", () => {
                 if (!this.canUseAction(key)) return;
-                this.game.setSelectedAction(key);
-                this.renderHUD();
-                // подсветка целей зависит от режима
-                this.renderBoard();
+
+                if (key === "GATHER") this.game.doGather();
+                if (key === "TRADE") this.game.doTrade();
+                if (key === "EXPLORE") this.game.doExplore();
+                if (key === "BUILD") {
+                    // Открываем меню зданий
+                    this.game.state.uiMode = "BUILD_MENU";
+                    this.renderAll();
+                }
+
+                this.renderAll();
             });
 
             this.hudLayer.addChild(bg);
@@ -372,34 +808,84 @@ export class GameRenderer {
         }
     }
 
+    private createRotateButton() {
+        const { bg, label } = this.rotateButton;
+        bg.eventMode = "static";
+        bg.cursor = "pointer";
+        label.anchor.set(0.5);
+        label.eventMode = "none";
+
+        bg.on("pointerdown", () => {
+            if (this.game.state.uiMode !== "TILE_PLACEMENT") return;
+            this.game.rotatePendingTile();
+            this.renderAll();
+        });
+
+        this.hudLayer.addChild(bg);
+        this.hudLayer.addChild(label);
+    }
+
+    private createPlaceTileButton() {
+        const { bg, label } = this.placeTileButton;
+        bg.eventMode = "static";
+        bg.cursor = "pointer";
+        label.anchor.set(0.5);
+        label.eventMode = "none";
+
+        bg.on("pointerdown", () => {
+            if (this.game.state.uiMode !== "TILE_PLACEMENT") return;
+            if (!this.game.state.selectedPlacementPosition) return;
+            this.game.placeTileAtSelected();
+            this.renderAll();
+        });
+
+        this.hudLayer.addChild(bg);
+        this.hudLayer.addChild(label);
+    }
+
     private canUseAction(action: ActionKey): boolean {
         if (this.game.state.actionPoints <= 0) return false;
+
+        // По правилам Karak 2: Action недоступен, если уже использовали action в текущем слоте
+        if (this.game.state.actionUsedInCurrentSlot) return false;
 
         const p = this.game.state.players[this.game.state.currentPlayerIndex];
         const here = this.game.state.board.getTile(p.position);
 
-        if (action === "PRIMARY") return true;
+        if (action === "BUILD") {
+            // BUILD: либо строим Outpost, либо в своём городе (меню всегда доступно)
+            if (this.game.canBuildOutpost()) return true;
+            if (this.game.isInOwnOutpost()) return true; // Меню открывается всегда, даже без ресов
+            return false;
+        }
 
-        if (action === "SETTLEMENT") {
+        if (action === "TRADE") {
             // MVP: разрешаем только если стоим в поселении
-            return here?.type === TileType.Settlement;
+            if (here?.type !== TileType.Settlement) return false;
+            // и есть что обменять по текущим правилам SettlementSystem
+            return p.provisions >= 2 || p.timber >= 2;
         }
 
         if (action === "GATHER") {
             // MVP: gather на текущем возможен только если чистый ресурс
-            return (
-                here?.type === TileType.Resource &&
-                here.discovered === true &&
-                here.encounterActive !== true
-            );
+            return this.canGatherHere();
         }
 
         if (action === "EXPLORE") {
-            const neigh = neighbors(p.position);
-            return neigh.some((c) => {
-                const t = this.game.state.board.getTile(c);
-                return t && !t.discovered;
-            });
+            // Tile placement: проверяем, есть ли валидные позиции (пустые рядом с открытыми)
+            const openTiles = this.game.state.board.getAllTiles().filter((t) => t.discovered);
+            
+            for (const openTile of openTiles) {
+                for (const neighborCoord of neighbors(openTile.coord)) {
+                    const existing = this.game.state.board.getTile(neighborCoord);
+                    if (!existing) {
+                        // Есть хотя бы одна валидная позиция
+                        return true;
+                    }
+                }
+            }
+            
+            return false; // нет валидных позиций
         }
 
         return false;
@@ -408,8 +894,8 @@ export class GameRenderer {
     private renderHUD() {
         const p = this.game.state.players[this.game.state.currentPlayerIndex];
 
-        // нижняя панель
-        const panelH = 92;
+        // нижняя панель (УВЕЛИЧЕНА для двух рядов кнопок)
+        const panelH = 130;
         const panelY = this.app.renderer.height - panelH;
         const panelW = this.app.renderer.width;
 
@@ -420,27 +906,88 @@ export class GameRenderer {
         this.hudBg.stroke({ color: 0xffffff, alpha: 0.12, width: 1 });
 
         // текст слева
+        let statusLine = `Turn: ${p.id}   AP: ${this.game.state.actionPoints}   Round: ${this.game.state.round}`;
+        
+        // Final Phase индикация
+        if (this.game.state.isFinalPhase) {
+            statusLine += `   ⚔️ FINAL PHASE (${this.game.state.finalPhaseRoundsLeft} rounds left)`;
+        }
+        
+        // Game Over
+        if (this.game.state.gameOver) {
+            statusLine = `🏆 GAME OVER! Winner: ${this.game.state.winnerId}`;
+        }
+        
         this.hudText.text =
-            `Turn: ${p.id}   AP: ${this.game.state.actionPoints}   Mode: ${this.game.state.selectedAction}\n` +
-            `HP: ${p.hp}   P: ${p.provisions}   T: ${p.timber}   I: ${p.iron}   Round: ${this.game.state.round}`;
+            statusLine + `\n` +
+            `HP: ${p.hp}   P: ${p.provisions}   T: ${p.timber}   I: ${p.iron}   ⭐${p.prestige}` +
+            (this.game.state.uiMode === "TILE_PLACEMENT"
+                ? `\nPlace tile: hover on position → rotate → click "Place Tile"`
+                : ``);
 
         this.hudText.position.set(16, panelY + 14);
 
-        // кнопки справа в один ряд
-        const w = 110;
+        // КНОПКИ В ДВА РЯДА (чистая раскладка)
+        // Ряд 1: [GATHER] [TRADE] [BUILD]
+        // Ряд 2: [EXPLORE] [ROTATE] [PLACE] ← все в ряду 2
+        
+        const w = 90; // УМЕНЬШЕНА ширина чтобы влезли все кнопки
         const h = 30;
-        const gap = 10;
+        const gap = 8; // Меньше gap
+        const rowGap = 10;
 
-        const totalW = this.actionButtons.length * w + (this.actionButtons.length - 1) * gap;
-        const startX = panelW - totalW - 16;
-        const y = panelY + 14;
+        const row1Buttons = ["GATHER", "TRADE", "BUILD"];
+        const row2Buttons = ["EXPLORE"];
 
+        const row1W = row1Buttons.length * w + (row1Buttons.length - 1) * gap;
+        const row1X = panelW - row1W - 16;
+        const row1Y = panelY + 14;
+
+        // Rotate и Place параметры
+        const rotateBtnVisible = this.game.state.uiMode === "TILE_PLACEMENT";
+        const placeBtnVisible = this.game.state.uiMode === "TILE_PLACEMENT";
+        const rotateBtnW = 90; // такая же ширина
+        const rotateBtnH = 30;
+        const placeBtnW = 100; // чуть шире для текста
+        const placeBtnH = 30;
+
+        // Ряд 2: EXPLORE + (Rotate + Place если видим)
+        let row2W = w;
+        if (rotateBtnVisible) row2W += gap + rotateBtnW;
+        if (placeBtnVisible) row2W += gap + placeBtnW;
+        
+        const row2X = panelW - row2W - 16;
+        const row2Y = row1Y + h + rowGap;
+
+        // Рисуем все кнопки
         for (let i = 0; i < this.actionButtons.length; i++) {
             const btn = this.actionButtons[i];
-            const x = startX + i * (w + gap);
+            
+            let x = 0, y = 0;
+            
+            if (row1Buttons.includes(btn.key)) {
+                const idx = row1Buttons.indexOf(btn.key);
+                x = row1X + idx * (w + gap);
+                y = row1Y;
+            } else if (row2Buttons.includes(btn.key)) {
+                // EXPLORE в ряду 2
+                x = row2X;
+                y = row2Y;
+            }
+            
+            // Динамический лейбл для BUILD
+            if (btn.key === "BUILD") {
+                if (this.game.canBuildOutpost()) {
+                    btn.label.text = "🏰 OUTPOST";
+                } else if (this.game.isInOwnOutpost()) {
+                    btn.label.text = "🏗️ DISTRICTS";
+                } else {
+                    btn.label.text = "BUILD";
+                }
+            }
 
             const enabled = this.canUseAction(btn.key);
-            const selected = btn.key === this.game.state.selectedAction;
+            const selected = btn.key === "EXPLORE" && this.game.state.uiMode === "TILE_PLACEMENT";
 
             btn.bg.clear();
             btn.bg.roundRect(x, y, w, h, 10);
@@ -457,8 +1004,812 @@ export class GameRenderer {
                 btn.bg.cursor = "pointer";
             }
 
-            // ВАЖНО: ты это не делал, поэтому "не получилось"
             btn.label.position.set(x + w / 2, y + h / 2);
+        }
+
+        // Rotate button (справа от EXPLORE в ряду 2)
+        const rotateBtnX = row2X + w + gap;
+        const rotateBtnY = row2Y;
+
+        this.rotateButton.bg.visible = rotateBtnVisible;
+        this.rotateButton.label.visible = rotateBtnVisible;
+
+        if (rotateBtnVisible) {
+            this.rotateButton.bg.clear();
+            this.rotateButton.bg.roundRect(rotateBtnX, rotateBtnY, rotateBtnW, rotateBtnH, 10);
+            this.rotateButton.bg.fill({ color: 0xffffff, alpha: 0.18 });
+            this.rotateButton.bg.stroke({ color: 0xffffff, alpha: 0.5, width: 1 });
+            this.rotateButton.bg.cursor = "pointer";
+
+            this.rotateButton.label.position.set(rotateBtnX + rotateBtnW / 2, rotateBtnY + rotateBtnH / 2);
+        }
+
+        // Place Tile button (справа от Rotate в ряду 2)
+        const placeBtnEnabled = placeBtnVisible && this.game.state.selectedPlacementPosition !== null;
+        const placeBtnX = rotateBtnX + rotateBtnW + gap;
+        const placeBtnY = row2Y;
+
+        this.placeTileButton.bg.visible = placeBtnVisible;
+        this.placeTileButton.label.visible = placeBtnVisible;
+
+        if (placeBtnVisible) {
+            this.placeTileButton.bg.clear();
+            this.placeTileButton.bg.roundRect(placeBtnX, placeBtnY, placeBtnW, placeBtnH, 10);
+            
+            if (!placeBtnEnabled) {
+                // Disabled state
+                this.placeTileButton.bg.fill({ color: 0x000000, alpha: 0.18 });
+                this.placeTileButton.bg.stroke({ color: 0xffffff, alpha: 0.10, width: 1 });
+                this.placeTileButton.label.alpha = 0.35;
+                this.placeTileButton.bg.cursor = "default";
+                this.placeTileButton.bg.eventMode = "none"; // НЕ кликабельная когда disabled
+            } else {
+                // Enabled state (зеленый = готово к размещению)
+                this.placeTileButton.bg.fill({ color: 0x00ff00, alpha: 0.25 });
+                this.placeTileButton.bg.stroke({ color: 0x00ff00, alpha: 0.8, width: 2 });
+                this.placeTileButton.label.alpha = 1;
+                this.placeTileButton.bg.cursor = "pointer";
+                this.placeTileButton.bg.eventMode = "static"; // Кликабельная когда enabled
+            }
+
+            this.placeTileButton.label.position.set(placeBtnX + placeBtnW / 2, placeBtnY + placeBtnH / 2);
+        }
+    }
+
+    // --------------------
+    // Hero Board
+    // --------------------
+    private renderHeroBoard() {
+        const p = this.game.state.players[this.game.state.currentPlayerIndex];
+        const playerIndex = this.game.state.currentPlayerIndex;
+        const playerColor = this.PLAYER_COLORS[playerIndex % this.PLAYER_COLORS.length];
+        
+        this.heroBoardLayer.removeChildren(); // очищаем перед перерисовкой
+
+        const panelW = 300;
+        const panelH = 500;
+        const panelX = this.app.renderer.width - panelW - 16;
+        const panelY = 16;
+
+        // Фон панели (градиент эффект через несколько слоёв)
+        const bg = new PIXI.Graphics();
+        bg.roundRect(panelX, panelY, panelW, panelH, 12);
+        bg.fill({ color: 0x1a1f2e, alpha: 0.98 });
+        bg.stroke({ color: playerColor, width: 4, alpha: 1 }); // Цвет игрока!
+        this.heroBoardLayer.addChild(bg);
+
+        // Внутренняя рамка для depth
+        const innerFrame = new PIXI.Graphics();
+        innerFrame.roundRect(panelX + 6, panelY + 6, panelW - 12, panelH - 12, 8);
+        innerFrame.stroke({ color: playerColor, width: 1, alpha: 0.3 }); // Тоже цвет игрока
+        this.heroBoardLayer.addChild(innerFrame);
+
+        // Заголовок Hero Board с фоном
+        const titleBg = new PIXI.Graphics();
+        titleBg.roundRect(panelX + 12, panelY + 10, panelW - 24, 40, 6);
+        titleBg.fill({ color: 0x2d3748, alpha: 0.8 });
+        titleBg.stroke({ color: playerColor, width: 2, alpha: 0.7 }); // Цвет игрока!
+        this.heroBoardLayer.addChild(titleBg);
+
+        const title = new PIXI.Text({
+            text: `${p.id} - Hero Board`,
+            style: new PIXI.TextStyle({
+                fontSize: 20,
+                fill: playerColor, // Цвет игрока!
+                fontWeight: "800",
+                dropShadow: {
+                    alpha: 0.8,
+                    angle: 90,
+                    blur: 3,
+                    color: 0x000000,
+                    distance: 3,
+                },
+            }),
+        });
+        title.position.set(panelX + 20, panelY + 20);
+        title.anchor.set(0, 0);
+        this.heroBoardLayer.addChild(title);
+
+        // Glory Level badge справа в заголовке
+        const gloryBadge = new PIXI.Graphics();
+        gloryBadge.roundRect(0, 0, 60, 24, 4);
+        gloryBadge.fill({ color: 0xffd700, alpha: 0.2 });
+        gloryBadge.stroke({ color: 0xffd700, width: 2, alpha: 0.8 });
+        gloryBadge.position.set(panelX + panelW - 72, panelY + 18);
+        this.heroBoardLayer.addChild(gloryBadge);
+
+        const gloryText = new PIXI.Text({
+            text: `⭐${p.prestige}`,
+            style: new PIXI.TextStyle({
+                fontSize: 14,
+                fill: 0xffd700,
+                fontWeight: "700",
+                dropShadow: {
+                    alpha: 0.6,
+                    angle: 90,
+                    blur: 2,
+                    color: 0x000000,
+                    distance: 2,
+                },
+            }),
+        });
+        gloryText.anchor.set(0.5);
+        gloryText.position.set(panelX + panelW - 42, panelY + 30);
+        this.heroBoardLayer.addChild(gloryText);
+
+        let yOffset = panelY + 56;
+
+        // Разделитель
+        this.renderDivider(panelX + 16, yOffset, panelW - 32);
+        yOffset += 12;
+
+        // Life Tokens (сердечки)
+        this.renderLifeTokens(p, panelX + 16, yOffset);
+        yOffset += 45;
+
+        // Resources (цветовая кодировка)
+        const resourceContainer = new PIXI.Container();
+        resourceContainer.position.set(panelX + 16, yOffset);
+
+        const resources = [
+            { label: "P:", value: p.provisions, color: 0xffd700 }, // золотой
+            { label: "T:", value: p.timber, color: 0x8b4513 },     // коричневый
+            { label: "I:", value: p.iron, color: 0x708090 },       // серый
+        ];
+
+        let xOffset = 0;
+        resources.forEach((res) => {
+            const text = new PIXI.Text({
+                text: `${res.label} ${res.value}`,
+                style: new PIXI.TextStyle({
+                    fontSize: 14,
+                    fill: res.color,
+                    fontWeight: "700",
+                    dropShadow: {
+                        alpha: 0.6,
+                        angle: 90,
+                        blur: 2,
+                        color: 0x000000,
+                        distance: 1,
+                    },
+                }),
+            });
+            text.position.set(xOffset, 0);
+            resourceContainer.addChild(text);
+            xOffset += 70;
+        });
+
+        this.heroBoardLayer.addChild(resourceContainer);
+        yOffset += 35;
+
+        // Разделитель
+        this.renderDivider(panelX + 16, yOffset, panelW - 32);
+        yOffset += 12;
+
+        // Building Tokens
+        this.renderBuildingTokens(p, panelX + 16, yOffset);
+        yOffset += 60;
+
+        // Разделитель
+        this.renderDivider(panelX + 16, yOffset, panelW - 32);
+        yOffset += 12;
+
+        // Inventory Slots
+        this.renderInventory(p, panelX + 16, yOffset);
+    }
+
+    private renderDivider(x: number, y: number, width: number) {
+        const divider = new PIXI.Graphics();
+        divider.moveTo(x, y);
+        divider.lineTo(x + width, y);
+        divider.stroke({ color: 0x4a5568, width: 1, alpha: 0.4 });
+        this.heroBoardLayer.addChild(divider);
+    }
+
+    private renderLifeTokens(p: { hp: number; maxHp: number }, x: number, y: number) {
+        const heartSize = 18;
+        const gap = 8;
+
+        for (let i = 0; i < p.maxHp; i++) {
+            const heart = new PIXI.Graphics();
+            const filled = i < p.hp;
+
+            // Настоящее сердечко (path)
+            const s = heartSize / 20; // scale
+            heart.moveTo(0, 6 * s);
+            // Левая половина
+            heart.bezierCurveTo(-5 * s, -3 * s, -12 * s, -3 * s, -12 * s, 2 * s);
+            heart.bezierCurveTo(-12 * s, 7 * s, -8 * s, 12 * s, 0, 16 * s);
+            // Правая половина
+            heart.bezierCurveTo(8 * s, 12 * s, 12 * s, 7 * s, 12 * s, 2 * s);
+            heart.bezierCurveTo(12 * s, -3 * s, 5 * s, -3 * s, 0, 6 * s);
+
+            if (filled) {
+                heart.fill({ color: 0xff3b4a, alpha: 1 });
+                heart.stroke({ color: 0xcc0000, width: 1.5 });
+            } else {
+                heart.fill({ color: 0x2d3748, alpha: 0.6 });
+                heart.stroke({ color: 0x4a5568, width: 1 });
+            }
+
+            heart.position.set(x + i * (heartSize + gap) + heartSize / 2, y + heartSize / 2);
+            this.heroBoardLayer.addChild(heart);
+        }
+
+        const label = new PIXI.Text({
+            text: `HP: ${p.hp}/${p.maxHp}`,
+            style: new PIXI.TextStyle({ 
+                fontSize: 13, 
+                fill: 0xffffff, 
+                fontWeight: "600",
+                dropShadow: {
+                    alpha: 0.5,
+                    angle: 90,
+                    blur: 2,
+                    color: 0x000000,
+                    distance: 2,
+                },
+            }),
+        });
+        label.position.set(x + p.maxHp * (heartSize + gap) + 12, y - 4);
+        this.heroBoardLayer.addChild(label);
+    }
+
+    private renderBuildingTokens(p: { buildings: string[] }, x: number, y: number) {
+        const label = new PIXI.Text({
+            text: "Buildings:",
+            style: new PIXI.TextStyle({ fontSize: 14, fill: 0xffffff, fontWeight: "600" }),
+        });
+        label.position.set(x, y);
+        this.heroBoardLayer.addChild(label);
+
+        if (p.buildings.length === 0) {
+            const none = new PIXI.Text({
+                text: "None",
+                style: new PIXI.TextStyle({ fontSize: 12, fill: 0x888888 }),
+            });
+            none.position.set(x + 90, y + 2);
+            this.heroBoardLayer.addChild(none);
+            return;
+        }
+
+        const tokenSize = 30;
+        const gap = 8;
+        for (let i = 0; i < p.buildings.length; i++) {
+            const token = new PIXI.Graphics();
+            token.rect(0, 0, tokenSize, tokenSize);
+            token.fill({ color: 0x8b7355, alpha: 1 });
+            token.stroke({ color: 0xffd700, width: 2 });
+
+            const buildingLabel = new PIXI.Text({
+                text: p.buildings[i][0], // первая буква названия
+                style: new PIXI.TextStyle({ fontSize: 14, fill: 0xffffff, fontWeight: "700" }),
+            });
+            buildingLabel.anchor.set(0.5);
+            buildingLabel.position.set(tokenSize / 2, tokenSize / 2);
+            token.addChild(buildingLabel);
+
+            token.position.set(x + 90 + i * (tokenSize + gap), y - 2);
+            this.heroBoardLayer.addChild(token);
+        }
+    }
+
+    private renderInventory(p: { inventory: { weapons: any[]; spells: any[]; amulet: any } }, x: number, y: number) {
+        const slotSize = 44;
+        const gap = 10;
+
+        // Weapons
+        const weaponsLabel = new PIXI.Text({
+            text: "⚔️ Weapons:",
+            style: new PIXI.TextStyle({ 
+                fontSize: 15, 
+                fill: 0xffd700, 
+                fontWeight: "700",
+                dropShadow: {
+                    alpha: 0.5,
+                    angle: 90,
+                    blur: 2,
+                    color: 0x000000,
+                    distance: 2,
+                },
+            }),
+        });
+        weaponsLabel.position.set(x, y);
+        this.heroBoardLayer.addChild(weaponsLabel);
+
+        for (let i = 0; i < 4; i++) {
+            const slot = this.renderInventorySlot(p.inventory.weapons[i], slotSize, "weapon");
+            slot.position.set(x + i * (slotSize + gap), y + 28);
+            this.heroBoardLayer.addChild(slot);
+        }
+
+        y += 90;
+
+        // Spells
+        const spellsLabel = new PIXI.Text({
+            text: "✨ Spells:",
+            style: new PIXI.TextStyle({ 
+                fontSize: 15, 
+                fill: 0x9b59b6, 
+                fontWeight: "700",
+                dropShadow: {
+                    alpha: 0.5,
+                    angle: 90,
+                    blur: 2,
+                    color: 0x000000,
+                    distance: 2,
+                },
+            }),
+        });
+        spellsLabel.position.set(x, y);
+        this.heroBoardLayer.addChild(spellsLabel);
+
+        for (let i = 0; i < 4; i++) {
+            const slot = this.renderInventorySlot(p.inventory.spells[i], slotSize, "spell");
+            slot.position.set(x + i * (slotSize + gap), y + 28);
+            this.heroBoardLayer.addChild(slot);
+        }
+
+        y += 90;
+
+        // Amulet
+        const amuletLabel = new PIXI.Text({
+            text: "📿 Amulet:",
+            style: new PIXI.TextStyle({ 
+                fontSize: 15, 
+                fill: 0x3498db, 
+                fontWeight: "700",
+                dropShadow: {
+                    alpha: 0.5,
+                    angle: 90,
+                    blur: 2,
+                    color: 0x000000,
+                    distance: 2,
+                },
+            }),
+        });
+        amuletLabel.position.set(x, y);
+        this.heroBoardLayer.addChild(amuletLabel);
+
+        const amuletSlot = this.renderInventorySlot(p.inventory.amulet, slotSize * 1.2, "amulet");
+        amuletSlot.position.set(x, y + 28);
+        this.heroBoardLayer.addChild(amuletSlot);
+    }
+
+    private renderInventorySlot(item: any | null, size: number, type: "weapon" | "spell" | "amulet"): PIXI.Container {
+        const container = new PIXI.Container();
+
+        const bg = new PIXI.Graphics();
+        bg.roundRect(0, 0, size, size, 8);
+        
+        if (item) {
+            // Градиент для заполненного слота
+            bg.fill({ color: 0x4a5568, alpha: 1 });
+            bg.stroke({ color: 0xffd700, width: 2.5 });
+
+            const itemText = new PIXI.Text({
+                text: item.name?.[0] || "?",
+                style: new PIXI.TextStyle({ 
+                    fontSize: 20, 
+                    fill: 0xffffff, 
+                    fontWeight: "700",
+                    dropShadow: {
+                        alpha: 0.8,
+                        angle: 90,
+                        blur: 2,
+                        color: 0x000000,
+                        distance: 2,
+                    },
+                }),
+            });
+            itemText.anchor.set(0.5);
+            itemText.position.set(size / 2, size / 2);
+            container.addChild(itemText);
+        } else {
+            // Пустой слот с subtle inner shadow эффектом
+            bg.fill({ color: 0x1a1f2e, alpha: 0.8 });
+            bg.stroke({ color: 0x2d3748, width: 2 });
+
+            // Subtle icon для типа слота
+            const iconMap = { weapon: "⚔", spell: "✨", amulet: "📿" };
+            const icon = new PIXI.Text({
+                text: iconMap[type],
+                style: new PIXI.TextStyle({ 
+                    fontSize: size * 0.4, 
+                    fill: 0x4a5568, 
+                    fontWeight: "400",
+                }),
+            });
+            icon.anchor.set(0.5);
+            icon.position.set(size / 2, size / 2);
+            icon.alpha = 0.3;
+            container.addChild(icon);
+        }
+
+        container.addChild(bg);
+        return container;
+    }
+
+    // --------------------
+    // BUILD MENU (модальное окно)
+    // --------------------
+    private renderBuildMenu() {
+        this.buildMenuLayer.removeChildren();
+        
+        // Показываем только в режиме BUILD_MENU
+        if (this.game.state.uiMode !== "BUILD_MENU") return;
+        
+        const p = this.game.state.players[this.game.state.currentPlayerIndex];
+        const playerIndex = this.game.state.currentPlayerIndex;
+        const playerColor = this.PLAYER_COLORS[playerIndex % this.PLAYER_COLORS.length];
+        
+        const screenW = this.app.renderer.width;
+        const screenH = this.app.renderer.height;
+        
+        // Затемнение фона (backdrop)
+        const backdrop = new PIXI.Graphics();
+        backdrop.rect(0, 0, screenW, screenH);
+        backdrop.fill({ color: 0x000000, alpha: 0.6 });
+        backdrop.eventMode = "static";
+        backdrop.cursor = "pointer";
+        backdrop.on("pointerdown", () => {
+            this.game.state.uiMode = "NONE";
+            this.renderAll();
+        });
+        this.buildMenuLayer.addChild(backdrop);
+        
+        // Панель меню
+        const panelW = 420;
+        const panelH = 520;
+        const panelX = (screenW - panelW) / 2;
+        const panelY = (screenH - panelH) / 2;
+        
+        const panel = new PIXI.Graphics();
+        panel.roundRect(panelX, panelY, panelW, panelH, 16);
+        panel.fill({ color: 0x1a1f2e, alpha: 0.98 });
+        panel.stroke({ color: playerColor, width: 4, alpha: 1 });
+        panel.eventMode = "static"; // Блокируем клики на backdrop
+        this.buildMenuLayer.addChild(panel);
+        
+        // Заголовок
+        const isOutpost = this.game.canBuildOutpost();
+        const titleText = isOutpost ? "🏰 Build Outpost" : "🏗️ Build Districts";
+        
+        const title = new PIXI.Text({
+            text: titleText,
+            style: new PIXI.TextStyle({
+                fontSize: 24,
+                fill: playerColor,
+                fontWeight: "800",
+                dropShadow: { alpha: 0.8, angle: 90, blur: 4, color: 0x000000, distance: 3 },
+            }),
+        });
+        title.position.set(panelX + 20, panelY + 16);
+        this.buildMenuLayer.addChild(title);
+        
+        // Ресурсы игрока
+        const resourceText = new PIXI.Text({
+            text: `Your resources: 🪵${p.timber}  ⚙️${p.iron}  🍖${p.provisions}`,
+            style: new PIXI.TextStyle({ fontSize: 14, fill: 0xa0aec0, fontWeight: "600" }),
+        });
+        resourceText.position.set(panelX + 20, panelY + 50);
+        this.buildMenuLayer.addChild(resourceText);
+        
+        // Кнопка закрыть
+        const closeBtn = new PIXI.Graphics();
+        closeBtn.circle(panelX + panelW - 24, panelY + 24, 14);
+        closeBtn.fill({ color: 0xff4444, alpha: 0.9 });
+        closeBtn.stroke({ color: 0xffffff, width: 2, alpha: 0.8 });
+        closeBtn.eventMode = "static";
+        closeBtn.cursor = "pointer";
+        closeBtn.on("pointerdown", () => {
+            this.game.state.uiMode = "NONE";
+            this.renderAll();
+        });
+        this.buildMenuLayer.addChild(closeBtn);
+        
+        const closeX = new PIXI.Text({
+            text: "✕",
+            style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffffff, fontWeight: "900" }),
+        });
+        closeX.anchor.set(0.5);
+        closeX.position.set(panelX + panelW - 24, panelY + 24);
+        this.buildMenuLayer.addChild(closeX);
+        
+        let yOffset = panelY + 80;
+        
+        if (isOutpost) {
+            // Показываем карточку Outpost
+            this.renderBuildingCard(panelX + 16, yOffset, panelW - 32, {
+                name: "Outpost",
+                emoji: "🏰",
+                cost: "2 🪵",
+                effect: "Your city - build districts here",
+                canAfford: p.timber >= 2,
+                onBuild: () => {
+                    this.game.doBuildOutpost();
+                    this.game.state.uiMode = "NONE";
+                    this.renderAll();
+                },
+            });
+        } else {
+            // Показываем все здания (districts)
+            const buildings = [
+                { type: "WarriorLodge", emoji: "⚔️", name: "Warrior Lodge", cost: "2🪵 1⚙️", effect: "+1 damage on ⚔ roll", costCheck: p.timber >= 2 && p.iron >= 1 },
+                { type: "ShieldHall", emoji: "🛡️", name: "Shield Hall", cost: "2🪵 1⚙️", effect: "Ignore 1 💀 per combat", costCheck: p.timber >= 2 && p.iron >= 1 },
+                { type: "AxeHall", emoji: "🪓", name: "Axe Hall", cost: "1🪵 2⚙️", effect: "1 reroll per combat", costCheck: p.timber >= 1 && p.iron >= 2 },
+                { type: "Storehouse", emoji: "📦", name: "Storehouse", cost: "3🪵", effect: "+1 resource on Gather", costCheck: p.timber >= 3 },
+                { type: "RelicHall", emoji: "🏛️", name: "Relic Hall", cost: "2🪵 2⚙️", effect: "Activates relics", costCheck: p.timber >= 2 && p.iron >= 2 },
+                { type: "Shrine", emoji: "⛩️", name: "Shrine", cost: "3🪵 3⚙️", effect: "Ultimate power", costCheck: p.timber >= 3 && p.iron >= 3 },
+            ];
+            
+            for (const b of buildings) {
+                const alreadyBuilt = p.buildings.includes(b.type as any);
+                
+                this.renderBuildingCard(panelX + 16, yOffset, panelW - 32, {
+                    name: b.name,
+                    emoji: b.emoji,
+                    cost: b.cost,
+                    effect: b.effect,
+                    canAfford: b.costCheck && !alreadyBuilt,
+                    alreadyBuilt,
+                    onBuild: () => {
+                        this.game.doBuildDistricts([b.type as any]);
+                        this.renderAll(); // Обновляем UI, не закрываем меню
+                    },
+                });
+                
+                yOffset += 68;
+            }
+        }
+    }
+    
+    private renderBuildingCard(
+        x: number, 
+        y: number, 
+        w: number, 
+        options: {
+            name: string;
+            emoji: string;
+            cost: string;
+            effect: string;
+            canAfford: boolean;
+            alreadyBuilt?: boolean;
+            onBuild: () => void;
+        }
+    ) {
+        const h = 60;
+        const cardBg = new PIXI.Graphics();
+        cardBg.roundRect(x, y, w, h, 10);
+        
+        if (options.alreadyBuilt) {
+            cardBg.fill({ color: 0x2d3748, alpha: 0.5 });
+            cardBg.stroke({ color: 0x48bb78, width: 2, alpha: 0.8 });
+        } else if (options.canAfford) {
+            cardBg.fill({ color: 0x2d3748, alpha: 0.9 });
+            cardBg.stroke({ color: 0xffd700, width: 2, alpha: 0.8 });
+        } else {
+            cardBg.fill({ color: 0x1a202c, alpha: 0.7 });
+            cardBg.stroke({ color: 0x4a5568, width: 1, alpha: 0.5 });
+        }
+        this.buildMenuLayer.addChild(cardBg);
+        
+        // Emoji
+        const emoji = new PIXI.Text({
+            text: options.emoji,
+            style: new PIXI.TextStyle({ fontSize: 28 }),
+        });
+        emoji.position.set(x + 16, y + 14);
+        this.buildMenuLayer.addChild(emoji);
+        
+        // Name
+        const name = new PIXI.Text({
+            text: options.name,
+            style: new PIXI.TextStyle({
+                fontSize: 16,
+                fill: options.alreadyBuilt ? 0x48bb78 : (options.canAfford ? 0xffffff : 0x718096),
+                fontWeight: "700",
+            }),
+        });
+        name.position.set(x + 56, y + 10);
+        this.buildMenuLayer.addChild(name);
+        
+        // Effect
+        const effect = new PIXI.Text({
+            text: options.effect,
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0xa0aec0, fontWeight: "400" }),
+        });
+        effect.position.set(x + 56, y + 32);
+        this.buildMenuLayer.addChild(effect);
+        
+        // Cost
+        const cost = new PIXI.Text({
+            text: options.cost,
+            style: new PIXI.TextStyle({ 
+                fontSize: 13, 
+                fill: options.canAfford ? 0x48bb78 : 0xe53e3e, 
+                fontWeight: "600" 
+            }),
+        });
+        cost.anchor.set(1, 0);
+        cost.position.set(x + w - 80, y + 12);
+        this.buildMenuLayer.addChild(cost);
+        
+        // Build button
+        if (!options.alreadyBuilt) {
+            const btnW = 60;
+            const btnH = 28;
+            const btnX = x + w - btnW - 10;
+            const btnY = y + (h - btnH) / 2;
+            
+            const btn = new PIXI.Graphics();
+            btn.roundRect(btnX, btnY, btnW, btnH, 6);
+            
+            if (options.canAfford) {
+                btn.fill({ color: 0x48bb78, alpha: 1 });
+                btn.stroke({ color: 0x68d391, width: 2 });
+                btn.eventMode = "static";
+                btn.cursor = "pointer";
+                btn.on("pointerdown", options.onBuild);
+            } else {
+                btn.fill({ color: 0x4a5568, alpha: 0.5 });
+            }
+            this.buildMenuLayer.addChild(btn);
+            
+            const btnText = new PIXI.Text({
+                text: "BUILD",
+                style: new PIXI.TextStyle({
+                    fontSize: 11,
+                    fill: options.canAfford ? 0xffffff : 0x718096,
+                    fontWeight: "800",
+                }),
+            });
+            btnText.anchor.set(0.5);
+            btnText.position.set(btnX + btnW / 2, btnY + btnH / 2);
+            this.buildMenuLayer.addChild(btnText);
+        } else {
+            // Already built badge
+            const badge = new PIXI.Text({
+                text: "✓ BUILT",
+                style: new PIXI.TextStyle({ fontSize: 12, fill: 0x48bb78, fontWeight: "700" }),
+            });
+            badge.anchor.set(1, 0.5);
+            badge.position.set(x + w - 16, y + h / 2);
+            this.buildMenuLayer.addChild(badge);
+        }
+    }
+
+    // --------------------
+    // Event Log
+    // --------------------
+    private renderEventLog() {
+        this.eventLogLayer.removeChildren();
+
+        const logW = 350;
+        const logH = 180;
+        const logX = 16;
+        const logY = this.app.renderer.height - logH - 148; // над HUD (новый HUD 130px + отступ)
+
+        // Фон лога
+        const bg = new PIXI.Graphics();
+        bg.roundRect(logX, logY, logW, logH, 8);
+        bg.fill({ color: 0x1a1f2e, alpha: 0.92 });
+        bg.stroke({ color: 0x4a5568, width: 2, alpha: 0.6 });
+        this.eventLogLayer.addChild(bg);
+
+        // Заголовок
+        const title = new PIXI.Text({
+            text: "📜 Event Log",
+            style: new PIXI.TextStyle({
+                fontSize: 16,
+                fill: 0xffd700,
+                fontWeight: "700",
+                dropShadow: {
+                    alpha: 0.6,
+                    angle: 90,
+                    blur: 2,
+                    color: 0x000000,
+                    distance: 2,
+                },
+            }),
+        });
+        title.position.set(logX + 12, logY + 10);
+        this.eventLogLayer.addChild(title);
+
+        // События (последние 7)
+        const recentEvents = this.game.state.eventLog.slice(-7).reverse();
+        let yOffset = logY + 38;
+
+        for (const event of recentEvents) {
+            const eventText = new PIXI.Text({
+                text: `• ${event}`,
+                style: new PIXI.TextStyle({
+                    fontSize: 12,
+                    fill: 0xdddddd,
+                    fontWeight: "400",
+                }),
+            });
+            eventText.position.set(logX + 12, yOffset);
+            this.eventLogLayer.addChild(eventText);
+            yOffset += 18;
+        }
+
+        if (recentEvents.length === 0) {
+            const emptyText = new PIXI.Text({
+                text: "No events yet...",
+                style: new PIXI.TextStyle({
+                    fontSize: 12,
+                    fill: 0x888888,
+                    fontStyle: "italic",
+                }),
+            });
+            emptyText.position.set(logX + 12, yOffset);
+            this.eventLogLayer.addChild(emptyText);
+        }
+    }
+
+    // --------------------
+    // Deck Info (UI колоды)
+    // --------------------
+    private renderDeckInfo() {
+        this.deckInfoLayer.removeChildren();
+
+        const deckW = 180;
+        const deckH = 120;
+        const deckX = 16;
+        const deckY = this.app.renderer.height - 148 - 180 - 10 - deckH; // Под Event Log
+
+        // Фон панели
+        const bg = new PIXI.Graphics();
+        bg.roundRect(deckX, deckY, deckW, deckH, 8);
+        bg.fill({ color: 0x1a1f2e, alpha: 0.92 });
+        bg.stroke({ color: 0x4a5568, width: 2, alpha: 0.6 });
+        this.deckInfoLayer.addChild(bg);
+
+        // Заголовок
+        const title = new PIXI.Text({
+            text: "🃏 Tile Deck",
+            style: new PIXI.TextStyle({
+                fontSize: 16,
+                fill: 0xffd700,
+                fontWeight: "700",
+                dropShadow: {
+                    alpha: 0.6,
+                    angle: 90,
+                    blur: 2,
+                    color: 0x000000,
+                    distance: 2,
+                },
+            }),
+        });
+        title.position.set(deckX + 12, deckY + 10);
+        this.deckInfoLayer.addChild(title);
+
+        // Информация о колоде
+        const tier1Remaining = this.game.state.tileDeck.getTier1Remaining();
+        const tier2Remaining = this.game.state.tileDeck.getTier2Remaining();
+        const totalRemaining = this.game.state.tileDeck.getRemainingCount();
+
+        const infoLines = [
+            `Tier 1: ${tier1Remaining} tiles`,
+            `Tier 2: ${tier2Remaining} tiles`,
+            ``,
+            `Total: ${totalRemaining} / 60`,
+        ];
+
+        let yOffset = deckY + 38;
+        for (const line of infoLines) {
+            const lineText = new PIXI.Text({
+                text: line,
+                style: new PIXI.TextStyle({
+                    fontSize: 14,
+                    fill: line.startsWith("Total") ? 0xffffff : 0xdddddd,
+                    fontWeight: line.startsWith("Total") ? "700" : "400",
+                }),
+            });
+            lineText.position.set(deckX + 12, yOffset);
+            this.deckInfoLayer.addChild(lineText);
+            yOffset += 18;
         }
     }
 }
