@@ -8,8 +8,7 @@ import type { Tile } from "./Tile";
 import { 
     type EdgeIndex, 
     getEdgeToNeighbor, 
-    OPPOSITE_EDGE, 
-    rotateEdges 
+    OPPOSITE_EDGE
 } from "./HexEdges";
 
 // Re-export для обратной совместимости
