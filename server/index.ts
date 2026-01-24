@@ -337,6 +337,56 @@ io.on("connection", (socket: Socket) => {
     });
 
     // ========================================
+    // LEAVE ROOM - Player explicitly leaves
+    // ========================================
+    socket.on("leave-room", (data: { roomCode: string }) => {
+        const room = rooms.get(data.roomCode);
+        if (!room) return;
+
+        const player = getPlayerBySocket(room, socket.id);
+        if (!player) return;
+
+        console.log(`[Server] ${player.name} left room ${data.roomCode}`);
+
+        // Remove player from room
+        room.players = room.players.filter(p => p.socketId !== socket.id);
+        sessions.delete(player.sessionId);
+        socket.leave(data.roomCode);
+
+        // If room is empty, delete it
+        if (room.players.length === 0) {
+            rooms.delete(data.roomCode);
+            console.log(`[Server] Room ${data.roomCode} deleted (empty after leave)`);
+            return;
+        }
+
+        // Reassign admin if needed
+        if (player.isAdmin && room.players.length > 0) {
+            room.players[0].isAdmin = true;
+            console.log(`[Server] New admin: ${room.players[0].name}`);
+        }
+
+        // Reassign player IDs
+        room.players.forEach((p, i) => {
+            p.id = `P${i + 1}`;
+        });
+
+        // Notify remaining players
+        io.to(data.roomCode).emit("player-left", {
+            players: room.players,
+            leftPlayer: { id: player.id, name: player.name },
+        });
+
+        // If game was in progress and only 1 player left, end the game
+        if (room.gameStarted && room.players.length < 2) {
+            room.gameStarted = false;
+            room.gameState = null;
+            io.to(data.roomCode).emit("game-reset", { reason: "Not enough players" });
+            console.log(`[Server] Game ended in room ${data.roomCode} - not enough players`);
+        }
+    });
+
+    // ========================================
     // DISCONNECT
     // ========================================
     socket.on("disconnect", () => {

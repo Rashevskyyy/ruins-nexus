@@ -307,6 +307,42 @@ export class SocketClient {
             });
         });
     }
+
+    /**
+     * Leave current room and clear session
+     */
+    leaveRoom(): void {
+        if (this.socket && this.roomCode) {
+            this.socket.emit("leave-room", { roomCode: this.roomCode });
+        }
+        
+        // Clear local state
+        this.roomCode = null;
+        this.playerId = null;
+        this.sessionId = null;
+        this.players = [];
+        this.isAdmin = false;
+        this.connectionState = "connected";
+        
+        // Clear stored session
+        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(ROOM_KEY);
+        
+        this.onStateChange?.();
+    }
+
+    /**
+     * Disconnect completely
+     */
+    disconnect(): void {
+        this.leaveRoom();
+        if (this.socket) {
+            this.socket.disconnect();
+            this.socket = null;
+        }
+        this.connectionState = "disconnected";
+        this.onStateChange?.();
+    }
 }
 
 // Global singleton

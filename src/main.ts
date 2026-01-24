@@ -400,9 +400,9 @@ async function main() {
         };
         
         renderer.onDebugLeaveGame = () => {
-            localStorage.removeItem("sessionId");
-            localStorage.removeItem("playerId");
-            localStorage.removeItem("roomCode");
+            // Properly leave the room and clear session
+            socketClient.leaveRoom();
+            // Reload to show fresh lobby
             location.reload();
         };
     }
