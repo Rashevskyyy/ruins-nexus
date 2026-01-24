@@ -773,27 +773,20 @@ export class GameRenderer {
             return "🏰";
         }
 
-        // Resource: показываем эмодзи для ресурсов
-        if (tile.type === TileType.Resource || tile.type === TileType.FinalTile) {
-            // если монстр жив — показываем HP врага
-            if (tile.encounterActive) {
-                return `⚔️${tile.enemyHp || "?"}`;
-            }
+        // Any discovered tile can show resources (if it has them)
+        // если монстр жив — показываем HP врага
+        if (tile.encounterActive) {
+            return `⚔️${tile.enemyHp || "?"}`;
+        }
 
-            // Множественные ресурсы
-            if (tile.resources) {
-                const emojis: string[] = [];
-                const res = tile.resources;
-                if (res.biomass && res.biomass > 0) emojis.push("🧬".repeat(res.biomass));
-                if (res.materials && res.materials > 0) emojis.push("🧱".repeat(res.materials));
-                if (res.alloys && res.alloys > 0) emojis.push("⚙".repeat(res.alloys));
-                if (emojis.length > 0) return emojis.join("");
-            }
-
-            // OLD: Обратная совместимость
-            const kind = tile.resource?.kind;
-            const emoji = kind === "Biomass" ? "🧬" : kind === "Materials" ? "🧱" : kind === "Alloys" ? "⚙" : "📦";
-            return emoji;
+        // Множественные ресурсы - check for any tile
+        if (tile.resources) {
+            const emojis: string[] = [];
+            const res = tile.resources;
+            if (res.biomass && res.biomass > 0) emojis.push("🧬".repeat(res.biomass));
+            if (res.materials && res.materials > 0) emojis.push("🧱".repeat(res.materials));
+            if (res.alloys && res.alloys > 0) emojis.push("⚙".repeat(res.alloys));
+            if (emojis.length > 0) return emojis.join("");
         }
 
         return "";
@@ -2036,13 +2029,14 @@ export class GameRenderer {
         
         // Discovered tile
         if (isOnTile) {
-            // GATHER - if has resource and no monster
+            // GATHER - if has resource, no monster, and no base built here
             const hasResources = tile.resources && 
                 ((tile.resources.biomass ?? 0) > 0 || 
                  (tile.resources.materials ?? 0) > 0 || 
                  (tile.resources.alloys ?? 0) > 0);
             
-            if (hasResources && !tile.encounterActive) {
+            // Can't gather on tiles with a base (ownerId set)
+            if (hasResources && !tile.encounterActive && !tile.ownerId) {
                 const mainResource = tile.resources!.biomass ? "Biomass" : 
                                      tile.resources!.materials ? "Materials" : "Alloys";
                 const resourceEmoji = this.getResourceEmoji(mainResource);
