@@ -8,8 +8,6 @@ import { type EdgeIndex, getEdgeVertices } from "../board/HexEdges";
 import type { Tile } from "../board/Tile";
 import { GAME_VERSION } from "../assets/AssetLoader";
 
-type ActionKey = "GATHER" | "TRADE" | "EXPLORE" | "BUILD";
-
 export class GameRenderer {
     private HEX_SIZE = 50;
     private HEX_POINTS: number[];
@@ -48,11 +46,6 @@ export class GameRenderer {
         }),
     });
 
-    private actionButtons: Array<{
-        key: ActionKey;
-        bg: PIXI.Graphics;
-        label: PIXI.Text;
-    }> = [];
 
     // Rotate button (только для TILE_PLACEMENT)
     private rotateButton = {
@@ -92,6 +85,12 @@ export class GameRenderer {
     // Debug Panel
     private debugPanelLayer = new PIXI.Container();
     private debugPanelVisible = false;
+
+    // Context Menu (actions on tile)
+    private contextMenuLayer = new PIXI.Container();
+    private contextMenuVisible = false;
+    private contextMenuTile: HexCoord | null = null;
+
 
     // Multiplayer: check if it's my turn (set externally)
     public isMyTurnFn: (() => boolean) | null = null;
@@ -150,7 +149,11 @@ export class GameRenderer {
         this.app.stage.addChild(this.debugPanelLayer); // Debug Panel
         this.debugPanelLayer.zIndex = 300;
 
-        this.createActionButtons();
+        this.app.stage.addChild(this.contextMenuLayer); // Context Menu on tiles
+        this.contextMenuLayer.zIndex = 150;
+
+        // Remove old action buttons - now using context menu on tiles
+        // this.createActionButtons();
         this.createRotateButton();
         this.createPlaceTileButton();
         this.createDebugToggleButton();
@@ -443,8 +446,8 @@ export class GameRenderer {
             
             view.on("pointerdown", () => {
                 if (!this.isMyTurn) return;
-                this.game.handleHexClick(tile.coord);
-                this.renderAll();
+                // Show context menu on tile instead of direct action
+                this.showContextMenu(tile.coord);
             });
 
             view.on("pointerover", () => {
@@ -612,6 +615,94 @@ export class GameRenderer {
 
                 ghostView.visible = true;
             }
+        }
+
+        // Render fog tiles around player (for exploration selection - always visible)
+        if (this.game.state.uiMode !== "TILE_PLACEMENT") {
+            this.renderFogTilesAroundPlayer();
+        }
+    }
+
+    // Show clickable fog tiles around the player for exploration
+    private renderFogTilesAroundPlayer(): void {
+        if (!this.isMyTurn) return;
+        if (this.game.state.actionPoints < 1) return;
+        if (this.game.state.actionUsedInCurrentSlot) return;
+        
+        const player = this.game.state.players[this.game.state.currentPlayerIndex];
+        const playerNeighbors = neighbors(player.position);
+        
+        for (const coord of playerNeighbors) {
+            const existing = this.game.state.board.getTile(coord);
+            
+            // Skip if tile already exists
+            if (existing) continue;
+            
+            // Check if player can move there (no mountain blocking from player's tile)
+            const playerTile = this.game.state.board.getTile(player.position);
+            if (playerTile && !canMoveBetween(playerTile, coord, null)) {
+                continue;
+            }
+            
+            const key = hexKey(coord);
+            let fogView = this.tileViews.get(key);
+            
+            if (!fogView) {
+                fogView = new PIXI.Graphics();
+                fogView.hitArea = new PIXI.Polygon(this.HEX_POINTS);
+                this.tileViews.set(key, fogView);
+                this.boardLayer.addChild(fogView);
+            }
+            
+            fogView.removeAllListeners();
+            fogView.eventMode = "static";
+            fogView.cursor = "pointer";
+            
+            fogView.on("pointerdown", () => {
+                if (!this.isMyTurn) return;
+                this.showContextMenu(coord);
+            });
+            
+            fogView.on("pointerover", () => {
+                if (!this.isMyTurn) return;
+                this.hoveredKey = key;
+                fogView!.clear();
+                fogView!.poly(this.HEX_POINTS);
+                fogView!.fill({ color: 0x4a90d9, alpha: 0.3 });
+                fogView!.stroke({ color: 0x4a90d9, width: 3, alpha: 1 });
+                
+                // Show "?" icon
+                const { x, y } = this.hexToPixel(coord);
+                const questionMark = new PIXI.Text({
+                    text: "🔭",
+                    style: new PIXI.TextStyle({ fontSize: 24 }),
+                });
+                questionMark.anchor.set(0.5);
+                questionMark.position.set(x, y);
+                questionMark.name = "fogIcon";
+                this.ghostPreviewLayer.addChild(questionMark);
+            });
+            
+            fogView.on("pointerout", () => {
+                if (this.hoveredKey === key) this.hoveredKey = null;
+                fogView!.clear();
+                fogView!.poly(this.HEX_POINTS);
+                fogView!.fill({ color: 0x2a2a4a, alpha: 0.4 });
+                fogView!.stroke({ color: 0x4a4a6a, width: 2, alpha: 0.6 });
+                
+                // Remove fog icon
+                const icon = this.ghostPreviewLayer.getChildByName("fogIcon");
+                if (icon) this.ghostPreviewLayer.removeChild(icon);
+            });
+            
+            const { x, y } = this.hexToPixel(coord);
+            fogView.position.set(x, y);
+            
+            fogView.clear();
+            fogView.poly(this.HEX_POINTS);
+            fogView.fill({ color: 0x2a2a4a, alpha: 0.4 });
+            fogView.stroke({ color: 0x4a4a6a, width: 2, alpha: 0.6 });
+            fogView.visible = true;
         }
     }
 
@@ -825,46 +916,7 @@ export class GameRenderer {
     // --------------------
     // HUD + Buttons
     // --------------------
-    private createActionButtons() {
-        const actions: ActionKey[] = ["GATHER", "TRADE", "EXPLORE", "BUILD"];
-
-        for (const key of actions) {
-            const bg = new PIXI.Graphics();
-            bg.eventMode = "static";
-            bg.cursor = "pointer";
-
-            const label = new PIXI.Text({
-                text: key,
-                style: new PIXI.TextStyle({
-                    fontSize: 12,
-                    fill: 0xffffff,
-                    fontWeight: "700",
-                }),
-            });
-            label.anchor.set(0.5);
-            label.eventMode = "none";
-
-            bg.on("pointerdown", () => {
-                if (!this.canUseAction(key)) return;
-
-                if (key === "GATHER") this.game.doGather();
-                if (key === "TRADE") this.game.doTrade();
-                if (key === "EXPLORE") this.game.doExplore();
-                if (key === "BUILD") {
-                    // Открываем меню зданий
-                    this.game.state.uiMode = "BUILD_MENU";
-                    this.renderAll();
-                }
-
-                this.renderAll();
-            });
-
-            this.hudLayer.addChild(bg);
-            this.hudLayer.addChild(label);
-
-            this.actionButtons.push({ key, bg, label });
-        }
-    }
+    // Action buttons removed - now using context menu on tiles
 
     private createRotateButton() {
         const { bg, label } = this.rotateButton;
@@ -903,62 +955,11 @@ export class GameRenderer {
         this.hudLayer.addChild(label);
     }
 
-    private canUseAction(action: ActionKey): boolean {
-        // Multiplayer: не мой ход - нельзя
-        if (!this.isMyTurn) return false;
-        
-        if (this.game.state.actionPoints <= 0) return false;
-
-        // По правилам Karak 2: Action недоступен, если уже использовали action в текущем слоте
-        if (this.game.state.actionUsedInCurrentSlot) return false;
-
-        const p = this.game.state.players[this.game.state.currentPlayerIndex];
-        const here = this.game.state.board.getTile(p.position);
-
-        if (action === "BUILD") {
-            // BUILD: либо строим Base, либо в своей базе (меню всегда доступно)
-            if (this.game.canBuildBase()) return true;
-            if (this.game.isInOwnBase()) return true; // Меню открывается всегда, даже без ресов
-            return false;
-        }
-
-        if (action === "TRADE") {
-            // MVP: разрешаем только если стоим в поселении
-            if (here?.type !== TileType.LandingHub) return false;
-            // и есть что обменять по текущим правилам
-            return p.biomass >= 2 || p.materials >= 2;
-        }
-
-        if (action === "GATHER") {
-            // MVP: gather на текущем возможен только если чистый ресурс
-            return this.canGatherHere();
-        }
-
-        if (action === "EXPLORE") {
-            // Tile placement: проверяем, есть ли валидные позиции (пустые рядом с открытыми)
-            const openTiles = this.game.state.board.getAllTiles().filter((t) => t.discovered);
-            
-            for (const openTile of openTiles) {
-                for (const neighborCoord of neighbors(openTile.coord)) {
-                    const existing = this.game.state.board.getTile(neighborCoord);
-                    if (!existing) {
-                        // Есть хотя бы одна валидная позиция
-                        return true;
-                    }
-                }
-            }
-            
-            return false; // нет валидных позиций
-        }
-
-        return false;
-    }
-
     private renderHUD() {
         const p = this.game.state.players[this.game.state.currentPlayerIndex];
 
-        // нижняя панель (УВЕЛИЧЕНА для двух рядов кнопок)
-        const panelH = 130;
+        // нижняя панель (compact - no action buttons)
+        const panelH = this.game.state.uiMode === "TILE_PLACEMENT" ? 120 : 70;
         const panelY = this.app.renderer.height - panelH;
         const panelW = this.app.renderer.width;
 
@@ -1000,89 +1001,17 @@ export class GameRenderer {
 
         this.hudText.position.set(16, panelY + 14);
 
-        // КНОПКИ В ДВА РЯДА (чистая раскладка)
-        // Ряд 1: [GATHER] [TRADE] [BUILD]
-        // Ряд 2: [EXPLORE] [ROTATE] [PLACE] ← все в ряду 2
-        
-        const w = 90; // УМЕНЬШЕНА ширина чтобы влезли все кнопки
-        const h = 30;
-        const gap = 8; // Меньше gap
-        const rowGap = 10;
-
-        const row1Buttons = ["GATHER", "TRADE", "BUILD"];
-        const row2Buttons = ["EXPLORE"];
-
-        const row1W = row1Buttons.length * w + (row1Buttons.length - 1) * gap;
-        const row1X = panelW - row1W - 16;
-        const row1Y = panelY + 14;
-
-        // Rotate и Place параметры
+        // TILE PLACEMENT controls (Rotate + Place buttons)
         const rotateBtnVisible = this.game.state.uiMode === "TILE_PLACEMENT";
         const placeBtnVisible = this.game.state.uiMode === "TILE_PLACEMENT";
-        const rotateBtnW = 90; // такая же ширина
-        const rotateBtnH = 30;
-        const placeBtnW = 100; // чуть шире для текста
-        const placeBtnH = 30;
+        const rotateBtnW = 100;
+        const rotateBtnH = 36;
+        const placeBtnW = 110;
+        const placeBtnH = 36;
+        const gap = 10;
 
-        // Ряд 2: EXPLORE + (Rotate + Place если видим)
-        let row2W = w;
-        if (rotateBtnVisible) row2W += gap + rotateBtnW;
-        if (placeBtnVisible) row2W += gap + placeBtnW;
-        
-        const row2X = panelW - row2W - 16;
-        const row2Y = row1Y + h + rowGap;
-
-        // Рисуем все кнопки
-        for (let i = 0; i < this.actionButtons.length; i++) {
-            const btn = this.actionButtons[i];
-            
-            let x = 0, y = 0;
-            
-            if (row1Buttons.includes(btn.key)) {
-                const idx = row1Buttons.indexOf(btn.key);
-                x = row1X + idx * (w + gap);
-                y = row1Y;
-            } else if (row2Buttons.includes(btn.key)) {
-                // EXPLORE в ряду 2
-                x = row2X;
-                y = row2Y;
-            }
-            
-            // Динамический лейбл для BUILD
-            if (btn.key === "BUILD") {
-                if (this.game.canBuildBase()) {
-                    btn.label.text = "🏠 BASE";
-                } else if (this.game.isInOwnBase()) {
-                    btn.label.text = "🏗 MODULES";
-                } else {
-                    btn.label.text = "BUILD";
-                }
-            }
-
-            const enabled = this.canUseAction(btn.key);
-            const selected = btn.key === "EXPLORE" && this.game.state.uiMode === "TILE_PLACEMENT";
-
-            btn.bg.clear();
-            btn.bg.roundRect(x, y, w, h, 10);
-
-            if (!enabled) {
-                btn.bg.fill({ color: 0x000000, alpha: 0.18 });
-                btn.bg.stroke({ color: 0xffffff, alpha: 0.10, width: 1 });
-                btn.label.alpha = 0.35;
-                btn.bg.cursor = "default";
-            } else {
-                btn.bg.fill({ color: 0xffffff, alpha: selected ? 0.22 : 0.08 });
-                btn.bg.stroke({ color: 0xffffff, alpha: selected ? 0.75 : 0.22, width: 1 });
-                btn.label.alpha = selected ? 1 : 0.85;
-                btn.bg.cursor = "pointer";
-            }
-
-            btn.label.position.set(x + w / 2, y + h / 2);
-        }
-
-        // Rotate button (справа от EXPLORE в ряду 2)
-        const rotateBtnX = row2X + w + gap;
-        const rotateBtnY = row2Y;
+        const rotateBtnX = panelW - rotateBtnW - placeBtnW - gap * 2 - 16;
+        const rotateBtnY = panelY + 70;
 
         this.rotateButton.bg.visible = rotateBtnVisible;
         this.rotateButton.label.visible = rotateBtnVisible;
@@ -1097,10 +1026,10 @@ export class GameRenderer {
             this.rotateButton.label.position.set(rotateBtnX + rotateBtnW / 2, rotateBtnY + rotateBtnH / 2);
         }
 
-        // Place Tile button (справа от Rotate в ряду 2)
+        // Place Tile button (справа от Rotate)
         const placeBtnEnabled = placeBtnVisible && this.game.state.selectedPlacementPosition !== null;
         const placeBtnX = rotateBtnX + rotateBtnW + gap;
-        const placeBtnY = row2Y;
+        const placeBtnY = rotateBtnY;
 
         this.placeTileButton.bg.visible = placeBtnVisible;
         this.placeTileButton.label.visible = placeBtnVisible;
@@ -2028,6 +1957,335 @@ export class GameRenderer {
             });
             info.position.set(panelX + 15, panelY + panelH - 45);
             this.debugPanelLayer.addChild(info);
+        }
+    }
+
+    // ===========================================
+    // CONTEXT MENU - Actions on tile
+    // ===========================================
+
+    private showContextMenu(coord: HexCoord): void {
+        const player = this.game.state.players[this.game.state.currentPlayerIndex];
+        const tile = this.game.state.board.getTile(coord);
+        const playerPos = player.position;
+        
+        // Calculate what actions are available for this tile
+        const actions = this.getAvailableActionsForTile(coord, playerPos, tile);
+        
+        if (actions.length === 0) {
+            // If clicking same tile as context menu, close it
+            if (this.contextMenuVisible && 
+                this.contextMenuTile?.q === coord.q && 
+                this.contextMenuTile?.r === coord.r) {
+                this.hideContextMenu();
+                return;
+            }
+            
+            // Try to move to this tile instead
+            if (tile && tile.discovered) {
+                this.game.handleHexClick(coord);
+                this.renderAll();
+            }
+            return;
+        }
+        
+        this.contextMenuTile = coord;
+        this.contextMenuVisible = true;
+        this.renderContextMenu(coord, actions);
+    }
+
+    private hideContextMenu(): void {
+        this.contextMenuVisible = false;
+        this.contextMenuTile = null;
+        this.contextMenuLayer.removeChildren();
+    }
+
+    private getAvailableActionsForTile(
+        coord: HexCoord, 
+        playerPos: HexCoord, 
+        tile: Tile | undefined
+    ): Array<{ key: string; label: string; emoji: string; hint: string; enabled: boolean; action: () => void }> {
+        const actions: Array<{ key: string; label: string; emoji: string; hint: string; enabled: boolean; action: () => void }> = [];
+        const player = this.game.state.players[this.game.state.currentPlayerIndex];
+        const isOnTile = playerPos.q === coord.q && playerPos.r === coord.r;
+        const isNeighbor = neighbors(playerPos).some(n => n.q === coord.q && n.r === coord.r);
+        
+        if (!tile || !tile.discovered) {
+            // Fog tile - can explore if neighbor
+            if (isNeighbor && this.game.state.actionPoints >= 1) {
+                actions.push({
+                    key: "EXPLORE",
+                    label: "Explore",
+                    emoji: "🔭",
+                    hint: "Discover new territory",
+                    enabled: true,
+                    action: () => {
+                        this.hideContextMenu();
+                        this.game.state.uiMode = "TILE_PLACEMENT";
+                        this.game.state.selectedPlacementPosition = coord;
+                        this.renderAll();
+                    }
+                });
+            }
+            return actions;
+        }
+        
+        // Discovered tile
+        if (isOnTile) {
+            // GATHER - if has resource and no monster
+            const hasResources = tile.resources && 
+                ((tile.resources.biomass ?? 0) > 0 || 
+                 (tile.resources.materials ?? 0) > 0 || 
+                 (tile.resources.alloys ?? 0) > 0);
+            
+            if (hasResources && !tile.encounterActive) {
+                const mainResource = tile.resources!.biomass ? "Biomass" : 
+                                     tile.resources!.materials ? "Materials" : "Alloys";
+                const resourceEmoji = this.getResourceEmoji(mainResource);
+                
+                // Check cooldown
+                const onCooldown = tile.cooldownUntilRoundByPlayer?.[player.id] 
+                    ? tile.cooldownUntilRoundByPlayer[player.id] > this.game.state.round 
+                    : false;
+                
+                actions.push({
+                    key: "GATHER",
+                    label: "Gather",
+                    emoji: resourceEmoji,
+                    hint: onCooldown ? "On cooldown" : `Collect ${mainResource}`,
+                    enabled: this.game.state.actionPoints >= 1 && !onCooldown,
+                    action: () => {
+                        this.hideContextMenu();
+                        this.game.doGather();
+                        this.renderAll();
+                    }
+                });
+            }
+            
+            // TRADE - if on Landing Hub
+            if (tile.type === TileType.LandingHub) {
+                actions.push({
+                    key: "TRADE",
+                    label: "Trade",
+                    emoji: "🔄",
+                    hint: "Exchange 3 of one → 1 of another",
+                    enabled: this.game.state.actionPoints >= 1,
+                    action: () => {
+                        this.hideContextMenu();
+                        this.game.doTrade();
+                        this.renderAll();
+                    }
+                });
+            }
+            
+            // BUILD - Base or Modules
+            const canBuildBase = this.game.canBuildBase();
+            const isInBase = this.game.isInOwnBase();
+            
+            if (canBuildBase) {
+                actions.push({
+                    key: "BUILD_BASE",
+                    label: "Build Base",
+                    emoji: "🏠",
+                    hint: "Establish your base here (2 Materials)",
+                    enabled: player.materials >= 2 && this.game.state.actionPoints >= 1,
+                    action: () => {
+                        this.hideContextMenu();
+                        this.game.doBuildBase();
+                        this.renderAll();
+                    }
+                });
+            }
+            
+            if (isInBase) {
+                actions.push({
+                    key: "BUILD_MODULES",
+                    label: "Modules",
+                    emoji: "🏗",
+                    hint: "Build modules in your base",
+                    enabled: this.game.state.actionPoints >= 1,
+                    action: () => {
+                        this.hideContextMenu();
+                        this.game.state.uiMode = "BUILD_MENU";
+                        this.renderAll();
+                    }
+                });
+            }
+        } else if (isNeighbor) {
+            // Can move to this tile
+            actions.push({
+                key: "MOVE",
+                label: "Move",
+                emoji: "👣",
+                hint: "Move to this tile",
+                enabled: true,
+                action: () => {
+                    this.hideContextMenu();
+                    this.game.handleHexClick(coord);
+                    this.renderAll();
+                }
+            });
+        }
+        
+        return actions;
+    }
+
+    private getResourceEmoji(kind: string | undefined): string {
+        switch (kind) {
+            case "Biomass": return "🧬";
+            case "Materials": return "🧱";
+            case "Alloys": return "⚙";
+            default: return "📦";
+        }
+    }
+
+    private renderContextMenu(coord: HexCoord, actions: Array<{ key: string; label: string; emoji: string; hint: string; enabled: boolean; action: () => void }>): void {
+        this.contextMenuLayer.removeChildren();
+        
+        const { x, y } = this.hexToPixel(coord);
+        
+        // Apply board transform
+        const screenX = (x + this.panX) * this.zoom + this.app.screen.width / 2;
+        const screenY = (y + this.panY) * this.zoom + this.app.screen.height / 2;
+        
+        const btnW = 120;
+        const btnH = 36;
+        const gap = 6;
+        const menuWidth = btnW + 20;
+        const menuHeight = actions.length * (btnH + gap) + 20;
+        
+        // Position menu above or below tile
+        const menuX = screenX - menuWidth / 2;
+        const menuY = screenY + this.HEX_SIZE * this.zoom + 10;
+        
+        // Background
+        const bg = new PIXI.Graphics();
+        bg.roundRect(0, 0, menuWidth, menuHeight, 10);
+        bg.fill({ color: 0x1a1a2e, alpha: 0.95 });
+        bg.stroke({ color: 0x4a90d9, width: 2 });
+        bg.position.set(menuX, menuY);
+        this.contextMenuLayer.addChild(bg);
+        
+        // Arrow pointing to tile
+        const arrow = new PIXI.Graphics();
+        arrow.moveTo(screenX - 8, menuY);
+        arrow.lineTo(screenX, menuY - 10);
+        arrow.lineTo(screenX + 8, menuY);
+        arrow.closePath();
+        arrow.fill({ color: 0x1a1a2e });
+        arrow.stroke({ color: 0x4a90d9, width: 2 });
+        this.contextMenuLayer.addChild(arrow);
+        
+        // Action buttons
+        actions.forEach((action, i) => {
+            const btnContainer = new PIXI.Container();
+            btnContainer.position.set(menuX + 10, menuY + 10 + i * (btnH + gap));
+            btnContainer.eventMode = action.enabled ? "static" : "none";
+            btnContainer.cursor = action.enabled ? "pointer" : "not-allowed";
+            
+            const btnBg = new PIXI.Graphics();
+            btnBg.roundRect(0, 0, btnW, btnH, 6);
+            const bgColor = action.enabled ? 0x2d4a3d : 0x2d2d2d;
+            btnBg.fill({ color: bgColor });
+            btnBg.stroke({ color: action.enabled ? 0x4ade80 : 0x555555, width: 1 });
+            btnBg.hitArea = new PIXI.Rectangle(0, 0, btnW, btnH);
+            
+            const label = new PIXI.Text({
+                text: `${action.emoji} ${action.label}`,
+                style: new PIXI.TextStyle({
+                    fontSize: 13,
+                    fill: action.enabled ? 0xffffff : 0x666666,
+                    fontWeight: "600",
+                }),
+            });
+            label.anchor.set(0, 0.5);
+            label.position.set(10, btnH / 2);
+            label.eventMode = "none";
+            
+            btnContainer.addChild(btnBg);
+            btnContainer.addChild(label);
+            
+            if (action.enabled) {
+                btnContainer.on("pointerover", () => {
+                    btnBg.clear();
+                    btnBg.roundRect(0, 0, btnW, btnH, 6);
+                    btnBg.fill({ color: 0x3d6a4d });
+                    btnBg.stroke({ color: 0x6ade80, width: 2 });
+                    
+                    // Show hint
+                    this.showActionHint(action.hint, menuX + menuWidth + 10, menuY + 10 + i * (btnH + gap));
+                });
+                
+                btnContainer.on("pointerout", () => {
+                    btnBg.clear();
+                    btnBg.roundRect(0, 0, btnW, btnH, 6);
+                    btnBg.fill({ color: 0x2d4a3d });
+                    btnBg.stroke({ color: 0x4ade80, width: 1 });
+                    
+                    this.hideActionHint();
+                });
+                
+                btnContainer.on("pointerdown", () => {
+                    action.action();
+                });
+            }
+            
+            this.contextMenuLayer.addChild(btnContainer);
+        });
+        
+        // Close button
+        const closeBtn = new PIXI.Graphics();
+        closeBtn.circle(menuX + menuWidth - 12, menuY + 12, 10);
+        closeBtn.fill({ color: 0x444444 });
+        closeBtn.stroke({ color: 0x666666, width: 1 });
+        closeBtn.eventMode = "static";
+        closeBtn.cursor = "pointer";
+        closeBtn.hitArea = new PIXI.Circle(menuX + menuWidth - 12, menuY + 12, 10);
+        
+        const closeX = new PIXI.Text({
+            text: "×",
+            style: new PIXI.TextStyle({ fontSize: 14, fill: 0xcccccc }),
+        });
+        closeX.anchor.set(0.5);
+        closeX.position.set(menuX + menuWidth - 12, menuY + 11);
+        closeX.eventMode = "none";
+        
+        closeBtn.on("pointerdown", () => this.hideContextMenu());
+        
+        this.contextMenuLayer.addChild(closeBtn);
+        this.contextMenuLayer.addChild(closeX);
+    }
+
+    private hintContainer: PIXI.Container | null = null;
+
+    private showActionHint(text: string, x: number, y: number): void {
+        this.hideActionHint();
+        
+        this.hintContainer = new PIXI.Container();
+        this.hintContainer.position.set(x, y);
+        
+        const hint = new PIXI.Text({
+            text,
+            style: new PIXI.TextStyle({
+                fontSize: 11,
+                fill: 0xaaaaaa,
+                fontStyle: "italic",
+            }),
+        });
+        
+        const bg = new PIXI.Graphics();
+        bg.roundRect(-4, -2, hint.width + 8, hint.height + 4, 4);
+        bg.fill({ color: 0x000000, alpha: 0.8 });
+        
+        this.hintContainer.addChild(bg);
+        this.hintContainer.addChild(hint);
+        this.contextMenuLayer.addChild(this.hintContainer);
+    }
+
+    private hideActionHint(): void {
+        if (this.hintContainer) {
+            this.contextMenuLayer.removeChild(this.hintContainer);
+            this.hintContainer = null;
         }
     }
 }
