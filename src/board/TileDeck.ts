@@ -1,12 +1,13 @@
 /**
- * TileDeck - Cosmic Frontier v0.4
+ * TileDeck - Cosmic Frontier v0.5
  * 
- * Order: ALL Tier 1 first → ALL Tier 2 → Final Tile (LAST)
+ * Order: ALL Tier 1 first → ALL Tier 2 (with Final Tile shuffled in)
  * Total: 20 T1 + 10 T2 + 1 Final = 31 tiles
  * 
  * Monster Tier = HP (deterministic assignment)
  * 
  * v0.4: Added 3 Risky Tiles (2 T1, 1 T2)
+ * v0.5: Risky tiles count configurable via Game Modifiers
  */
 
 export type ResourceMap = {
@@ -20,6 +21,9 @@ export type TokenType = "CommonLoot" | "UncommonLoot" | "SpellToken" | "Medkit" 
 
 // Risky tile effects (v0.4)
 export type RiskyEffect = "toxic" | "unstable" | "rift";
+
+// All available risky effects
+const RISKY_EFFECTS: RiskyEffect[] = ["toxic", "unstable", "rift"];
 
 export type TileTemplate = {
     tier: number;           // Tile tier (1, 2, or 3 for Final)
@@ -35,8 +39,18 @@ export type TileTemplate = {
 export class TileDeck {
     private deck: TileTemplate[] = [];
     private currentIndex = 0;
+    
+    // v0.5: Configurable risky tiles count
+    private riskyT1Count: number;
+    private riskyT2Count: number;
 
-    constructor() {
+    /**
+     * @param riskyT1Count - Number of risky Tier 1 tiles (default: 2)
+     * @param riskyT2Count - Number of risky Tier 2 tiles (default: 1)
+     */
+    constructor(riskyT1Count: number = 2, riskyT2Count: number = 1) {
+        this.riskyT1Count = riskyT1Count;
+        this.riskyT2Count = riskyT2Count;
         this.initializeDeck();
         this.shuffle();
     }
@@ -45,30 +59,37 @@ export class TileDeck {
         // ===== TIER 1 TILES (20 total) =====
         // 1 resource each, monster tier 1 or 2
         
-        // First 12 tiles → Monster Tier 1 (HP 1)
-        // Rewards: +1 Prestige, CommonLoot
-        this.addTier1Tiles(10, 1, ["CommonLoot"]); // 10 normal
+        // Calculate normal tiles (total 20 = 12 T1M1 + 8 T1M2, minus risky)
+        const normalT1M1Count = 12 - this.riskyT1Count;
         
-        // 2 Risky T1 tiles with Monster Tier 1
-        this.addRiskyTier1Tile("toxic", 1, ["CommonLoot"]);
-        this.addRiskyTier1Tile("unstable", 1, ["CommonLoot"]);
+        // First 12 tiles → Monster Tier 1 (HP 1)
+        this.addTier1Tiles(normalT1M1Count, 1, ["CommonLoot"]);
+        
+        // Risky T1 tiles with Monster Tier 1
+        for (let i = 0; i < this.riskyT1Count; i++) {
+            const effect = RISKY_EFFECTS[i % RISKY_EFFECTS.length];
+            this.addRiskyTier1Tile(effect, 1, ["CommonLoot"]);
+        }
         
         // Next 8 tiles → Monster Tier 2 (HP 2)
-        // Rewards: +1 Prestige, CommonLoot + Medkit
         this.addTier1Tiles(8, 2, ["CommonLoot", "Medkit"]);
 
         // ===== TIER 2 TILES (10 total) =====
         // 2-3 resources each, monster tier 3 or 4
         
-        // First 6 tiles → Monster Tier 3 (HP 3)
-        // Rewards: +2 Prestige, UncommonLoot
-        this.addTier2Tiles(5, 3, ["UncommonLoot"]); // 5 normal
+        // Calculate normal T2M3 tiles (total 6, minus risky)
+        const normalT2M3Count = 6 - this.riskyT2Count;
         
-        // 1 Risky T2 tile with Monster Tier 3
-        this.addRiskyTier2Tile("rift", 3, ["UncommonLoot"]);
+        // First 6 tiles → Monster Tier 3 (HP 3)
+        this.addTier2Tiles(normalT2M3Count, 3, ["UncommonLoot"]);
+        
+        // Risky T2 tiles with Monster Tier 3
+        for (let i = 0; i < this.riskyT2Count; i++) {
+            const effect = RISKY_EFFECTS[(i + this.riskyT1Count) % RISKY_EFFECTS.length];
+            this.addRiskyTier2Tile(effect, 3, ["UncommonLoot"]);
+        }
         
         // Next 4 tiles → Monster Tier 4 (HP 4)
-        // Rewards: +2 Prestige, UncommonLoot + SpellToken
         this.addTier2Tiles(4, 4, ["UncommonLoot", "SpellToken"]);
     }
 
@@ -180,7 +201,8 @@ export class TileDeck {
         this.shuffleArray(tier1);
         this.shuffleArray(tier2);
 
-        // Final Tile - always last!
+        // Final Tile - shuffled INTO Tier 2 (not at the end!)
+        // This creates randomness - Final Tile can appear anytime during Tier 2 exploration
         const finalTile: TileTemplate = {
             tier: 3,
             resources: {}, // Final Tile has no resources (Final Threat instead)
@@ -191,8 +213,12 @@ export class TileDeck {
             rewards: ["Legendary"],
         };
 
-        // Assemble deck: Tier 1, then Tier 2, then Final Tile
-        this.deck = [...tier1, ...tier2, finalTile];
+        // Insert Final Tile at random position within Tier 2
+        const insertIndex = Math.floor(Math.random() * (tier2.length + 1));
+        tier2.splice(insertIndex, 0, finalTile);
+
+        // Assemble deck: ALL Tier 1, then Tier 2 (with Final Tile shuffled in)
+        this.deck = [...tier1, ...tier2];
     }
 
     private shuffleArray<T>(array: T[]): void {

@@ -34,6 +34,9 @@ export type Tile = {
     // Player's Base on this tile
     ownerId?: string;
     
+    // Starting Sector owner (v0.5) - NOT a base, just home zone
+    sectorPlayerId?: string;
+    
     // Risky Tile effect (v0.4)
     // toxic: +1 💀 in every combat
     // unstable: -1 HP every Gather

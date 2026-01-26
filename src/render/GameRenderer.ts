@@ -48,6 +48,11 @@ export class GameRenderer {
         }),
     });
 
+    // v0.6: New HUD layers
+    private topStatusLayer = new PIXI.Container();
+    private combatSummaryLayer = new PIXI.Container();
+    private contextHintLayer = new PIXI.Container();
+
 
     // Rotate button (только для TILE_PLACEMENT)
     private rotateButton = {
@@ -174,6 +179,16 @@ export class GameRenderer {
         this.hudLayer.addChild(this.hudBg);
         this.hudLayer.addChild(this.hudText);
 
+        // v0.6: New HUD layers
+        this.app.stage.addChild(this.topStatusLayer);
+        this.topStatusLayer.zIndex = 180;
+        
+        this.app.stage.addChild(this.combatSummaryLayer);
+        this.combatSummaryLayer.zIndex = 180;
+        
+        this.app.stage.addChild(this.contextHintLayer);
+        this.contextHintLayer.zIndex = 185;
+
         this.app.stage.addChild(this.eventLogLayer); // Event Log
         this.eventLogLayer.zIndex = 200;
 
@@ -220,15 +235,16 @@ export class GameRenderer {
     }
 
     private createVersionLabel() {
+        const h = this.app.renderer.height;
         const versionText = new PIXI.Text({
             text: GAME_VERSION,
             style: new PIXI.TextStyle({
-                fontSize: 12,
-                fill: 0x555555,
+                fontSize: 11,
+                fill: 0x484f58,
                 fontFamily: "monospace",
             }),
         });
-        versionText.position.set(60, 18); // Right of debug button
+        versionText.position.set(60, h - 38); // Next to debug button at bottom
         this.hudLayer.addChild(versionText);
     }
 
@@ -331,6 +347,12 @@ export class GameRenderer {
         this.renderEventLog();
         this.renderDeckInfo(); // NEW: UI колоды
         this.renderHUD();
+        
+        // v0.6: New HUD elements
+        this.renderTopStatusBar();
+        this.renderCombatSummary();
+        this.renderContextHints();
+        
         this.renderBuildMenu(); // BUILD MENU modal
         this.renderCraftMenu(); // v0.5: CRAFT MENU modal
         this.renderFinalPhaseBanner(); // v0.5: Final Phase banner
@@ -364,9 +386,13 @@ export class GameRenderer {
 
         switch (type) {
             case TileType.LandingHub:
-                return 0x9a7440;
+                return 0x9a7440; // Bronze/gold for hub
             case TileType.Resource:
-                return 0x4a9158;
+                return 0x4a9158; // Green for resources
+            case TileType.StartingSector:
+                return 0x3a6a8a; // Blue-teal for starting sectors
+            case TileType.Base:
+                return 0x5a5a9a; // Purple for player base
             case TileType.Empty:
             default:
                 return 0x425262;
@@ -398,10 +424,11 @@ export class GameRenderer {
 
         if (!here) return false;
         if (!here.discovered) return false;
-        if (here.type !== TileType.Resource) return false;
+        // Can gather on Resource tiles or StartingSector (player's home zone)
+        if (here.type !== TileType.Resource && here.type !== TileType.StartingSector) return false;
         if (here.encounterActive === true) return false;
         
-        // Нельзя собирать ресурсы на клетке с городом!
+        // Can't gather on tiles with someone's Base built!
         if (here.ownerId) return false;
         
         // Check resources
@@ -873,12 +900,25 @@ export class GameRenderer {
 
         if (!tile.discovered) return "";
 
-        // Landing Hub
-        if (tile.type === TileType.LandingHub) return "🚀";
+        // Landing Hub (shared trading hub)
+        if (tile.type === TileType.LandingHub) return "🚀 Hub";
         
-        // Player's Base
-        if (tile.ownerId) {
-            return "🏰";
+        // Starting Sector (player's home zone, NOT a base)
+        // Show player ID + resource
+        if (tile.type === TileType.StartingSector) {
+            const playerId = tile.sectorPlayerId || "?";
+            let resourceEmoji = "";
+            if (tile.resources) {
+                if (tile.resources.biomass) resourceEmoji = "🧬";
+                else if (tile.resources.materials) resourceEmoji = "🧱";
+                else if (tile.resources.alloys) resourceEmoji = "⚙";
+            }
+            return `🏠${playerId}\n${resourceEmoji}`;
+        }
+        
+        // Player's Base (built structure)
+        if (tile.type === TileType.Base && tile.ownerId) {
+            return `🏰 ${tile.ownerId}`;
         }
 
         // Show resources first (always if tile has them)
@@ -1136,186 +1176,968 @@ export class GameRenderer {
     }
 
     private renderHUD() {
-        const p = this.game.state.players[this.game.state.currentPlayerIndex];
-
-        // нижняя панель (compact - all controls on tiles now)
-        const panelH = 60;
-        const panelY = this.app.renderer.height - panelH;
-        const panelW = this.app.renderer.width;
-
-        // фон панели
-        this.hudBg.clear();
-        this.hudBg.roundRect(0, panelY, panelW, panelH, 0);
-        this.hudBg.fill({ color: 0x000000, alpha: 0.28 });
-        this.hudBg.stroke({ color: 0xffffff, alpha: 0.12, width: 1 });
-
-        // текст слева
-        let statusLine = `Turn: ${p.id}   AP: ${this.game.state.actionPoints}   Round: ${this.game.state.round}`;
+        // v0.6: Old HUD removed - replaced by Top Status Bar
+        // All info now in: Top Status Bar + Combat Summary + Hero Board
         
-        // Multiplayer: show "waiting" indicator if not my turn
-        if (!this.isMyTurn) {
-            statusLine += `   ⏳ Waiting for ${p.id}...`;
-        }
-        
-        // Final Phase indicator
-        if (this.game.state.isFinalPhase) {
-            statusLine += `   🚨 FINAL PHASE (${this.game.state.finalRoundsLeft} rounds)`;
-            statusLine += `   👾 Threat: ${this.game.state.finalThreatHp}/40 HP`;
-        }
-        
-        // Game Over
-        if (this.game.state.gameOver) {
-            if (this.game.state.missionFailed) {
-                statusLine = `💀 MISSION FAILED! Final Threat survived (${this.game.state.finalThreatHp} HP)`;
-            } else {
-                statusLine = `🏆 VICTORY! ${this.game.state.winnerId} defeated the Final Threat!`;
-            }
-        }
-        
-        this.hudText.text =
-            statusLine + `\n` +
-            `HP: ${p.hp}   🧬${p.biomass}   🧱${p.materials}   ⚙${p.alloys}   ⭐${p.prestige}`;
-
-        this.hudText.position.set(16, panelY + 14);
+        // Hide old HUD background and text
+        this.hudBg.visible = false;
+        this.hudText.visible = false;
 
         // Hide old HUD buttons (now using on-tile controls)
         this.rotateButton.bg.visible = false;
         this.rotateButton.label.visible = false;
         this.placeTileButton.bg.visible = false;
         this.placeTileButton.label.visible = false;
-
     }
 
     // --------------------
-    // Hero Board (v0.5 - Redesigned)
+    // v0.6: TOP STATUS BAR - Game Phase + Turn Context
+    // --------------------
+    private renderTopStatusBar() {
+        this.topStatusLayer.removeChildren();
+        
+        const w = this.app.renderer.width;
+        const h = 56;
+        const p = this.game.state.players[this.game.state.currentPlayerIndex];
+        
+        // Background bar
+        const bg = new PIXI.Graphics();
+        bg.rect(0, 0, w, h);
+        bg.fill({ color: 0x0d1117, alpha: 0.98 });
+        this.topStatusLayer.addChild(bg);
+        
+        // ═══════════════════════════════════════
+        // CENTER: PHASE INDICATOR
+        // ═══════════════════════════════════════
+        let phaseText = "";
+        let phaseColor = 0x00ff88;
+        let phaseBgColor = 0x0a2a1a;
+        let tilesRemaining = 0;
+        let totalTiles = 31;
+        let showTilesBar = false;
+        
+        if (this.game.state.gameOver) {
+            if (this.game.state.missionFailed) {
+                phaseText = "💀 MISSION FAILED";
+                phaseColor = 0xff4444;
+                phaseBgColor = 0x3a1a1a;
+            } else {
+                phaseText = "🏆 VICTORY";
+                phaseColor = 0xffd700;
+                phaseBgColor = 0x3a3a1a;
+            }
+        } else if (this.game.state.finalTrialStarted) {
+            phaseText = "⚡ FINAL TRIAL";
+            phaseColor = 0xff6b6b;
+            phaseBgColor = 0x3a1a2a;
+        } else if (this.game.state.isFinalPreparation) {
+            phaseText = `🔧 ORBITAL • ${this.game.state.finalPrepRoundsLeft} rounds`;
+            phaseColor = 0xffaa00;
+            phaseBgColor = 0x3a2a1a;
+        } else if (this.game.state.isFinalPhase) {
+            phaseText = `🚨 FINAL • ${this.game.state.finalRoundsLeft} rounds`;
+            phaseColor = 0xff4444;
+            phaseBgColor = 0x3a1a1a;
+        } else {
+            phaseText = "🔍 EXPLORATION";
+            phaseColor = 0x00ff88;
+            phaseBgColor = 0x0a2a1a;
+            tilesRemaining = this.game.state.tileDeck.getRemainingCount();
+            showTilesBar = true;
+        }
+        
+        // Phase plate
+        const plateW = 280;
+        const plateH = 44;
+        const plateX = (w - plateW) / 2;
+        const plateY = 6;
+        
+        const phasePlate = new PIXI.Graphics();
+        phasePlate.roundRect(plateX, plateY, plateW, plateH, 10);
+        phasePlate.fill({ color: phaseBgColor, alpha: 1 });
+        phasePlate.stroke({ color: phaseColor, width: 2, alpha: 0.8 });
+        this.topStatusLayer.addChild(phasePlate);
+        
+        // Phase text - BIGGER
+        const phaseLabel = new PIXI.Text({
+            text: phaseText,
+            style: new PIXI.TextStyle({
+                fontSize: 20,
+                fill: phaseColor,
+                fontWeight: "900",
+                letterSpacing: 2,
+                dropShadow: { color: phaseColor, blur: 12, alpha: 0.7, distance: 0 },
+            }),
+        });
+        phaseLabel.anchor.set(0.5);
+        phaseLabel.position.set(w / 2, showTilesBar ? plateY + 13 : plateY + plateH / 2);
+        this.topStatusLayer.addChild(phaseLabel);
+        
+        // Tiles progress bar - MORE VISIBLE!
+        if (showTilesBar) {
+            const barW = plateW - 20;
+            const barH = 16;
+            const barX = plateX + 10;
+            const barY = plateY + 26;
+            
+            // Bar background - darker for contrast
+            const tilesBarBg = new PIXI.Graphics();
+            tilesBarBg.roundRect(barX, barY, barW, barH, 6);
+            tilesBarBg.fill({ color: 0x0a0f1a });
+            tilesBarBg.stroke({ color: 0x00d4ff, width: 2, alpha: 0.6 });
+            this.topStatusLayer.addChild(tilesBarBg);
+            
+            // Bar fill
+            const fillRatio = tilesRemaining / totalTiles;
+            const fillW = Math.max(barW * fillRatio, 4);
+            
+            // Cyan default, yellow/red when low
+            let fillColor = 0x00d4ff;
+            if (fillRatio < 0.25) fillColor = 0xff4444;
+            else if (fillRatio < 0.5) fillColor = 0xffaa00;
+            
+            const tilesBarFill = new PIXI.Graphics();
+            tilesBarFill.roundRect(barX + 2, barY + 2, fillW - 4, barH - 4, 4);
+            tilesBarFill.fill({ color: fillColor });
+            this.topStatusLayer.addChild(tilesBarFill);
+            
+            // Tiles count - OUTSIDE the bar, very visible
+            const tilesText = new PIXI.Text({
+                text: `${tilesRemaining}`,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 14, 
+                    fill: 0x00d4ff, 
+                    fontWeight: "900",
+                }),
+            });
+            tilesText.anchor.set(0.5);
+            tilesText.position.set(plateX + plateW / 2, barY + barH / 2);
+            this.topStatusLayer.addChild(tilesText);
+        }
+        
+        // ═══════════════════════════════════════
+        // LEFT: TURN + AP
+        // ═══════════════════════════════════════
+        const isMyTurn = this.isMyTurn;
+        const turnText = isMyTurn ? "YOUR TURN" : `${p.id}'s TURN`;
+        const turnColor = isMyTurn ? 0x00ff88 : 0xffaa00;
+        
+        const turnLabel = new PIXI.Text({
+            text: turnText,
+            style: new PIXI.TextStyle({ fontSize: 18, fill: turnColor, fontWeight: "800" }),
+        });
+        turnLabel.position.set(16, 8);
+        this.topStatusLayer.addChild(turnLabel);
+        
+        const roundLabel = new PIXI.Text({
+            text: `Round ${this.game.state.round}`,
+            style: new PIXI.TextStyle({ fontSize: 13, fill: 0x8b949e }),
+        });
+        roundLabel.position.set(16, 30);
+        this.topStatusLayer.addChild(roundLabel);
+        
+        // AP dots - with spacing from turn text
+        const apX = 160;
+        for (let i = 0; i < 2; i++) {
+            const dot = new PIXI.Graphics();
+            const filled = i < this.game.state.actionPoints;
+            dot.circle(apX + i * 28, 24, 10);
+            
+            if (filled) {
+                dot.fill({ color: 0x00ff88 });
+                dot.stroke({ color: 0x00aa55, width: 2 });
+            } else {
+                dot.fill({ color: 0x21262d });
+                dot.stroke({ color: 0x484f58, width: 2 });
+            }
+            this.topStatusLayer.addChild(dot);
+        }
+        
+        const apLabel = new PIXI.Text({
+            text: "AP",
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x8b949e }),
+        });
+        apLabel.anchor.set(0.5);
+        apLabel.position.set(apX + 14, 42);
+        this.topStatusLayer.addChild(apLabel);
+        
+        // ═══════════════════════════════════════
+        // RIGHT: Player indicator only (no resources - they're in Hero Board)
+        // ═══════════════════════════════════════
+        const myPlayer = this.game.state.players[this.myPlayerIndex];
+        const playerColor = this.PLAYER_COLORS[this.myPlayerIndex % this.PLAYER_COLORS.length];
+        
+        const playerLabel = new PIXI.Text({
+            text: myPlayer.id,
+            style: new PIXI.TextStyle({ 
+                fontSize: 22, 
+                fill: playerColor, 
+                fontWeight: "900",
+            }),
+        });
+        playerLabel.anchor.set(1, 0.5);
+        playerLabel.position.set(w - 20, h / 2);
+        this.topStatusLayer.addChild(playerLabel);
+    }
+
+    // --------------------
+    // v0.6: COMBAT SUMMARY PANEL - Left Side (Simplified)
+    // --------------------
+    private renderCombatSummary() {
+        this.combatSummaryLayer.removeChildren();
+        
+        const myPlayer = this.game.state.players[this.myPlayerIndex];
+        if (!myPlayer) return;
+        
+        const panelW = 170;
+        const panelH = 200;
+        const panelX = 16;
+        const panelY = 70; // Below top status bar
+        
+        // Calculate static combat bonuses
+        const bonuses = this.calculateStaticCombatBonuses(myPlayer);
+        const total = 1 + bonuses.units + bonuses.modules + bonuses.weapons + bonuses.race;
+        
+        // Check if player is near a monster to determine context color
+        const myTile = this.game.state.board.getTile(myPlayer.position);
+        const monsterTier = myTile?.monsterTier && myTile.encounterActive ? myTile.monsterTier : 0;
+        const canBeat = monsterTier > 0 && total >= monsterTier;
+        const nearMonster = monsterTier > 0;
+        
+        // Border color based on context
+        let borderColor = 0xffd700; // Default gold
+        if (nearMonster) {
+            borderColor = canBeat ? 0x00ff88 : 0xff4444;
+        }
+        
+        // Background
+        const bg = new PIXI.Graphics();
+        bg.roundRect(panelX, panelY, panelW, panelH, 12);
+        bg.fill({ color: 0x0d1117, alpha: 0.96 });
+        bg.stroke({ color: borderColor, width: 3 });
+        this.combatSummaryLayer.addChild(bg);
+        
+        // Header
+        const header = new PIXI.Text({
+            text: "⚔ POWER",
+            style: new PIXI.TextStyle({
+                fontSize: 14,
+                fill: borderColor,
+                fontWeight: "800",
+                letterSpacing: 1,
+            }),
+        });
+        header.anchor.set(0.5, 0);
+        header.position.set(panelX + panelW / 2, panelY + 10);
+        this.combatSummaryLayer.addChild(header);
+        
+        // Large total display
+        const totalColor = nearMonster ? (canBeat ? 0x00ff88 : 0xff4444) : 0x00ff88;
+        const totalLabel = new PIXI.Text({
+            text: `${total}`,
+            style: new PIXI.TextStyle({
+                fontSize: 48,
+                fill: totalColor,
+                fontWeight: "900",
+                dropShadow: { color: totalColor, blur: 10, alpha: 0.5, distance: 0 },
+            }),
+        });
+        totalLabel.anchor.set(0.5);
+        totalLabel.position.set(panelX + panelW / 2, panelY + 58);
+        this.combatSummaryLayer.addChild(totalLabel);
+        
+        // Breakdown section
+        let y = panelY + 95;
+        const leftX = panelX + 12;
+        const rightX = panelX + panelW - 12;
+        
+        // Divider
+        const divider = new PIXI.Graphics();
+        divider.rect(panelX + 10, y - 5, panelW - 20, 1);
+        divider.fill({ color: 0x30363d });
+        this.combatSummaryLayer.addChild(divider);
+        
+        // Breakdown items
+        const breakdownItems = [
+            { label: "Base", value: 1, color: 0x8b949e },
+        ];
+        if (bonuses.units > 0) breakdownItems.push({ label: "Units", value: bonuses.units, color: 0x3b82f6 });
+        if (bonuses.weapons > 0) breakdownItems.push({ label: "Gear", value: bonuses.weapons, color: 0xffd700 });
+        if (bonuses.modules > 0) breakdownItems.push({ label: "Mods", value: bonuses.modules, color: 0x60a5fa });
+        if (bonuses.race > 0) breakdownItems.push({ label: "Race", value: bonuses.race, color: 0x00ff88 });
+        
+        for (const item of breakdownItems) {
+            const labelText = new PIXI.Text({
+                text: item.label,
+                style: new PIXI.TextStyle({ fontSize: 11, fill: 0x8b949e }),
+            });
+            labelText.position.set(leftX, y);
+            this.combatSummaryLayer.addChild(labelText);
+            
+            const valueText = new PIXI.Text({
+                text: item.value === 1 && item.label === "Base" ? "1" : `+${item.value}`,
+                style: new PIXI.TextStyle({ fontSize: 11, fill: item.color, fontWeight: "700" }),
+            });
+            valueText.anchor.set(1, 0);
+            valueText.position.set(rightX, y);
+            this.combatSummaryLayer.addChild(valueText);
+            
+            y += 16;
+        }
+        
+        // Bottom: Reroll + Defense
+        y = panelY + panelH - 26;
+        const infoItems: string[] = [];
+        if (bonuses.hasReroll) infoItems.push("🎲");
+        if (bonuses.skullReduction > 0) infoItems.push(`🛡️${bonuses.skullReduction}`);
+        
+        if (infoItems.length > 0) {
+            const infoRow = new PIXI.Text({
+                text: infoItems.join("  "),
+                style: new PIXI.TextStyle({ fontSize: 14, fill: 0x8b949e }),
+            });
+            infoRow.anchor.set(0.5, 0);
+            infoRow.position.set(panelX + panelW / 2, y);
+            this.combatSummaryLayer.addChild(infoRow);
+        }
+        
+        // Context hint when near monster
+        if (nearMonster) {
+            const hintText = canBeat ? `✓ Can beat T${monsterTier}` : `✗ Need ${monsterTier - total} more`;
+            const hint = new PIXI.Text({
+                text: hintText,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 10, 
+                    fill: canBeat ? 0x00ff88 : 0xff6b6b,
+                    fontWeight: "600",
+                }),
+            });
+            hint.anchor.set(0.5, 0);
+            hint.position.set(panelX + panelW / 2, panelY + panelH - 12);
+            this.combatSummaryLayer.addChild(hint);
+        }
+    }
+    
+    private addCombatLine(label: string, value: string, color: number, panelX: number, y: number) {
+        const labelText = new PIXI.Text({
+            text: label,
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0x8b949e }),
+        });
+        labelText.position.set(panelX + 12, y);
+        this.combatSummaryLayer.addChild(labelText);
+        
+        const valueText = new PIXI.Text({
+            text: value,
+            style: new PIXI.TextStyle({ fontSize: 12, fill: color, fontWeight: "600" }),
+        });
+        valueText.anchor.set(1, 0);
+        valueText.position.set(panelX + 188, y);
+        this.combatSummaryLayer.addChild(valueText);
+    }
+    
+    private calculateStaticCombatBonuses(player: import("../entities/Player").Player): {
+        units: number;
+        modules: number;
+        weapons: number;
+        race: number;
+        skullReduction: number;
+        hasReroll: boolean;
+    } {
+        let units = 0;
+        let modules = 0;
+        let weapons = 0;
+        let race = 0;
+        let skullReduction = 0;
+        let hasReroll = false;
+        
+        // Units
+        for (const unit of player.units) {
+            if (!unit) continue;
+            if (unit.type === "assault") units += 1;
+            if (unit.type === "shield") skullReduction += 1;
+            if (unit.type === "tactical") hasReroll = true;
+        }
+        
+        // Base Modules (buildings)
+        if (player.modules.includes("AssaultBay")) modules += 1; // +1 when rolling at least 1
+        if (player.modules.includes("ShieldArray")) skullReduction += 1;
+        if (player.modules.includes("TacticalUplink")) hasReroll = true;
+        
+        // Weapons (static bonuses)
+        for (const weapon of player.inventory.weapons) {
+            if (!weapon) continue;
+            if (weapon.effectId === "pulse_blade" || weapon.effectId === "blaster_core") weapons += 1;
+            if (weapon.effectId === "heavy_cannon") weapons += 3;
+            if (weapon.effectId === "quantum_blade") weapons += 2;
+            if (weapon.effectId === "plasma_edge") weapons += 2; // Conditional, but show max
+            if (weapon.effectId === "shock_pike") weapons += 1; // Conditional
+            if (weapon.effectId === "heavy_striker") hasReroll = true;
+        }
+        
+        // Modules/Spells
+        for (const spell of player.inventory.spells) {
+            if (!spell) continue;
+            if (spell.effectId === "reroll_module") hasReroll = true;
+        }
+        
+        // Amulet
+        if (player.inventory.amulet?.effectId === "stabilizer_plating") skullReduction += 1;
+        
+        // Race bonuses
+        if (player.raceId === "warbound") race += 1; // +1 if roll has at least 1 sword
+        if (player.raceId === "warbound" && player.raceOption === "A") race += 1; // +1 vs T3+
+        if (player.raceId === "bioform") skullReduction += 1; // Ignore first skull
+        if (player.raceId === "chrono") hasReroll = true; // Free reroll once per turn
+        if (player.raceId === "chrono" && player.raceOption === "A") skullReduction += 1; // First skull = 0
+        
+        return { units, modules, weapons, race, skullReduction, hasReroll };
+    }
+
+    // --------------------
+    // v0.6: CONTEXTUAL HINTS
+    // --------------------
+    private renderContextHints() {
+        this.contextHintLayer.removeChildren();
+        
+        const myPlayer = this.game.state.players[this.myPlayerIndex];
+        if (!myPlayer) return;
+        if (!this.isMyTurn) return; // Only show hints on my turn
+        
+        const hints: string[] = [];
+        
+        // Low on components
+        if (myPlayer.components < 2) {
+            hints.push("💡 Components are earned from Tier 2+ monsters");
+        }
+        
+        // Prestige pressure warning
+        if (myPlayer.prestige >= 12 && myPlayer.prestige < 15) {
+            hints.push("⚠️ Prestige Pressure active: Monsters require +1 to defeat");
+        }
+        if (myPlayer.prestige >= 15) {
+            hints.push("🚫 Prestige ≥15: No rerolls allowed in combat!");
+        }
+        
+        // Can't gather (not on gatherable tile)
+        const myTile = this.game.state.board.getTile(myPlayer.position);
+        const isGatherableTile = myTile && (
+            myTile.type === TileType.Resource || 
+            myTile.type === TileType.StartingSector
+        ) && !myTile.encounterActive && !myTile.ownerId;
+        if (myTile && !isGatherableTile && this.game.state.actionPoints > 0) {
+            hints.push("📍 Move to a resource tile to gather");
+        }
+        
+        // No base built
+        if (!myPlayer.basePosition && myPlayer.materials >= 2) {
+            hints.push("🏠 You can build a Base (costs 2🧱)");
+        }
+        
+        // At base, can craft
+        if (this.game.isInOwnBase() && myPlayer.components >= 1) {
+            hints.push("🔧 You're at Base - CRAFT available!");
+        }
+        
+        // Final Trial preview
+        if (this.game.state.isFinalPreparation && !this.game.state.finalTrialStarted) {
+            const score = this.calculateFinalTrialPreview(myPlayer);
+            hints.push(`📊 Final Trial Preview: ~${score} points`);
+        }
+        
+        // Show first hint only (to not clutter)
+        if (hints.length > 0) {
+            const hintText = new PIXI.Text({
+                text: hints[0],
+                style: new PIXI.TextStyle({
+                    fontSize: 13,
+                    fill: 0xffaa00,
+                    fontWeight: "600",
+                    dropShadow: { color: 0x000000, blur: 4, alpha: 0.8, distance: 1 },
+                }),
+            });
+            hintText.anchor.set(0.5, 0);
+            hintText.position.set(this.app.renderer.width / 2, this.app.renderer.height - 80);
+            this.contextHintLayer.addChild(hintText);
+        }
+    }
+    
+    private calculateFinalTrialPreview(player: import("../entities/Player").Player): number {
+        let score = 0;
+        
+        // Prestige
+        score += player.prestige;
+        
+        // Equipment (1 point each)
+        for (const w of player.inventory.weapons) if (w) score += 1;
+        for (const s of player.inventory.spells) if (s) score += 1;
+        if (player.inventory.amulet) score += 1;
+        
+        // Units (1 point each)
+        for (const u of player.units) if (u) score += 1;
+        
+        // Base modules (1 point each)
+        score += player.modules.length;
+        
+        return score;
+    }
+
+    // --------------------
+    // Hero Board (v0.8 - Informative with context)
     // --------------------
     private renderHeroBoard() {
-        // Show MY player's Hero Board (not the current turn player)
         const playerIndex = this.myPlayerIndex;
         const p = this.game.state.players[playerIndex];
         if (!p) return;
         
         const playerColor = this.PLAYER_COLORS[playerIndex % this.PLAYER_COLORS.length];
+        const isAtBase = this.game.isInOwnBase();
+        const hasComponents = p.components >= 1;
         
         this.heroBoardLayer.removeChildren();
 
-        // Wider panel for better layout
-        const panelW = 380;
-        const panelH = 420;
-        const panelX = this.app.renderer.width - panelW - 16;
-        const panelY = 16;
+        const panelW = 280;
+        const panelH = 380;
+        const panelX = this.app.renderer.width - panelW - 20;
+        const panelY = 70;
 
         // Background
         const bg = new PIXI.Graphics();
         bg.roundRect(panelX, panelY, panelW, panelH, 12);
-        bg.fill({ color: 0x1a1f2e, alpha: 0.98 });
-        bg.stroke({ color: playerColor, width: 4, alpha: 1 });
+        bg.fill({ color: 0x0d1117, alpha: 0.96 });
+        bg.stroke({ color: playerColor, width: 3 });
         this.heroBoardLayer.addChild(bg);
 
-        // Inner frame
-        const innerFrame = new PIXI.Graphics();
-        innerFrame.roundRect(panelX + 6, panelY + 6, panelW - 12, panelH - 12, 8);
-        innerFrame.stroke({ color: playerColor, width: 1, alpha: 0.3 });
-        this.heroBoardLayer.addChild(innerFrame);
-
-        // ═══════════════════════════════════════
-        // HEADER: Player name + Prestige
-        // ═══════════════════════════════════════
-        const titleBg = new PIXI.Graphics();
-        titleBg.roundRect(panelX + 12, panelY + 10, panelW - 24, 36, 6);
-        titleBg.fill({ color: 0x2d3748, alpha: 0.8 });
-        titleBg.stroke({ color: playerColor, width: 2, alpha: 0.7 });
-        this.heroBoardLayer.addChild(titleBg);
-
+        // Player name
         const title = new PIXI.Text({
-            text: `${p.id}`,
-            style: new PIXI.TextStyle({
-                fontSize: 18,
-                fill: playerColor,
-                fontWeight: "800",
-            }),
+            text: p.id,
+            style: new PIXI.TextStyle({ fontSize: 26, fill: playerColor, fontWeight: "900" }),
         });
-        title.position.set(panelX + 20, panelY + 18);
+        title.anchor.set(0.5, 0);
+        title.position.set(panelX + panelW / 2, panelY + 10);
         this.heroBoardLayer.addChild(title);
 
-        // Prestige badge
-        const gloryText = new PIXI.Text({
-            text: `⭐ ${p.prestige} Prestige`,
-            style: new PIXI.TextStyle({
-                fontSize: 14,
-                fill: 0xffd700,
-                fontWeight: "700",
+        let y = panelY + 45;
+        const leftX = panelX + 14;
+        const rightX = panelX + panelW - 14;
+
+        // ═══════════════════════════════════════
+        // PRESTIGE SECTION (prominent!)
+        // ═══════════════════════════════════════
+        const prestigeBgColor = p.prestige >= 15 ? 0x3d1a1a : (p.prestige >= 12 ? 0x3d2a1a : 0x161b2e);
+        const prestigeBorderColor = p.prestige >= 15 ? 0xff4444 : (p.prestige >= 12 ? 0xffaa00 : 0xffd700);
+        
+        const prestigeBox = new PIXI.Graphics();
+        prestigeBox.roundRect(leftX, y, panelW - 28, 65, 8);
+        prestigeBox.fill({ color: prestigeBgColor });
+        prestigeBox.stroke({ color: prestigeBorderColor, width: 2 });
+        this.heroBoardLayer.addChild(prestigeBox);
+        
+        // Prestige header
+        const prestigeHeader = new PIXI.Text({
+            text: "⭐ PRESTIGE",
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0xffd700, fontWeight: "700", letterSpacing: 1 }),
+        });
+        prestigeHeader.position.set(leftX + 10, y + 6);
+        this.heroBoardLayer.addChild(prestigeHeader);
+        
+        // Large prestige value
+        const prestigeValue = new PIXI.Text({
+            text: `${p.prestige}`,
+            style: new PIXI.TextStyle({ 
+                fontSize: 36, 
+                fill: 0xffd700, 
+                fontWeight: "900",
+                dropShadow: { color: 0xffd700, blur: 8, alpha: 0.5, distance: 0 },
             }),
         });
-        gloryText.anchor.set(1, 0);
-        gloryText.position.set(panelX + panelW - 20, panelY + 19);
-        this.heroBoardLayer.addChild(gloryText);
-
-        let yOffset = panelY + 52;
-
-        // ═══════════════════════════════════════
-        // ROW 1: HP + Resources (single row)
-        // ═══════════════════════════════════════
-        this.renderDivider(panelX + 12, yOffset, panelW - 24);
-        yOffset += 8;
-
-        // HP hearts (compact)
-        this.renderLifeTokensCompact(p, panelX + 16, yOffset);
+        prestigeValue.anchor.set(1, 0);
+        prestigeValue.position.set(rightX - 10, y + 18);
+        this.heroBoardLayer.addChild(prestigeValue);
         
-        // Resources on the right side
-        const resourceX = panelX + 140;
-        const resources = [
+        // Progress bar
+        const barW = panelW - 50;
+        const barH = 10;
+        const barX = leftX + 10;
+        const barY = y + 48;
+        const maxPrestige = 20;
+        
+        const prestigeBarBg = new PIXI.Graphics();
+        prestigeBarBg.roundRect(barX, barY, barW, barH, 3);
+        prestigeBarBg.fill({ color: 0x0d1117 });
+        this.heroBoardLayer.addChild(prestigeBarBg);
+        
+        const fillW = Math.min(p.prestige / maxPrestige, 1) * barW;
+        if (fillW > 0) {
+            const prestigeBarFill = new PIXI.Graphics();
+            prestigeBarFill.roundRect(barX, barY, fillW, barH, 3);
+            prestigeBarFill.fill({ color: prestigeBorderColor });
+            this.heroBoardLayer.addChild(prestigeBarFill);
+        }
+        
+        // Threshold markers
+        const marker12X = barX + (12 / maxPrestige) * barW;
+        const marker15X = barX + (15 / maxPrestige) * barW;
+        
+        const m12 = new PIXI.Graphics();
+        m12.rect(marker12X, barY, 1, barH);
+        m12.fill({ color: 0xffffff, alpha: 0.5 });
+        this.heroBoardLayer.addChild(m12);
+        
+        const m15 = new PIXI.Graphics();
+        m15.rect(marker15X, barY, 1, barH);
+        m15.fill({ color: 0xffffff, alpha: 0.5 });
+        this.heroBoardLayer.addChild(m15);
+        
+        // Warning text
+        if (p.prestige >= 12) {
+            const warnText = p.prestige >= 15 ? "🚫 No Rerolls" : "⚠️ +1 Difficulty";
+            const warn = new PIXI.Text({
+                text: warnText,
+                style: new PIXI.TextStyle({ fontSize: 10, fill: prestigeBorderColor, fontWeight: "600" }),
+            });
+            warn.position.set(leftX + 10, y + 22);
+            this.heroBoardLayer.addChild(warn);
+        }
+        
+        y += 75;
+
+        // ═══════════════════════════════════════
+        // HP + RESOURCES
+        // ═══════════════════════════════════════
+        const statsW = (panelW - 38) / 5;
+        const stats = [
+            { emoji: "❤️", value: `${p.hp}`, color: 0xff6b6b },
             { emoji: "🧬", value: p.biomass, color: 0x00ff88 },
             { emoji: "🧱", value: p.materials, color: 0xd97706 },
             { emoji: "⚙", value: p.alloys, color: 0x708090 },
             { emoji: "🧩", value: p.components, color: 0x9333ea },
         ];
         
-        let rx = 0;
-        for (const res of resources) {
-            const text = new PIXI.Text({
-                text: `${res.emoji}${res.value}`,
-                style: new PIXI.TextStyle({ fontSize: 14, fill: res.color, fontWeight: "700" }),
+        for (let i = 0; i < 5; i++) {
+            const stat = stats[i];
+            const sx = leftX + i * (statsW + 5);
+            
+            const statBox = new PIXI.Graphics();
+            statBox.roundRect(sx, y, statsW, 45, 6);
+            statBox.fill({ color: 0x161b2e });
+            statBox.stroke({ color: stat.color, width: 1, alpha: 0.5 });
+            this.heroBoardLayer.addChild(statBox);
+            
+            const emoji = new PIXI.Text({ text: stat.emoji, style: new PIXI.TextStyle({ fontSize: 14 }) });
+            emoji.anchor.set(0.5);
+            emoji.position.set(sx + statsW / 2, y + 12);
+            this.heroBoardLayer.addChild(emoji);
+            
+            const val = new PIXI.Text({
+                text: `${stat.value}`,
+                style: new PIXI.TextStyle({ fontSize: 16, fill: stat.color, fontWeight: "800" }),
             });
-            text.position.set(resourceX + rx, yOffset + 2);
-            this.heroBoardLayer.addChild(text);
-            rx += 55;
+            val.anchor.set(0.5);
+            val.position.set(sx + statsW / 2, y + 32);
+            this.heroBoardLayer.addChild(val);
         }
         
-        yOffset += 35;
+        y += 55;
 
         // ═══════════════════════════════════════
-        // ROW 2: Base Modules (built at base)
+        // EQUIPMENT (with actionable context hints)
         // ═══════════════════════════════════════
-        this.renderDivider(panelX + 12, yOffset, panelW - 24);
-        yOffset += 8;
+        const weaponsCount = p.inventory.weapons.filter(w => w !== null).length;
+        const modulesCount = p.inventory.spells.filter(s => s !== null).length;
+        const hasAmulet = p.inventory.amulet !== null;
+        const totalEquip = weaponsCount + modulesCount + (hasAmulet ? 1 : 0);
+        const maxEquip = 5;
         
-        this.renderSectionHeader("🏠 BASE MODULES", panelX + 16, yOffset, 0x60a5fa);
-        yOffset += 22;
-        this.renderModuleTokensCompact(p, panelX + 16, yOffset, panelW - 32);
-        yOffset += 40;
+        const equipLabel = new PIXI.Text({
+            text: "⚔ EQUIPMENT",
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0xffd700, letterSpacing: 1, fontWeight: "600" }),
+        });
+        equipLabel.position.set(leftX, y);
+        this.heroBoardLayer.addChild(equipLabel);
+        
+        // Actionable context hint - tells player WHAT TO DO
+        let equipHint = "";
+        let hintColor = 0x8b949e;
+        if (totalEquip >= maxEquip) {
+            equipHint = "✓ FULL";
+            hintColor = 0x00ff88;
+        } else if (isAtBase && hasComponents) {
+            equipHint = "→ CRAFT NOW";
+            hintColor = 0x00ff88;
+        } else if (isAtBase && !hasComponents) {
+            equipHint = "NEED 🧩 TO CRAFT";
+            hintColor = 0x9333ea;
+        } else if (hasComponents) {
+            equipHint = "← GO TO BASE";
+            hintColor = 0xffaa00;
+        } else {
+            equipHint = "HUNT FOR 🧩";
+            hintColor = 0x9333ea;
+        }
+        
+        const hintText = new PIXI.Text({
+            text: equipHint,
+            style: new PIXI.TextStyle({ fontSize: 10, fill: hintColor, fontWeight: "700" }),
+        });
+        hintText.anchor.set(1, 0);
+        hintText.position.set(rightX, y + 1);
+        this.heroBoardLayer.addChild(hintText);
+        
+        y += 18;
+        
+        const equipItems = [
+            { icon: "⚔", count: weaponsCount, max: 2, color: 0xffd700, label: "Wpn" },
+            { icon: "🔧", count: modulesCount, max: 2, color: 0x9333ea, label: "Mod" },
+            { icon: "📿", count: hasAmulet ? 1 : 0, max: 1, color: 0x3498db, label: "Amu" },
+        ];
+        
+        const eqW = (panelW - 38 - 10) / 3;
+        
+        for (let i = 0; i < 3; i++) {
+            const eq = equipItems[i];
+            const ex = leftX + i * (eqW + 5);
+            const filled = eq.count > 0;
+            
+            const eqBox = new PIXI.Graphics();
+            eqBox.roundRect(ex, y, eqW, 50, 6);
+            eqBox.fill({ color: filled ? 0x1a2535 : 0x0d1117 });
+            eqBox.stroke({ color: eq.color, width: filled ? 2 : 1, alpha: filled ? 0.8 : 0.3 });
+            this.heroBoardLayer.addChild(eqBox);
+            
+            const icon = new PIXI.Text({ text: eq.icon, style: new PIXI.TextStyle({ fontSize: 20 }) });
+            icon.alpha = filled ? 1 : 0.4;
+            icon.anchor.set(0.5);
+            icon.position.set(ex + eqW / 2, y + 16);
+            this.heroBoardLayer.addChild(icon);
+            
+            const count = new PIXI.Text({
+                text: `${eq.count}/${eq.max}`,
+                style: new PIXI.TextStyle({ fontSize: 12, fill: filled ? eq.color : 0x484f58, fontWeight: "700" }),
+            });
+            count.anchor.set(0.5);
+            count.position.set(ex + eqW / 2, y + 38);
+            this.heroBoardLayer.addChild(count);
+        }
+        
+        y += 58;
 
         // ═══════════════════════════════════════
-        // ROW 3: Combat Units
+        // UNITS (combat support - permanent bonus)
         // ═══════════════════════════════════════
-        this.renderDivider(panelX + 12, yOffset, panelW - 24);
-        yOffset += 8;
+        const unitsCount = p.units.filter(u => u !== null).length;
         
-        this.renderSectionHeader("🤖 COMBAT UNITS", panelX + 16, yOffset, 0x3b82f6);
-        yOffset += 22;
-        this.renderUnitsCompact(p, panelX + 16, yOffset, panelW - 32);
-        yOffset += 45;
-
-        // ═══════════════════════════════════════
-        // ROW 4: Equipment (Weapons + Modules + Amulet)
-        // ═══════════════════════════════════════
-        this.renderDivider(panelX + 12, yOffset, panelW - 24);
-        yOffset += 8;
+        const unitsLabel = new PIXI.Text({
+            text: "🤖 COMBAT UNITS",
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x3b82f6, letterSpacing: 1, fontWeight: "600" }),
+        });
+        unitsLabel.position.set(leftX, y);
+        this.heroBoardLayer.addChild(unitsLabel);
         
-        this.renderSectionHeader("⚔ EQUIPMENT", panelX + 16, yOffset, 0xfbbf24);
-        yOffset += 22;
-        this.renderEquipmentCompact(p, panelX + 16, yOffset, panelW - 32);
-        yOffset += 120;
+        const permLabel = new PIXI.Text({
+            text: unitsCount > 0 ? `+${unitsCount} POWER` : "PERMANENT",
+            style: new PIXI.TextStyle({ 
+                fontSize: 10, 
+                fill: unitsCount > 0 ? 0x00ff88 : 0x484f58, 
+                fontWeight: "700" 
+            }),
+        });
+        permLabel.anchor.set(1, 0);
+        permLabel.position.set(rightX, y + 1);
+        this.heroBoardLayer.addChild(permLabel);
+        
+        y += 16;
+        
+        const unitW = (panelW - 38 - 5) / 2;
+        
+        for (let i = 0; i < 2; i++) {
+            const unit = p.units[i];
+            const ux = leftX + i * (unitW + 5);
+            const filled = unit !== null;
+            
+            const unitBox = new PIXI.Graphics();
+            unitBox.roundRect(ux, y, unitW, 55, 6);
+            unitBox.fill({ color: filled ? 0x1a2a3e : 0x0d1117 });
+            unitBox.stroke({ color: 0x3b82f6, width: filled ? 2 : 1, alpha: filled ? 0.8 : 0.3 });
+            this.heroBoardLayer.addChild(unitBox);
+            
+            if (unit) {
+                const emoji = new PIXI.Text({ text: unit.emoji, style: new PIXI.TextStyle({ fontSize: 24 }) });
+                emoji.anchor.set(0.5);
+                emoji.position.set(ux + unitW / 2, y + 20);
+                this.heroBoardLayer.addChild(emoji);
+                
+                const name = new PIXI.Text({
+                    text: unit.name.split(" ")[0],
+                    style: new PIXI.TextStyle({ fontSize: 10, fill: 0x3b82f6, fontWeight: "600" }),
+                });
+                name.anchor.set(0.5);
+                name.position.set(ux + unitW / 2, y + 42);
+                this.heroBoardLayer.addChild(name);
+            } else {
+                const plus = new PIXI.Text({
+                    text: "+",
+                    style: new PIXI.TextStyle({ fontSize: 24, fill: 0x3b82f6 }),
+                });
+                plus.alpha = 0.3;
+                plus.anchor.set(0.5);
+                plus.position.set(ux + unitW / 2, y + 24);
+                this.heroBoardLayer.addChild(plus);
+            }
+        }
+    }
+    
+    /**
+     * v0.6: Ultra compact equipment summary - single row (improved)
+     */
+    private renderEquipmentSummaryCompact(p: import("../entities/Player").Player, x: number, y: number, width: number) {
+        const weaponsCount = p.inventory.weapons.filter(w => w !== null).length;
+        const modulesCount = p.inventory.spells.filter(s => s !== null).length;
+        const unitsCount = p.units.filter(u => u !== null).length;
+        const hasAmulet = p.inventory.amulet !== null;
+        
+        // Single row with all equipment
+        const items = [
+            { icon: "⚔", count: weaponsCount, max: 2, color: 0xffd700 },
+            { icon: "🔧", count: modulesCount, max: 2, color: 0x9333ea },
+            { icon: "🤖", count: unitsCount, max: 2, color: 0x3b82f6 },
+            { icon: "📿", count: hasAmulet ? 1 : 0, max: 1, color: 0x3498db },
+        ];
+        
+        const itemW = (width - 30) / 4;
+        
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const ix = x + i * (itemW + 10);
+            const filled = item.count > 0;
+            
+            // Box with better styling
+            const box = new PIXI.Graphics();
+            box.roundRect(ix, y, itemW, 64, 10);
+            box.fill({ color: filled ? 0x161b2e : 0x0a0e1a, alpha: filled ? 0.8 : 0.4 });
+            box.stroke({ color: item.color, width: filled ? 2 : 1, alpha: filled ? 0.6 : 0.3 });
+            this.heroBoardLayer.addChild(box);
+            
+            // Icon
+            const icon = new PIXI.Text({
+                text: item.icon,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 26,
+                }),
+            });
+            icon.alpha = filled ? 1 : 0.4;
+            icon.anchor.set(0.5);
+            icon.position.set(ix + itemW / 2, y + 24);
+            this.heroBoardLayer.addChild(icon);
+            
+            // Count
+            const countText = new PIXI.Text({
+                text: `${item.count}/${item.max}`,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 15, 
+                    fill: filled ? item.color : 0x484f58, 
+                    fontWeight: "800" 
+                }),
+            });
+            countText.anchor.set(0.5);
+            countText.position.set(ix + itemW / 2, y + 48);
+            this.heroBoardLayer.addChild(countText);
+        }
+    }
+    
+    /**
+     * v0.6: Simplified equipment summary - just icons with counts
+     */
+    private renderEquipmentSummary(p: import("../entities/Player").Player, x: number, y: number, width: number) {
+        const slotSize = 42;
+        const gap = 10;
+        
+        // Count filled slots
+        const weaponsCount = p.inventory.weapons.filter(w => w !== null).length;
+        const modulesCount = p.inventory.spells.filter(s => s !== null).length;
+        const unitsCount = p.units.filter(u => u !== null).length;
+        const hasAmulet = p.inventory.amulet !== null;
+        
+        // Row 1: Weapons (2 slots)
+        const weaponLabel = new PIXI.Text({
+            text: `⚔ ${weaponsCount}/2`,
+            style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffd700, fontWeight: "700" }),
+        });
+        weaponLabel.position.set(x, y);
+        this.heroBoardLayer.addChild(weaponLabel);
+        
+        for (let i = 0; i < 2; i++) {
+            const item = p.inventory.weapons[i];
+            this.renderEquipSlotSimple(x + i * (slotSize + gap), y + 24, slotSize, item !== null);
+        }
+        
+        // Row 2: Modules (2 slots)
+        const moduleLabel = new PIXI.Text({
+            text: `🔧 ${modulesCount}/2`,
+            style: new PIXI.TextStyle({ fontSize: 16, fill: 0x9333ea, fontWeight: "700" }),
+        });
+        moduleLabel.position.set(x + 160, y);
+        this.heroBoardLayer.addChild(moduleLabel);
+        
+        for (let i = 0; i < 2; i++) {
+            const item = p.inventory.spells[i];
+            this.renderEquipSlotSimple(x + 160 + i * (slotSize + gap), y + 24, slotSize, item !== null);
+        }
+        
+        // Row 3: Units (2 slots)
+        const unitLabel = new PIXI.Text({
+            text: `🤖 ${unitsCount}/2`,
+            style: new PIXI.TextStyle({ fontSize: 16, fill: 0x3b82f6, fontWeight: "700" }),
+        });
+        unitLabel.position.set(x, y + 50);
+        this.heroBoardLayer.addChild(unitLabel);
+        
+        for (let i = 0; i < 2; i++) {
+            const unit = p.units[i];
+            this.renderEquipSlotSimple(x + i * (slotSize + gap), y + 74, slotSize, unit !== null, unit?.emoji);
+        }
+        
+        // Amulet
+        const amuletLabel = new PIXI.Text({
+            text: `📿 ${hasAmulet ? "1" : "0"}/1`,
+            style: new PIXI.TextStyle({ fontSize: 16, fill: 0x3498db, fontWeight: "700" }),
+        });
+        amuletLabel.position.set(x + 160, y + 50);
+        this.heroBoardLayer.addChild(amuletLabel);
+        
+        this.renderEquipSlotSimple(x + 160, y + 74, slotSize, hasAmulet);
+    }
+    
+    private renderEquipSlotSimple(x: number, y: number, size: number, filled: boolean, emoji?: string) {
+        const slot = new PIXI.Graphics();
+        slot.roundRect(x, y, size, size, 6);
+        
+        if (filled) {
+            slot.fill({ color: 0x2d3748, alpha: 1 });
+            slot.stroke({ color: 0x00ff88, width: 2 });
+            
+            if (emoji) {
+                const icon = new PIXI.Text({
+                    text: emoji,
+                    style: new PIXI.TextStyle({ fontSize: 24 }),
+                });
+                icon.anchor.set(0.5);
+                icon.position.set(x + size / 2, y + size / 2);
+                this.heroBoardLayer.addChild(icon);
+            } else {
+                const checkmark = new PIXI.Text({
+                    text: "✓",
+                    style: new PIXI.TextStyle({ fontSize: 20, fill: 0x00ff88, fontWeight: "700" }),
+                });
+                checkmark.anchor.set(0.5);
+                checkmark.position.set(x + size / 2, y + size / 2);
+                this.heroBoardLayer.addChild(checkmark);
+            }
+        } else {
+            slot.fill({ color: 0x21262d, alpha: 1 });
+            slot.stroke({ color: 0x484f58, width: 2 });
+        }
+        
+        this.heroBoardLayer.addChild(slot);
     }
     
     private renderSectionHeader(text: string, x: number, y: number, color: number) {
@@ -1364,6 +2186,199 @@ export class GameRenderer {
         });
         hpLabel.position.set(x + p.maxHp * (heartSize + gap) + 8, y + 2);
         this.heroBoardLayer.addChild(hpLabel);
+    }
+    
+    /**
+     * v0.6: Modern Prestige Bar with large display
+     */
+    private renderPrestigeBarModern(p: { prestige: number }, x: number, y: number, width: number) {
+        const barH = 32; // Tall bar
+        const pressureThreshold = 12;
+        const noRerollThreshold = 15;
+        const maxDisplay = 20;
+        
+        // Background card
+        const cardBg = new PIXI.Graphics();
+        cardBg.roundRect(x, y, width, 70, 10);
+        cardBg.fill({ color: 0x161b2e, alpha: 0.6 });
+        this.heroBoardLayer.addChild(cardBg);
+        
+        // Label
+        const label = new PIXI.Text({
+            text: "⭐ PRESTIGE",
+            style: new PIXI.TextStyle({ 
+                fontSize: 14, 
+                fill: 0xffd700, 
+                fontWeight: "700",
+                letterSpacing: 1,
+            }),
+        });
+        label.position.set(x + 10, y + 8);
+        this.heroBoardLayer.addChild(label);
+        
+        // Large value display
+        const valueDisplay = new PIXI.Text({
+            text: `${p.prestige}`,
+            style: new PIXI.TextStyle({ 
+                fontSize: 32, 
+                fill: 0xffd700, 
+                fontWeight: "900",
+                dropShadow: { color: 0xffd700, blur: 8, alpha: 0.6, distance: 0 },
+            }),
+        });
+        valueDisplay.anchor.set(1, 0);
+        valueDisplay.position.set(x + width - 10, y + 4);
+        this.heroBoardLayer.addChild(valueDisplay);
+        
+        // Bar background
+        const barY = y + 42;
+        const barBg = new PIXI.Graphics();
+        barBg.roundRect(x + 10, barY, width - 20, barH, 8);
+        barBg.fill({ color: 0x0a0e1a, alpha: 1 });
+        barBg.stroke({ color: 0x30363d, width: 2 });
+        this.heroBoardLayer.addChild(barBg);
+        
+        // Bar fill
+        const fillWidth = Math.min(p.prestige / maxDisplay, 1) * (width - 20);
+        
+        let barColor = 0xffd700;
+        if (p.prestige >= noRerollThreshold) {
+            barColor = 0xff4444;
+        } else if (p.prestige >= pressureThreshold) {
+            barColor = 0xffaa00;
+        }
+        
+        if (fillWidth > 0) {
+            const barFill = new PIXI.Graphics();
+            barFill.roundRect(x + 10, barY, fillWidth, barH, 8);
+            barFill.fill({ color: barColor, alpha: 1 });
+            this.heroBoardLayer.addChild(barFill);
+        }
+        
+        // Threshold markers
+        const marker12X = x + 10 + (pressureThreshold / maxDisplay) * (width - 20);
+        const marker12 = new PIXI.Graphics();
+        marker12.rect(marker12X - 1, barY + 4, 2, barH - 8);
+        marker12.fill({ color: 0xffffff, alpha: 0.6 });
+        this.heroBoardLayer.addChild(marker12);
+        
+        const marker12Label = new PIXI.Text({
+            text: "12",
+            style: new PIXI.TextStyle({ fontSize: 10, fill: 0xffffff, fontWeight: "700" }),
+        });
+        marker12Label.anchor.set(0.5, 1);
+        marker12Label.position.set(marker12X, barY - 2);
+        this.heroBoardLayer.addChild(marker12Label);
+        
+        const marker15X = x + 10 + (noRerollThreshold / maxDisplay) * (width - 20);
+        const marker15 = new PIXI.Graphics();
+        marker15.rect(marker15X - 1, barY + 4, 2, barH - 8);
+        marker15.fill({ color: 0xffffff, alpha: 0.6 });
+        this.heroBoardLayer.addChild(marker15);
+        
+        const marker15Label = new PIXI.Text({
+            text: "15",
+            style: new PIXI.TextStyle({ fontSize: 10, fill: 0xffffff, fontWeight: "700" }),
+        });
+        marker15Label.anchor.set(0.5, 1);
+        marker15Label.position.set(marker15X, barY - 2);
+        this.heroBoardLayer.addChild(marker15Label);
+    }
+    
+    /**
+     * v0.6: Prestige as a progress bar with pressure warnings (LARGER VERSION)
+     */
+    private renderPrestigeBar(p: { prestige: number }, x: number, y: number, width: number) {
+        const barH = 24; // Increased from 16
+        const pressureThreshold = 12;
+        const noRerollThreshold = 15;
+        const maxDisplay = 20; // Visual max for bar
+        
+        // Label with value
+        const label = new PIXI.Text({
+            text: `⭐ PRESTIGE: ${p.prestige}`,
+            style: new PIXI.TextStyle({ fontSize: 18, fill: 0xffd700, fontWeight: "800", letterSpacing: 1 }),
+        });
+        label.position.set(x, y);
+        this.heroBoardLayer.addChild(label);
+        
+        // Bar background
+        const barY = y + 28;
+        const barBg = new PIXI.Graphics();
+        barBg.roundRect(x, barY, width, barH, 6);
+        barBg.fill({ color: 0x21262d, alpha: 1 });
+        barBg.stroke({ color: 0x30363d, width: 2 });
+        this.heroBoardLayer.addChild(barBg);
+        
+        // Bar fill (segmented)
+        const fillWidth = Math.min(p.prestige / maxDisplay, 1) * width;
+        
+        // Color based on pressure
+        let barColor = 0xffd700; // Normal: gold
+        if (p.prestige >= noRerollThreshold) {
+            barColor = 0xff4444; // Danger: red
+        } else if (p.prestige >= pressureThreshold) {
+            barColor = 0xffaa00; // Warning: orange
+        }
+        
+        const barFill = new PIXI.Graphics();
+        barFill.roundRect(x, barY, fillWidth, barH, 6);
+        barFill.fill({ color: barColor, alpha: 1 });
+        this.heroBoardLayer.addChild(barFill);
+        
+        // Threshold markers with labels
+        // 12 marker (pressure starts)
+        const marker12X = x + (pressureThreshold / maxDisplay) * width;
+        const marker12 = new PIXI.Graphics();
+        marker12.rect(marker12X - 1, barY, 2, barH);
+        marker12.fill({ color: 0xffaa00, alpha: 1 });
+        this.heroBoardLayer.addChild(marker12);
+        
+        const marker12Label = new PIXI.Text({
+            text: "12",
+            style: new PIXI.TextStyle({ fontSize: 10, fill: 0xffaa00, fontWeight: "700" }),
+        });
+        marker12Label.anchor.set(0.5, 1);
+        marker12Label.position.set(marker12X, barY - 2);
+        this.heroBoardLayer.addChild(marker12Label);
+        
+        // 15 marker (no reroll)
+        const marker15X = x + (noRerollThreshold / maxDisplay) * width;
+        const marker15 = new PIXI.Graphics();
+        marker15.rect(marker15X - 1, barY, 2, barH);
+        marker15.fill({ color: 0xff4444, alpha: 1 });
+        this.heroBoardLayer.addChild(marker15);
+        
+        const marker15Label = new PIXI.Text({
+            text: "15",
+            style: new PIXI.TextStyle({ fontSize: 10, fill: 0xff4444, fontWeight: "700" }),
+        });
+        marker15Label.anchor.set(0.5, 1);
+        marker15Label.position.set(marker15X, barY - 2);
+        this.heroBoardLayer.addChild(marker15Label);
+        
+        // Warning text below bar (LARGER)
+        let warningText = "";
+        let warningColor = 0x8b949e;
+        
+        if (p.prestige >= noRerollThreshold) {
+            warningText = "🚫 No rerolls!";
+            warningColor = 0xff4444;
+        } else if (p.prestige >= pressureThreshold) {
+            warningText = "⚠️ +1 difficulty";
+            warningColor = 0xffaa00;
+        } else {
+            const toNextThreshold = pressureThreshold - p.prestige;
+            warningText = `${toNextThreshold} to pressure`;
+            warningColor = 0x8b949e;
+        }
+        
+        const warning = new PIXI.Text({
+            text: warningText,
+            style: new PIXI.TextStyle({ fontSize: 14, fill: warningColor, fontWeight: "600" }),
+        });
+        warning.position.set(x, barY + barH + 6);
+        this.heroBoardLayer.addChild(warning);
     }
     
     private renderModuleTokensCompact(p: { modules: string[] }, x: number, y: number, _width: number) {
@@ -2470,68 +3485,102 @@ export class GameRenderer {
     }
 
     // --------------------
-    // Event Log
+    // Event Log (with prominent modifier display)
     // --------------------
     private renderEventLog() {
         this.eventLogLayer.removeChildren();
 
-        const logW = 350;
-        const logH = 180;
+        const logW = 360;
+        const logH = 200;
         const logX = 16;
-        const logY = this.app.renderer.height - logH - 148; // над HUD (новый HUD 130px + отступ)
+        const logY = this.app.renderer.height - logH - 70;
 
-        // Фон лога
+        // Background
         const bg = new PIXI.Graphics();
-        bg.roundRect(logX, logY, logW, logH, 8);
-        bg.fill({ color: 0x1a1f2e, alpha: 0.92 });
-        bg.stroke({ color: 0x4a5568, width: 2, alpha: 0.6 });
+        bg.roundRect(logX, logY, logW, logH, 10);
+        bg.fill({ color: 0x0d1117, alpha: 0.94 });
+        bg.stroke({ color: 0x30363d, width: 2 });
         this.eventLogLayer.addChild(bg);
 
-        // Заголовок
+        // Header
         const title = new PIXI.Text({
             text: "📜 Event Log",
-            style: new PIXI.TextStyle({
-                fontSize: 16,
-                fill: 0xffd700,
-                fontWeight: "700",
-                dropShadow: {
-                    alpha: 0.6,
-                    angle: 90,
-                    blur: 2,
-                    color: 0x000000,
-                    distance: 2,
-                },
-            }),
+            style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffd700, fontWeight: "700" }),
         });
-        title.position.set(logX + 12, logY + 10);
+        title.position.set(logX + 12, logY + 8);
         this.eventLogLayer.addChild(title);
 
-        // События (последние 7)
-        const recentEvents = this.game.state.eventLog.slice(-7).reverse();
-        let yOffset = logY + 38;
+        // Find and highlight modifier event
+        const modifierEvent = this.game.state.eventLog.find(e => e.includes("Modifier:"));
+        
+        if (modifierEvent) {
+            // Prominent modifier display at top
+            const modName = modifierEvent.replace("🎛️ Modifier: ", "").replace("Modifier: ", "");
+            
+            const modBg = new PIXI.Graphics();
+            modBg.roundRect(logX + 10, logY + 32, logW - 20, 40, 6);
+            modBg.fill({ color: 0x1a2535 });
+            modBg.stroke({ color: 0x9333ea, width: 2 });
+            this.eventLogLayer.addChild(modBg);
+            
+            const modLabel = new PIXI.Text({
+                text: "⚙ GAME MODIFIER",
+                style: new PIXI.TextStyle({ fontSize: 10, fill: 0x9333ea, letterSpacing: 1 }),
+            });
+            modLabel.position.set(logX + 18, logY + 36);
+            this.eventLogLayer.addChild(modLabel);
+            
+            const modText = new PIXI.Text({
+                text: modName,
+                style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffffff, fontWeight: "700" }),
+            });
+            modText.position.set(logX + 18, logY + 50);
+            this.eventLogLayer.addChild(modText);
+        }
+
+        // Recent events (exclude modifier) - show more
+        const recentEvents = this.game.state.eventLog
+            .filter(e => !e.includes("Modifier:"))
+            .slice(-7)
+            .reverse();
+        
+        let yOffset = logY + (modifierEvent ? 80 : 35);
 
         for (const event of recentEvents) {
+            // Determine icon and color based on event type
+            let icon = "•";
+            let color = 0xaaaaaa;
+            
+            if (event.includes("vs") || event.includes("WON") || event.includes("LOST") || event.includes("defeated")) {
+                icon = "⚔";
+                color = event.includes("WON") || event.includes("defeated") ? 0x00ff88 : 0xff6b6b;
+            } else if (event.includes("Prestige") || event.includes("🧩") || event.includes("Component")) {
+                icon = "🏆";
+                color = 0xffd700;
+            } else if (event.includes("PUSHBACK") || event.includes("damage") || event.includes("💀")) {
+                icon = "⚠";
+                color = 0xffaa00;
+            } else if (event.includes("placed tile") || event.includes("explored")) {
+                icon = "🗺";
+                color = 0x60a5fa;
+            } else if (event.includes("crafted") || event.includes("built")) {
+                icon = "🔧";
+                color = 0x9333ea;
+            }
+            
             const eventText = new PIXI.Text({
-                text: `• ${event}`,
-                style: new PIXI.TextStyle({
-                    fontSize: 12,
-                    fill: 0xdddddd,
-                    fontWeight: "400",
-                }),
+                text: `${icon} ${event}`,
+                style: new PIXI.TextStyle({ fontSize: 12, fill: color }),
             });
             eventText.position.set(logX + 12, yOffset);
             this.eventLogLayer.addChild(eventText);
-            yOffset += 18;
+            yOffset += 17;
         }
 
-        if (recentEvents.length === 0) {
+        if (recentEvents.length === 0 && !modifierEvent) {
             const emptyText = new PIXI.Text({
                 text: "No events yet...",
-                style: new PIXI.TextStyle({
-                    fontSize: 12,
-                    fill: 0x888888,
-                    fontStyle: "italic",
-                }),
+                style: new PIXI.TextStyle({ fontSize: 11, fill: 0x666666, fontStyle: "italic" }),
             });
             emptyText.position.set(logX + 12, yOffset);
             this.eventLogLayer.addChild(emptyText);
@@ -2617,10 +3666,12 @@ export class GameRenderer {
     private createDebugToggleButton() {
         this.debugToggleButtonContainer.eventMode = "static";
         this.debugToggleButtonContainer.cursor = "pointer";
+        this.debugToggleButtonContainer.hitArea = new PIXI.Rectangle(0, 0, 40, 30);
         
         this.debugToggleButtonContainer.addChild(this.debugToggleButtonBg);
         this.debugToggleButtonContainer.addChild(this.debugToggleButtonIcon);
-        this.debugToggleButtonIcon.position.set(20, 13);
+        this.debugToggleButtonIcon.anchor.set(0.5);
+        this.debugToggleButtonIcon.position.set(20, 15); // Center in button
         
         this.debugToggleButtonContainer.on("pointerdown", () => {
             this.debugPanelVisible = !this.debugPanelVisible;
@@ -2631,9 +3682,14 @@ export class GameRenderer {
     }
 
     private renderDebugPanel() {
-        // Toggle button (always visible) - top left corner
+        const h = this.app.renderer.height;
+        
+        // Position the container at bottom left
+        this.debugToggleButtonContainer.position.set(10, h - 45);
+        
+        // Toggle button (always visible) - draw at local 0,0
         this.debugToggleButtonBg.clear();
-        this.debugToggleButtonBg.roundRect(10, 10, 40, 30, 6);
+        this.debugToggleButtonBg.roundRect(0, 0, 40, 30, 6);
         this.debugToggleButtonBg.fill({ color: this.debugPanelVisible ? 0xff6600 : 0x333333, alpha: 0.9 });
         this.debugToggleButtonBg.stroke({ color: 0xffffff, alpha: 0.3, width: 1 });
 
@@ -2642,11 +3698,11 @@ export class GameRenderer {
         
         if (!this.debugPanelVisible) return;
 
-        // Panel background
+        // Panel background - bottom left corner
         const panelW = 200;
         const panelH = 280;
         const panelX = 10;
-        const panelY = 50;
+        const panelY = h - panelH - 55; // Above the toggle button
 
         const panelBg = new PIXI.Graphics();
         panelBg.roundRect(panelX, panelY, panelW, panelH, 10);

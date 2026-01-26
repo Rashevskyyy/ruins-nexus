@@ -254,8 +254,9 @@ export class SocketClient {
 
     /**
      * Update player data (race selection, etc.)
+     * v0.5: Added raceOption support
      */
-    updatePlayerData(data: { raceId?: string }): void {
+    updatePlayerData(data: { raceId?: string; raceOption?: string }): void {
         if (!this.socket || !this.roomCode) return;
         this.socket.emit("update-player-data", { roomCode: this.roomCode, data });
     }

@@ -19,7 +19,7 @@ import {
     type UserProfile 
 } from "../auth/supabase";
 import { GAME_VERSION } from "../assets/AssetLoader";
-import { RACE_LIST, type RaceId } from "../entities/Race";
+import { RACE_LIST, RACES, type RaceId, type RaceOption } from "../entities/Race";
 
 type LobbyState = "menu" | "creating" | "joining" | "in-lobby";
 
@@ -35,8 +35,9 @@ export class LobbyScreen {
     private currentUser: UserProfile | null = null;
     private authLoading = false;
     
-    // Race selection (v0.4)
+    // Race selection (v0.5 - now with option)
     private selectedRace: RaceId | null = null;
+    private selectedOption: RaceOption = "A"; // Default to option A
 
     // Callbacks - now includes initialState for server-authoritative
     public onGameStart: ((playerCount: number, myPlayerId: string, initialState?: any) => void) | null = null;
@@ -122,40 +123,48 @@ export class LobbyScreen {
         const w = this.app.renderer.width;
         const h = this.app.renderer.height;
 
-        // Background
+        // Background with gradient effect
         const bg = new PIXI.Graphics();
         bg.rect(0, 0, w, h);
         bg.fill({ color: 0x0a0a1a });
         this.container.addChild(bg);
+        
+        // Decorative top bar
+        const topBar = new PIXI.Graphics();
+        topBar.rect(0, 0, w, 4);
+        topBar.fill({ color: 0x00ffff });
+        this.container.addChild(topBar);
 
-        // Title
+        // Title with enhanced glow
         const title = new PIXI.Text({
             text: "🚀 COSMIC FRONTIER",
             style: new PIXI.TextStyle({
-                fontSize: 48,
+                fontSize: 52,
                 fill: 0x00ffff,
                 fontWeight: "700",
                 dropShadow: {
                     color: 0x00ffff,
-                    blur: 10,
+                    blur: 15,
+                    alpha: 0.8,
                     distance: 0,
                 },
             }),
         });
         title.anchor.set(0.5);
-        title.position.set(w / 2, 80);
+        title.position.set(w / 2, 70);
         this.container.addChild(title);
 
-        // Subtitle with version
+        // Subtitle with version (better styling)
         const subtitle = new PIXI.Text({
             text: `Multiplayer Expedition  •  ${GAME_VERSION}`,
             style: new PIXI.TextStyle({
-                fontSize: 20,
+                fontSize: 18,
                 fill: 0x888888,
+                letterSpacing: 2,
             }),
         });
         subtitle.anchor.set(0.5);
-        subtitle.position.set(w / 2, 130);
+        subtitle.position.set(w / 2, 120);
         this.container.addChild(subtitle);
 
         // Render based on state
@@ -512,120 +521,241 @@ export class LobbyScreen {
     }
 
     private renderLobby(w: number, h: number): void {
-        // Room code display
+        // Room Code Panel - IMPROVED with Click to Copy
+        const rightColX = w - 530;
+        const roomPanel = new PIXI.Graphics();
+        roomPanel.roundRect(rightColX, 170, 500, 180, 12);
+        roomPanel.fill({ color: 0x1a1a2e });
+        roomPanel.stroke({ color: 0x00ff88, width: 2 });
+        roomPanel.eventMode = "static";
+        roomPanel.cursor = "pointer";
+        this.container.addChild(roomPanel);
+        
         const codeLabel = new PIXI.Text({
-            text: "Room Code:",
-            style: new PIXI.TextStyle({ fontSize: 18, fill: 0x888888 }),
+            text: "Room Code: (click to copy)",
+            style: new PIXI.TextStyle({ 
+                fontSize: 16, 
+                fill: 0x888888,
+                fontWeight: "600"
+            }),
         });
-        codeLabel.anchor.set(0.5);
-        codeLabel.position.set(w / 2, 180);
+        codeLabel.position.set(rightColX + 20, 190);
         this.container.addChild(codeLabel);
 
         const codeText = new PIXI.Text({
             text: socketClient.roomCode || "????",
             style: new PIXI.TextStyle({
-                fontSize: 48,
+                fontSize: 56,
                 fill: 0x00ff88,
                 fontWeight: "700",
-                letterSpacing: 8,
+                letterSpacing: 12,
+                dropShadow: {
+                    color: 0x00ff88,
+                    blur: 12,
+                    alpha: 0.6,
+                    distance: 0,
+                },
             }),
         });
         codeText.anchor.set(0.5);
-        codeText.position.set(w / 2, 220);
+        codeText.position.set(rightColX + 250, 260);
         this.container.addChild(codeText);
 
-        // Share info
         const shareInfo = new PIXI.Text({
             text: "Share this code with friends to join!",
-            style: new PIXI.TextStyle({ fontSize: 14, fill: 0x666666 }),
+            style: new PIXI.TextStyle({ 
+                fontSize: 14, 
+                fill: 0x666666,
+                fontStyle: "italic"
+            }),
         });
         shareInfo.anchor.set(0.5);
-        shareInfo.position.set(w / 2, 260);
+        shareInfo.position.set(rightColX + 250, 320);
         this.container.addChild(shareInfo);
+        
+        // Click to copy functionality
+        let copyFeedback: PIXI.Text | null = null;
+        roomPanel.on("pointerdown", async () => {
+            const code = socketClient.roomCode;
+            if (!code) return;
+            
+            try {
+                await navigator.clipboard.writeText(code);
+                
+                // Show "Copied!" feedback
+                if (copyFeedback) copyFeedback.destroy();
+                copyFeedback = new PIXI.Text({
+                    text: "✓ Copied!",
+                    style: new PIXI.TextStyle({ 
+                        fontSize: 16, 
+                        fill: 0x00ff88,
+                        fontWeight: "700"
+                    }),
+                });
+                copyFeedback.anchor.set(0.5);
+                copyFeedback.position.set(rightColX + 250, 310);
+                this.container.addChild(copyFeedback);
+                
+                // Fade out after 1.5 seconds
+                setTimeout(() => {
+                    if (copyFeedback) {
+                        copyFeedback.destroy();
+                        copyFeedback = null;
+                    }
+                }, 1500);
+            } catch (err) {
+                console.error("Failed to copy:", err);
+            }
+        });
+        
+        // Hover effect
+        roomPanel.on("pointerover", () => {
+            roomPanel.clear();
+            roomPanel.roundRect(rightColX, 170, 500, 180, 12);
+            roomPanel.fill({ color: 0x1e2e3e });
+            roomPanel.stroke({ color: 0x00ffaa, width: 3 });
+        });
+        roomPanel.on("pointerout", () => {
+            roomPanel.clear();
+            roomPanel.roundRect(rightColX, 170, 500, 180, 12);
+            roomPanel.fill({ color: 0x1a1a2e });
+            roomPanel.stroke({ color: 0x00ff88, width: 2 });
+        });
 
         // Race selection (for current player)
         this.renderRaceSelection(w, h);
 
-        // Players list
+        // Players Panel - IMPROVED
+        const playersY = 380;
+        const playersPanel = new PIXI.Graphics();
+        const playersPanelHeight = 90 + this.players.length * 70;
+        playersPanel.roundRect(rightColX, playersY, 500, playersPanelHeight, 12);
+        playersPanel.fill({ color: 0x1a1a2e });
+        playersPanel.stroke({ color: 0x2a2a4e, width: 2 });
+        this.container.addChild(playersPanel);
+        
         const playersTitle = new PIXI.Text({
-            text: `Players (${this.players.length}/4)`,
-            style: new PIXI.TextStyle({ fontSize: 22, fill: 0xffffff, fontWeight: "600" }),
+            text: `👥 Players (${this.players.length}/4)`,
+            style: new PIXI.TextStyle({ 
+                fontSize: 20, 
+                fill: 0x00ffff, 
+                fontWeight: "700" 
+            }),
         });
-        playersTitle.anchor.set(0.5);
-        playersTitle.position.set(w / 2, 310);
+        playersTitle.position.set(rightColX + 20, playersY + 20);
         this.container.addChild(playersTitle);
 
         const playerColors = [0xff6b6b, 0x4ecdc4, 0xffe66d, 0x95e1d3];
 
         this.players.forEach((player, i) => {
-            const y = 350 + i * 50;
+            const y = playersY + 65 + i * 70;
 
-            // Player card
+            // Player card with better styling
             const card = new PIXI.Graphics();
-            card.roundRect(w / 2 - 180, y, 360, 40, 8);
-            card.fill({ color: 0x1a1a2e });
-            card.stroke({ color: playerColors[i], width: 2 });
+            card.roundRect(rightColX + 20, y, 460, 60, 10);
+            card.fill({ color: 0x252540 });
+            card.stroke({ color: playerColors[i], width: 3 });
             this.container.addChild(card);
+            
+            // Color indicator bar
+            const colorBar = new PIXI.Graphics();
+            colorBar.roundRect(rightColX + 20, y, 8, 60, 4);
+            colorBar.fill({ color: playerColors[i] });
+            this.container.addChild(colorBar);
 
-            // Player color dot
+            // Player color dot (larger)
             const dot = new PIXI.Graphics();
-            dot.circle(w / 2 - 160, y + 20, 8);
+            dot.circle(rightColX + 50, y + 30, 12);
             dot.fill({ color: playerColors[i] });
             this.container.addChild(dot);
 
-            // Player name
+            // Player name with ellipsis for long names
+            const isYou = player.id === socketClient.playerId;
+            const maxNameWidth = 180; // Max width before ellipsis
+            
             const nameText = new PIXI.Text({
-                text: player.name + (player.id === socketClient.playerId ? " (you)" : ""),
-                style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffffff }),
+                text: player.name,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 18, 
+                    fill: 0xffffff,
+                    fontWeight: isYou ? "700" : "600"
+                }),
             });
-            nameText.position.set(w / 2 - 140, y + 10);
+            
+            // Truncate with ellipsis if too long
+            if (nameText.width > maxNameWidth) {
+                let truncated = player.name;
+                nameText.text = truncated;
+                
+                while (nameText.width > maxNameWidth - 20 && truncated.length > 0) {
+                    truncated = truncated.slice(0, -1);
+                    nameText.text = truncated + "...";
+                }
+            }
+            
+            nameText.position.set(rightColX + 75, y + 13);
             this.container.addChild(nameText);
+            
+            // "You" badge
+            if (isYou) {
+                const youBadge = new PIXI.Text({
+                    text: "YOU",
+                    style: new PIXI.TextStyle({ 
+                        fontSize: 11, 
+                        fill: 0x00ff88,
+                        fontWeight: "700",
+                        letterSpacing: 1
+                    }),
+                });
+                youBadge.position.set(rightColX + 75, y + 38);
+                this.container.addChild(youBadge);
+            }
 
-            // Player race (show emoji)
+            // Player race (larger emoji only - saves space)
             const playerRace = player.id === socketClient.playerId 
                 ? this.selectedRace 
                 : (player as any).raceId;
             const raceData = RACE_LIST.find(r => r.id === playerRace);
             if (raceData) {
-                const raceText = new PIXI.Text({
+                const raceEmoji = new PIXI.Text({
                     text: raceData.emoji,
-                    style: new PIXI.TextStyle({ fontSize: 20 }),
+                    style: new PIXI.TextStyle({ fontSize: 32 }), // Larger emoji
                 });
-                raceText.position.set(w / 2 + 60, y + 8);
-                this.container.addChild(raceText);
+                raceEmoji.position.set(rightColX + 320, y + 14);
+                this.container.addChild(raceEmoji);
             }
 
-            // Admin badge
+            // Admin crown + Ready status side by side
             if (player.isAdmin) {
                 const badge = new PIXI.Text({
                     text: "👑",
-                    style: new PIXI.TextStyle({ fontSize: 14 }),
+                    style: new PIXI.TextStyle({ fontSize: 24 }),
                 });
-                badge.position.set(w / 2 + 100, y + 10);
+                badge.position.set(rightColX + 375, y + 18);
                 this.container.addChild(badge);
             }
-
-            // Ready status
+            
+            // Ready status (larger)
             const ready = new PIXI.Text({
                 text: player.ready ? "✅" : "⏳",
-                style: new PIXI.TextStyle({ fontSize: 18 }),
+                style: new PIXI.TextStyle({ fontSize: 28 }),
             });
-            ready.position.set(w / 2 + 140, y + 10);
+            ready.position.set(rightColX + (player.isAdmin ? 410 : 385), y + 16);
             this.container.addChild(ready);
         });
 
-        // Bottom buttons
-        const buttonY = h - 100;
+        // Bottom buttons - IMPROVED
+        const buttonY = h - 80;
 
         // Ready button (for non-admin)
         if (!socketClient.isAdmin) {
             const me = this.players.find((p) => p.id === socketClient.playerId);
             this.createButton(
-                me?.ready ? "NOT READY" : "READY",
-                w / 2 - 80,
+                me?.ready ? "✗ NOT READY" : "✓ READY",
+                w / 2 - 120,
                 buttonY,
-                140,
-                45,
+                200,
+                55,
                 me?.ready ? 0xef4444 : 0x22c55e,
                 () => {
                     const me = this.players.find((p) => p.id === socketClient.playerId);
@@ -639,10 +769,10 @@ export class LobbyScreen {
             const canStart = this.players.length >= 2;
             this.createButton(
                 "🚀 START GAME",
-                w / 2,
+                w / 2 - 120,
                 buttonY,
-                180,
-                50,
+                200,
+                55,
                 canStart ? 0x22c55e : 0x4b5563,
                 () => {
                     if (!canStart) {
@@ -659,10 +789,10 @@ export class LobbyScreen {
         // Leave button
         this.createButton(
             "LEAVE",
-            socketClient.isAdmin ? w / 2 + 120 : w / 2 + 80,
+            w / 2 + 120,
             buttonY,
-            80,
-            45,
+            140,
+            55,
             0x64748b,
             () => {
                 socketClient.disconnect();
@@ -678,24 +808,24 @@ export class LobbyScreen {
     // ========================================
 
     private renderRaceSelection(_w: number, _h: number): void {
-        // Race selection panel (left side)
-        const panelX = 20;
+        // Race selection panel - IMPROVED UI
+        const panelX = 30;
         const panelY = 180;
-        const panelW = 200;
+        const panelW = 380; // Wider cards
         
         const raceTitle = new PIXI.Text({
             text: "🧬 Select Race",
             style: new PIXI.TextStyle({ 
-                fontSize: 16, 
+                fontSize: 22, // Larger title
                 fill: 0x00ffff,
-                fontWeight: "600" 
+                fontWeight: "700" 
             }),
         });
         raceTitle.position.set(panelX, panelY);
         this.container.addChild(raceTitle);
 
         RACE_LIST.forEach((race, i) => {
-            const y = panelY + 30 + i * 50;
+            const y = panelY + 40 + i * 75; // More spacing
             const isSelected = this.selectedRace === race.id;
             
             // Race card
@@ -703,49 +833,63 @@ export class LobbyScreen {
             card.position.set(panelX, y);
             card.eventMode = "static";
             card.cursor = "pointer";
-            card.hitArea = new PIXI.Rectangle(0, 0, panelW, 45);
+            card.hitArea = new PIXI.Rectangle(0, 0, panelW, 65); // Taller cards
             
             const cardBg = new PIXI.Graphics();
-            cardBg.roundRect(0, 0, panelW, 45, 6);
+            cardBg.roundRect(0, 0, panelW, 65, 8);
             cardBg.fill({ color: isSelected ? 0x1e3a5f : 0x1a1a2e });
-            cardBg.stroke({ color: isSelected ? 0x00ffff : 0x3a3a5a, width: isSelected ? 2 : 1 });
+            cardBg.stroke({ color: isSelected ? 0x00ffff : 0x3a3a5a, width: isSelected ? 3 : 1 });
             card.addChild(cardBg);
             
-            // Race emoji
+            // Race emoji (larger)
             const emoji = new PIXI.Text({
                 text: race.emoji,
-                style: new PIXI.TextStyle({ fontSize: 20 }),
+                style: new PIXI.TextStyle({ fontSize: 32 }), // Much larger
             });
-            emoji.position.set(10, 12);
+            emoji.position.set(15, 16);
             card.addChild(emoji);
             
-            // Race name
+            // Race name (larger)
             const name = new PIXI.Text({
                 text: race.name,
                 style: new PIXI.TextStyle({ 
-                    fontSize: 12, 
+                    fontSize: 16, // Larger
                     fill: isSelected ? 0x00ffff : 0xffffff,
-                    fontWeight: isSelected ? "700" : "400"
+                    fontWeight: isSelected ? "700" : "600"
                 }),
             });
-            name.position.set(40, 8);
+            name.position.set(60, 10);
             card.addChild(name);
             
-            // Passive description
-            const desc = new PIXI.Text({
-                text: race.passiveDescription.slice(0, 25) + (race.passiveDescription.length > 25 ? "..." : ""),
+            // Description (smaller subtitle)
+            const subtitle = new PIXI.Text({
+                text: race.description,
                 style: new PIXI.TextStyle({ 
-                    fontSize: 9, 
-                    fill: 0x888888,
+                    fontSize: 11, 
+                    fill: 0x999999,
+                    fontStyle: "italic"
                 }),
             });
-            desc.position.set(40, 26);
-            card.addChild(desc);
+            subtitle.position.set(60, 30);
+            card.addChild(subtitle);
+            
+            // Passive description (full text, larger font)
+            const passiveDesc = new PIXI.Text({
+                text: `Passive: ${race.passiveDescription}`,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 12, // Larger
+                    fill: isSelected ? 0xaaffaa : 0x888888,
+                    wordWrap: true,
+                    wordWrapWidth: panelW - 70
+                }),
+            });
+            passiveDesc.position.set(60, 48);
+            card.addChild(passiveDesc);
             
             // Click handler
             card.on("pointerdown", () => {
                 this.selectedRace = race.id;
-                socketClient.updatePlayerData({ raceId: race.id });
+                socketClient.updatePlayerData({ raceId: race.id, raceOption: this.selectedOption });
                 this.render();
             });
             
@@ -753,15 +897,15 @@ export class LobbyScreen {
             card.on("pointerover", () => {
                 if (!isSelected) {
                     cardBg.clear();
-                    cardBg.roundRect(0, 0, panelW, 45, 6);
-                    cardBg.fill({ color: 0x2a2a4e });
-                    cardBg.stroke({ color: 0x5a5a7a, width: 1 });
+                    cardBg.roundRect(0, 0, panelW, 65, 8);
+                    cardBg.fill({ color: 0x252540 });
+                    cardBg.stroke({ color: 0x5a5a7a, width: 2 });
                 }
             });
             card.on("pointerout", () => {
                 if (!isSelected) {
                     cardBg.clear();
-                    cardBg.roundRect(0, 0, panelW, 45, 6);
+                    cardBg.roundRect(0, 0, panelW, 65, 8);
                     cardBg.fill({ color: 0x1a1a2e });
                     cardBg.stroke({ color: 0x3a3a5a, width: 1 });
                 }
@@ -770,22 +914,191 @@ export class LobbyScreen {
             this.container.addChild(card);
         });
         
-        // Random button
-        const randomY = panelY + 30 + RACE_LIST.length * 50;
+        // Random button (larger)
+        const randomY = panelY + 40 + RACE_LIST.length * 75 + 10;
         this.createButton(
-            "🎲 Random",
+            "🎲 Random Race",
             panelX + panelW / 2,
             randomY + 10,
             panelW - 20,
-            35,
+            45, // Taller button
             0x4a4a6a,
             () => {
                 const randomRace = RACE_LIST[Math.floor(Math.random() * RACE_LIST.length)];
                 this.selectedRace = randomRace.id;
-                socketClient.updatePlayerData({ raceId: randomRace.id });
+                this.selectedOption = Math.random() < 0.5 ? "A" : "B";
+                socketClient.updatePlayerData({ raceId: randomRace.id, raceOption: this.selectedOption });
                 this.render();
             }
         );
+        
+        // Option A/B selection (only when race is selected) - IMPROVED UI
+        if (this.selectedRace) {
+            const race = RACES[this.selectedRace];
+            const optionY = randomY + 70;
+            
+            // Option title (larger)
+            const optTitle = new PIXI.Text({
+                text: "⚡ Choose Ability:",
+                style: new PIXI.TextStyle({ 
+                    fontSize: 18, // Larger
+                    fill: 0x00ffff,
+                    fontWeight: "700" 
+                }),
+            });
+            optTitle.position.set(panelX, optionY);
+            this.container.addChild(optTitle);
+            
+            // Option A button (taller, more detail)
+            const optASelected = this.selectedOption === "A";
+            const btnA = new PIXI.Container();
+            btnA.position.set(panelX, optionY + 35);
+            btnA.eventMode = "static";
+            btnA.cursor = "pointer";
+            btnA.hitArea = new PIXI.Rectangle(0, 0, panelW, 55); // Taller
+            
+            const bgA = new PIXI.Graphics();
+            bgA.roundRect(0, 0, panelW, 55, 8);
+            bgA.fill({ color: optASelected ? 0x2d5a2d : 0x1a1a2e });
+            bgA.stroke({ color: optASelected ? 0x00ff00 : 0x3a3a5a, width: optASelected ? 3 : 1 });
+            btnA.addChild(bgA);
+            
+            // Option A badge
+            const badgeA = new PIXI.Text({
+                text: "A",
+                style: new PIXI.TextStyle({ 
+                    fontSize: 24,
+                    fill: optASelected ? 0x00ff00 : 0x555555,
+                    fontWeight: "700"
+                }),
+            });
+            badgeA.position.set(15, 15);
+            btnA.addChild(badgeA);
+            
+            const txtA = new PIXI.Text({
+                text: race.optionA.name,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 14, // Larger
+                    fill: optASelected ? 0x00ff00 : 0xcccccc,
+                    fontWeight: optASelected ? "700" : "600"
+                }),
+            });
+            txtA.position.set(50, 8);
+            btnA.addChild(txtA);
+            
+            const descA = new PIXI.Text({
+                text: race.optionA.description,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 12, // Larger
+                    fill: optASelected ? 0xaaffaa : 0x888888,
+                    wordWrap: true,
+                    wordWrapWidth: panelW - 60
+                }),
+            });
+            descA.position.set(50, 28);
+            btnA.addChild(descA);
+            
+            btnA.on("pointerdown", () => {
+                this.selectedOption = "A";
+                socketClient.updatePlayerData({ raceId: this.selectedRace!, raceOption: "A" });
+                this.render();
+            });
+            
+            // Hover effect for A
+            btnA.on("pointerover", () => {
+                if (!optASelected) {
+                    bgA.clear();
+                    bgA.roundRect(0, 0, panelW, 55, 8);
+                    bgA.fill({ color: 0x1e3a1e });
+                    bgA.stroke({ color: 0x4a8a4a, width: 2 });
+                }
+            });
+            btnA.on("pointerout", () => {
+                if (!optASelected) {
+                    bgA.clear();
+                    bgA.roundRect(0, 0, panelW, 55, 8);
+                    bgA.fill({ color: 0x1a1a2e });
+                    bgA.stroke({ color: 0x3a3a5a, width: 1 });
+                }
+            });
+            
+            this.container.addChild(btnA);
+            
+            // Option B button (taller, more detail)
+            const optBSelected = this.selectedOption === "B";
+            const btnB = new PIXI.Container();
+            btnB.position.set(panelX, optionY + 100); // More spacing
+            btnB.eventMode = "static";
+            btnB.cursor = "pointer";
+            btnB.hitArea = new PIXI.Rectangle(0, 0, panelW, 55); // Taller
+            
+            const bgB = new PIXI.Graphics();
+            bgB.roundRect(0, 0, panelW, 55, 8);
+            bgB.fill({ color: optBSelected ? 0x4a2d5a : 0x1a1a2e });
+            bgB.stroke({ color: optBSelected ? 0xff00ff : 0x3a3a5a, width: optBSelected ? 3 : 1 });
+            btnB.addChild(bgB);
+            
+            // Option B badge
+            const badgeB = new PIXI.Text({
+                text: "B",
+                style: new PIXI.TextStyle({ 
+                    fontSize: 24,
+                    fill: optBSelected ? 0xff00ff : 0x555555,
+                    fontWeight: "700"
+                }),
+            });
+            badgeB.position.set(15, 15);
+            btnB.addChild(badgeB);
+            
+            const txtB = new PIXI.Text({
+                text: race.optionB.name,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 14, // Larger
+                    fill: optBSelected ? 0xff00ff : 0xcccccc,
+                    fontWeight: optBSelected ? "700" : "600"
+                }),
+            });
+            txtB.position.set(50, 8);
+            btnB.addChild(txtB);
+            
+            const descB = new PIXI.Text({
+                text: race.optionB.description,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 12, // Larger
+                    fill: optBSelected ? 0xffaaff : 0x888888,
+                    wordWrap: true,
+                    wordWrapWidth: panelW - 60
+                }),
+            });
+            descB.position.set(50, 28);
+            btnB.addChild(descB);
+            
+            btnB.on("pointerdown", () => {
+                this.selectedOption = "B";
+                socketClient.updatePlayerData({ raceId: this.selectedRace!, raceOption: "B" });
+                this.render();
+            });
+            
+            // Hover effect for B
+            btnB.on("pointerover", () => {
+                if (!optBSelected) {
+                    bgB.clear();
+                    bgB.roundRect(0, 0, panelW, 55, 8);
+                    bgB.fill({ color: 0x3a1e3a });
+                    bgB.stroke({ color: 0x8a4a8a, width: 2 });
+                }
+            });
+            btnB.on("pointerout", () => {
+                if (!optBSelected) {
+                    bgB.clear();
+                    bgB.roundRect(0, 0, panelW, 55, 8);
+                    bgB.fill({ color: 0x1a1a2e });
+                    bgB.stroke({ color: 0x3a3a5a, width: 1 });
+                }
+            });
+            
+            this.container.addChild(btnB);
+        }
     }
 
     // ========================================
@@ -819,9 +1132,9 @@ export class LobbyScreen {
         const label = new PIXI.Text({
             text,
             style: new PIXI.TextStyle({
-                fontSize: 16,
+                fontSize: 18, // Larger font
                 fill: 0xffffff,
-                fontWeight: "600",
+                fontWeight: "700",
             }),
         });
         label.anchor.set(0.5);

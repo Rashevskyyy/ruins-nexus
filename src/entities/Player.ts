@@ -2,7 +2,7 @@ import type { HexCoord } from "../board/Hex";
 import type { Item } from "./Item";
 import type { ModuleType } from "./BuildingType";
 import type { TokenType } from "../board/TileDeck";
-import type { RaceId } from "./Race";
+import type { RaceId, RaceOption } from "./Race";
 import type { Unit } from "./Unit";
 
 export type Player = {
@@ -11,8 +11,9 @@ export type Player = {
     hp: number;
     maxHp: number; // для отрисовки всех слотов HP
 
-    // Race (v0.4)
+    // Race (v0.5 - now with option choice)
     raceId: RaceId | null;
+    raceOption: RaceOption | null; // A or B, selected at lobby
 
     // Resources (Cosmic Frontier theme)
     biomass: number;   // 🧬 healing/support, crew upkeep
@@ -42,9 +43,33 @@ export type Player = {
     // Pending token rewards (player must choose items)
     pendingTokens: TokenType[];
 
-    // Race passive flags (v0.4)
-    forgeDiscountUsed: boolean;     // Forge Syndicate: first build -1 material
-    voidFreeMoveUsed: boolean;      // Void Navigators: once per turn free move
+    // ========================================
+    // RACE FLAGS (v0.5)
+    // ========================================
+    
+    // Forge Syndicate
+    forgeDiscountUsed: boolean;     // Passive: first build -1 material (per game)
+    forgeCraftFreeUsed: boolean;    // Option A: free craft this turn
+    forgeSalvageBonusUsed: boolean; // Option B: +1🧩 on first T2+ kill (per game)
+    
+    // Void Navigators
+    voidFreeMoveUsed: boolean;      // Passive: free move this turn
+    voidPhaseStepAvailable: boolean; // Option A: free move after explore this turn
+    voidRecallsRemaining: number;    // Option B: 2 recalls per game (instead of 1)
+    
+    // Warbound Legion
+    warboundBattleRushAvailable: boolean; // Option B: free move after kill this turn
+    
+    // Chrono Ascendants
+    chronoRerollUsed: boolean;      // Passive: 1 free die reroll this turn
+    
+    // Nomad Consortium
+    nomadGatherBonusUsed: boolean;  // Passive: +1 resource on first gather this turn
+    nomadScoutBonusUsed: boolean;   // Option B: +1🧩 on first T3+ tile entry (per game)
+    
+    // ========================================
+    // OTHER FLAGS
+    // ========================================
     
     // v0.5: Orbital Phase
     recallUsedThisPhase: boolean;   // Can only recall to base once per Orbital Phase
@@ -54,4 +79,10 @@ export type Player = {
     
     // v0.5: Final Trial
     finalTrialScore: number | null; // Result of player's Final Trial attempt
+    
+    // v0.5: Combat retry restriction
+    pushedBackFromTile: HexCoord | null; // Tile player was pushed back from this turn (can't retry)
+    
+    // v0.5: Underdog Bonus
+    underdogBonusUsed: boolean; // +1🧩 on first Tier 3+ kill if lowest prestige
 };

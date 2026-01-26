@@ -12,6 +12,7 @@ import type { Player } from "../entities/Player";
 import { MODULES, type ModuleType, canAffordModule } from "../entities/BuildingType";
 import { CraftingSystem, CRAFT_RECIPES, canSpendPrestige, spendPrestige } from "../systems/CraftingSystem";
 import { UNIT_DEFINITIONS, createUnit, canAffordUnit, type UnitType } from "../entities/Unit";
+import type { RaceId, RaceOption } from "../entities/Race";
 
 /**
  * Game - Cosmic Frontier
@@ -41,6 +42,49 @@ export class Game {
 
     get currentPlayer() {
         return this.state.players[this.state.currentPlayerIndex];
+    }
+    
+    /**
+     * Set player race and option (v0.5)
+     * Call this when player selects race in lobby
+     */
+    setPlayerRace(playerId: string, raceId: RaceId, raceOption: RaceOption): void {
+        const player = this.state.players.find(p => p.id === playerId);
+        if (!player) return;
+        
+        player.raceId = raceId;
+        player.raceOption = raceOption;
+        
+        // Apply race-specific initial bonuses
+        this.applyRaceBonuses(player);
+    }
+    
+    /**
+     * Apply race bonuses to player (called once at game start)
+     */
+    private applyRaceBonuses(player: Player): void {
+        if (!player.raceId || !player.raceOption) return;
+        
+        // 🧬 Bioform Option A: +1 max HP
+        if (player.raceId === "bioform" && player.raceOption === "A") {
+            player.maxHp += 1;
+            player.hp += 1; // Also heal the extra HP
+        }
+        
+        // 🌀 Void Option B: 2 recalls per game
+        if (player.raceId === "void" && player.raceOption === "B") {
+            player.voidRecallsRemaining = 2;
+        }
+    }
+    
+    /**
+     * Apply all race bonuses at game start (for server-authoritative games)
+     * Call this after loading/receiving game state
+     */
+    applyAllRaceBonuses(): void {
+        for (const player of this.state.players) {
+            this.applyRaceBonuses(player);
+        }
     }
 
     public addLog(message: string) {
@@ -141,6 +185,22 @@ export class Game {
                 player.prestige += prestigeGain;
                 this.addLog(`${player.id} +${prestigeGain} Prestige (explore Tier ${newTile.tier})`);
             }
+            
+            // 🏕️ Nomad Option B: +1🧩 on first entry to Tier 3+ tile
+            if (newTile.tier && newTile.tier >= 3 && player.raceId === "nomad" && player.raceOption === "B" && !player.nomadScoutBonusUsed) {
+                player.components += 1;
+                player.nomadScoutBonusUsed = true;
+                this.addLog(`🏕️ ${player.id} Scout's Instinct: +1🧩`);
+                if (this.onToast) {
+                    this.onToast(`🏕️ Scout's Instinct! +1🧩`, "success");
+                }
+            }
+            
+            // 🌀 Void Option A: After Explore, can Move for free
+            if (player.raceId === "void" && player.raceOption === "A") {
+                player.voidPhaseStepAvailable = true;
+                this.addLog(`🌀 ${player.id} Phase Step ready!`);
+            }
 
             // Final Tile - triggers Orbital Phase / Final Preparation (v0.5)
             if (newTile.isFinalTile) {
@@ -195,6 +255,7 @@ export class Game {
                             this.showVictoryResult(outcome);
                         } else {
                             player.position = { q: from.q, r: from.r }; // Pushback
+                            player.pushedBackFromTile = { q: target.q, r: target.r }; // v0.5: Mark tile
                             this.showDefeatResult(outcome);
                             this.forceEndTurnAfterEncounter();
                         }
@@ -213,6 +274,7 @@ export class Game {
                     this.awardCombatRewards(player, newTile);
                 } else {
                     player.position = from;
+                    player.pushedBackFromTile = { q: newTile.coord.q, r: newTile.coord.r }; // v0.5: Mark tile
                     this.forceEndTurnAfterEncounter();
                 }
             } else {
@@ -279,6 +341,19 @@ export class Game {
 
         // Local threat active → combat → turn ends
         if (tile.encounterActive === true) {
+            // v0.5: Combat retry restriction - can't attack same tile after pushback
+            if (player.pushedBackFromTile && 
+                player.pushedBackFromTile.q === target.q && 
+                player.pushedBackFromTile.r === target.r) {
+                this.addLog(`${player.id} cannot retry this monster after pushback!`);
+                if (this.onToast) {
+                    this.onToast(`🚫 Cannot retry after pushback!`, "error");
+                }
+                // Move back to previous position
+                player.position = from;
+                return;
+            }
+            
             this.state.phase = Phase.ResolveAction;
 
             // Show dice UI FIRST - combat applied AFTER animation
@@ -304,6 +379,7 @@ export class Game {
                         this.showVictoryResult(outcome);
                     } else {
                         player.position = from;
+                        player.pushedBackFromTile = { q: tile.coord.q, r: tile.coord.r }; // v0.5: Mark tile
                         this.showDefeatResult(outcome);
                         this.forceEndTurnAfterEncounter();
                     }
@@ -325,6 +401,7 @@ export class Game {
                 this.awardCombatRewards(player, tile);
             } else {
                 player.position = from;
+                player.pushedBackFromTile = { q: tile.coord.q, r: tile.coord.r }; // v0.5: Mark tile
                 this.forceEndTurnAfterEncounter();
             }
             return;
@@ -345,6 +422,53 @@ export class Game {
      */
     private awardCombatRewards(player: Player, tile: Tile): void {
         const monsterTier = tile.monsterTier ?? 1;
+        
+        // v0.5: Underdog Bonus - +1🧩 for lowest prestige player on first Tier 3+ kill
+        let underdogBonus = 0;
+        if (monsterTier >= 3 && !player.underdogBonusUsed) {
+            // Check if this player has the LOWEST prestige (not tied)
+            const otherPlayers = this.state.players.filter(p => p.id !== player.id);
+            const playerPrestige = player.prestige;
+            const isLowest = otherPlayers.every(p => p.prestige > playerPrestige);
+            const isTied = otherPlayers.some(p => p.prestige === playerPrestige);
+            
+            if (isLowest && !isTied) {
+                underdogBonus = 1;
+                player.underdogBonusUsed = true;
+                this.addLog(`🌟 ${player.id} Underdog Bonus! +1🧩`);
+                if (this.onToast) {
+                    this.onToast(`🌟 Underdog Bonus! +1🧩`, "success");
+                }
+            }
+        }
+        
+        // ========================================
+        // RACE BONUSES ON KILL (v0.5)
+        // ========================================
+        
+        // 🧬 Bioform Option B: Heal +1 HP after each monster kill
+        if (player.raceId === "bioform" && player.raceOption === "B") {
+            if (player.hp < player.maxHp) {
+                player.hp += 1;
+                this.addLog(`🧬 ${player.id} Regeneration: +1 HP`);
+            }
+        }
+        
+        // 🔨 Forge Option B: +1🧩 on first Tier 2+ monster kill
+        if (player.raceId === "forge" && player.raceOption === "B" && !player.forgeSalvageBonusUsed && monsterTier >= 2) {
+            underdogBonus += 1; // Add to component bonus
+            player.forgeSalvageBonusUsed = true;
+            this.addLog(`🔨 ${player.id} Salvage Expert: +1🧩`);
+            if (this.onToast) {
+                this.onToast(`🔨 Salvage Expert! +1🧩`, "success");
+            }
+        }
+        
+        // ⚔️ Warbound Option B: Free move after defeating monster
+        if (player.raceId === "warbound" && player.raceOption === "B") {
+            player.warboundBattleRushAvailable = true;
+            this.addLog(`⚔️ ${player.id} Battle Rush ready!`);
+        }
         
         // v0.5: New tier-based rewards
         let prestigeGain = 1;
@@ -376,6 +500,9 @@ export class Game {
                 componentGain = 0;
         }
         
+        // v0.5: Apply component multiplier from game modifier
+        const finalComponentGain = Math.round(componentGain * this.state.componentMultiplier);
+        
         // v0.5: No more direct item drops from monsters
         // Clear any legacy pending rewards
         tile.pendingRewards = [];
@@ -383,11 +510,11 @@ export class Game {
         // v0.5: Tier 1-2 rewards are AUTOMATIC (no choice dialog)
         if (monsterTier <= 2) {
             player.prestige += prestigeGain;
-            player.components += componentGain;
+            player.components += finalComponentGain;
             
             const parts: string[] = [`+${prestigeGain} Prestige`];
-            if (componentGain > 0) {
-                parts.push(`+${componentGain} 🧩`);
+            if (finalComponentGain > 0) {
+                parts.push(`+${finalComponentGain} 🧩`);
             }
             
             this.addLog(`${player.id} defeated Tier ${monsterTier} threat: ${parts.join(", ")}`);
@@ -404,11 +531,14 @@ export class Game {
         this.state.phase = Phase.ResolveAction;
         this.state.actionPoints = 0; // Prevent any actions
         
+        // v0.5: Add underdog bonus to component reward (after multiplier)
+        const totalComponents = finalComponentGain + underdogBonus;
+        
         // Set up pending reward choice
         this.state.pendingRewardChoice = {
             playerId: player.id,
             monsterTier,
-            standardReward: { prestige: prestigeGain, tokens: [], components: componentGain },
+            standardReward: { prestige: prestigeGain, tokens: [], components: totalComponents },
         };
         
         this.addLog(`${player.id} defeated Tier ${monsterTier} threat! Choose reward...`);
@@ -567,7 +697,8 @@ export class Game {
 
         if (!tile) return false;
         if (!tile.discovered) return false;
-        if (tile.type !== TileType.Resource) return false;
+        // Can gather from Resource tiles OR StartingSector (player's home zone)
+        if (tile.type !== TileType.Resource && tile.type !== TileType.StartingSector) return false;
         if (tile.encounterActive === true) return false;
 
         // Check resources
@@ -589,17 +720,36 @@ export class Game {
             // SupplyDepot: +1 to each resource type gathered
             const hasSupplyDepot = p.modules.includes("SupplyDepot");
             
+            // 🏕️ Nomad passive: First Gather each turn gives +1 of any resource
+            let nomadBonus = 0;
+            let nomadBonusType: string | null = null;
+            if (p.raceId === "nomad" && !p.nomadGatherBonusUsed) {
+                nomadBonus = 1;
+                p.nomadGatherBonusUsed = true;
+                // Give bonus to first resource type found
+                if (tile.resources.biomass) {
+                    nomadBonusType = "biomass";
+                } else if (tile.resources.materials) {
+                    nomadBonusType = "materials";
+                } else if (tile.resources.alloys) {
+                    nomadBonusType = "alloys";
+                }
+            }
+            
             if (tile.resources.biomass) {
                 p.biomass += tile.resources.biomass;
                 if (hasSupplyDepot) { p.biomass += 1; bonusBiomass = 1; }
+                if (nomadBonusType === "biomass") { p.biomass += 1; bonusBiomass += 1; }
             }
             if (tile.resources.materials) {
                 p.materials += tile.resources.materials;
                 if (hasSupplyDepot) { p.materials += 1; bonusMaterials = 1; }
+                if (nomadBonusType === "materials") { p.materials += 1; bonusMaterials += 1; }
             }
             if (tile.resources.alloys) {
                 p.alloys += tile.resources.alloys;
                 if (hasSupplyDepot) { p.alloys += 1; bonusAlloys = 1; }
+                if (nomadBonusType === "alloys") { p.alloys += 1; bonusAlloys += 1; }
             }
 
             // Log
@@ -618,19 +768,24 @@ export class Game {
             }
 
             const depotText = hasSupplyDepot ? " (🏠 SupplyDepot bonus!)" : "";
-            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}${depotText}`);
+            const nomadText = nomadBonus > 0 ? " (🏕️ Nomad bonus!)" : "";
+            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}${depotText}${nomadText}`);
             if (this.onToast) {
-                this.onToast(`📦 Gathered: ${parts.join(", ")}${depotText}`, "success");
+                this.onToast(`📦 Gathered: ${parts.join(", ")}${depotText}${nomadText}`, "success");
             }
         }
 
         // ⚡ Unstable Ground: -1 HP every Gather
-        if (tile.riskyEffect === "unstable") {
+        // 🏕️ Nomad Option A: Can Gather on Risky Tiles without penalty
+        const nomadHazardResistant = p.raceId === "nomad" && p.raceOption === "A";
+        if (tile.riskyEffect === "unstable" && !nomadHazardResistant) {
             p.hp = Math.max(0, p.hp - 1);
             this.addLog(`⚡ Unstable Ground! ${p.id} took 1 damage`);
             if (this.onToast) {
                 this.onToast(`⚡ Unstable Ground! -1 HP`, "warning");
             }
+        } else if (tile.riskyEffect === "unstable" && nomadHazardResistant) {
+            this.addLog(`🏕️ ${p.id} Hazard Resistant - ignored Unstable Ground!`);
         }
 
         map[p.id] = this.state.round + 1;
@@ -990,7 +1145,7 @@ export class Game {
     }
 
     /**
-     * Craft an item (costs 1 AP)
+     * Craft an item (costs 1 AP, or 0 AP for Forge Option A once per turn)
      */
     doCraft(recipeId: string): boolean {
         if (!this.canCraft()) return false;
@@ -999,14 +1154,26 @@ export class Game {
         const result = this.crafting.craft(player, recipeId);
 
         if (result.success) {
-            this.addLog(`🔧 ${player.id} crafted ${result.message}`);
-            if (this.onToast) {
-                this.onToast(`🔧 ${result.message}`, "success");
+            // 🔨 Forge Option A: First craft per turn is free (0 AP)
+            const isForgeFreeC = player.raceId === "forge" && player.raceOption === "A" && !player.forgeCraftFreeUsed;
+            
+            if (isForgeFreeC) {
+                player.forgeCraftFreeUsed = true;
+                this.addLog(`🔨 ${player.id} crafted ${result.message} (Master Crafter - FREE!)`);
+                if (this.onToast) {
+                    this.onToast(`🔨 ${result.message} (FREE!)`, "success");
+                }
+                // Don't consume action slot
+                this.state.uiMode = "NONE";
+            } else {
+                this.addLog(`🔧 ${player.id} crafted ${result.message}`);
+                if (this.onToast) {
+                    this.onToast(`🔧 ${result.message}`, "success");
+                }
+                this.state.actionUsedInCurrentSlot = true;
+                this.state.uiMode = "NONE";
+                this.tryFinishCurrentSlotAndStartNew();
             }
-
-            this.state.actionUsedInCurrentSlot = true;
-            this.state.uiMode = "NONE";
-            this.tryFinishCurrentSlotAndStartNew();
             return true;
         } else {
             if (this.onToast) {
@@ -1120,6 +1287,7 @@ export class Game {
 
     /**
      * Check if player can recall to base
+     * v0.5: Void Navigators Option B gets 2 recalls per game
      */
     canRecallToBase(): boolean {
         if (!this.state.isFinalPreparation) return false;
@@ -1129,8 +1297,18 @@ export class Game {
         // Must have a base
         if (!player.basePosition) return false;
         
-        // Can only use once per Orbital Phase
-        if (player.recallUsedThisPhase) return false;
+        // Check remaining recalls (Void Option B has 2, others have 1)
+        const maxRecalls = (player.raceId === "void" && player.raceOption === "B") ? 2 : 1;
+        const usedRecalls = player.recallUsedThisPhase ? 1 : 0;
+        const remainingRecalls = Math.max(0, player.voidRecallsRemaining - usedRecalls);
+        
+        // For Void Option B, check voidRecallsRemaining
+        if (player.raceId === "void" && player.raceOption === "B") {
+            if (player.voidRecallsRemaining <= 0) return false;
+        } else {
+            // Normal: only use once per Orbital Phase
+            if (player.recallUsedThisPhase) return false;
+        }
         
         // Already at base?
         if (player.position.q === player.basePosition.q && 
@@ -1142,16 +1320,20 @@ export class Game {
     }
 
     /**
-     * Recall player to their base (free action, once per Orbital Phase)
+     * Recall player to their base (free action)
+     * v0.5: Void Navigators Option B gets 2 recalls per game
      */
     doRecallToBase(): boolean {
         if (!this.canRecallToBase()) {
             if (this.onToast) {
+                const player = this.currentPlayer;
                 if (!this.state.isFinalPreparation) {
                     this.onToast(`🚫 Recall only available during Orbital Phase!`, "error");
-                } else if (this.currentPlayer.recallUsedThisPhase) {
+                } else if (player.raceId === "void" && player.raceOption === "B" && player.voidRecallsRemaining <= 0) {
+                    this.onToast(`🚫 All 2 Recalls used!`, "error");
+                } else if (player.recallUsedThisPhase) {
                     this.onToast(`🚫 Already used Recall this phase!`, "error");
-                } else if (!this.currentPlayer.basePosition) {
+                } else if (!player.basePosition) {
                     this.onToast(`🚫 You don't have a Base!`, "error");
                 }
             }
@@ -1162,9 +1344,16 @@ export class Game {
         const base = player.basePosition!;
         
         player.position = { q: base.q, r: base.r };
-        player.recallUsedThisPhase = true;
         
-        this.addLog(`📡 ${player.id} RECALLED to Base!`);
+        // Track recall usage
+        if (player.raceId === "void" && player.raceOption === "B") {
+            player.voidRecallsRemaining--;
+            this.addLog(`📡 ${player.id} RECALLED to Base! (${player.voidRecallsRemaining} recalls left)`);
+        } else {
+            player.recallUsedThisPhase = true;
+            this.addLog(`📡 ${player.id} RECALLED to Base!`);
+        }
+        
         if (this.onToast) {
             this.onToast(`📡 Recalled to Base!`, "success");
         }
@@ -1490,8 +1679,16 @@ export class Game {
         this.state.actionUsedInCurrentSlot = false;
         this.state.uiMode = "NONE";
         
-        // Reset race passives for new turn
+        // v0.5: Reset all race flags for new turn
         currentPlayer.voidFreeMoveUsed = false;
+        currentPlayer.voidPhaseStepAvailable = false;
+        currentPlayer.warboundBattleRushAvailable = false;
+        currentPlayer.chronoRerollUsed = false;
+        currentPlayer.nomadGatherBonusUsed = false;
+        currentPlayer.forgeCraftFreeUsed = false;
+        
+        // v0.5: Reset combat retry restriction
+        currentPlayer.pushedBackFromTile = null;
 
         this.state.phase = Phase.AwaitInput;
     }

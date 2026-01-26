@@ -3,6 +3,7 @@ import { Phase } from "./Phase";
 import type { Player } from "../entities/Player";
 import { TileDeck } from "../board/TileDeck";
 import type { HexCoord } from "../board/Hex";
+import { type ModifierId, type GameModifier, GAME_MODIFIERS, getRandomModifier, ASYMMETRIC_BONUSES, getRiskyTilesCount } from "./GameModifiers";
 
 export type UIMode = "NONE" | "EXPLORE_TARGETING" | "TILE_PLACEMENT" | "BUILD_MENU" | "CRAFT_MENU";
 
@@ -14,6 +15,10 @@ export type GameState = {
     round: number; // full round = all players had a turn
     actionPoints: number; // 2 action slots per turn (Karak 2 rules)
     uiMode: UIMode;
+    
+    // v0.5: Game Modifier (selected at lobby or random)
+    modifierId: ModifierId;
+    componentMultiplier: number; // For component rewards (1.0 = normal)
 
     // Karak 2 rules: each slot = optional Move (before) + optional Action (after)
     // Movement is always BEFORE action, never after!
@@ -54,35 +59,91 @@ export type GameState = {
     } | null;
 };
 
-export function createInitialState(): GameState {
-    const board = Board.createInitial();
+/**
+ * Create initial game state
+ * @param playerCount - Number of players (1-4), defaults to 4
+ * @param modifierId - Game modifier (default: random)
+ */
+export function createInitialState(playerCount: number = 4, modifierId?: ModifierId): GameState {
+    // Clamp player count to 1-4
+    const count = Math.max(1, Math.min(4, playerCount));
+    
+    // Select modifier (random if not specified)
+    const selectedModifierId = modifierId ?? getRandomModifier();
+    const modifier = GAME_MODIFIERS[selectedModifierId];
+    
+    // Create board with starting sectors for each player (randomized positions)
+    const board = Board.createForGame(count);
+    
+    // Get starting positions from the board (must match the random positions created above)
+    const startingPositions = Board.getStartingPositions(count, board);
 
-    const players: Player[] = Array.from({ length: 4 }).map((_, i) => ({
-        id: `P${i + 1}`,
-        position: { q: 0, r: 0 },
-        hp: 5,
-        maxHp: 5,
-        raceId: null, // Set in lobby before game starts
-        biomass: 0,
-        materials: 0,
-        alloys: 0,
-        components: 0, // v0.5: crafting components
-        inventory: {
-            weapons: [null, null, null, null],
-            spells: [null, null, null, null],
-            amulet: null,
-        },
-        modules: [],
-        units: [null, null], // v0.5: 2 unit slots
-        prestige: 0,
-        basePosition: null,
-        pendingTokens: [],
-        forgeDiscountUsed: false,
-        voidFreeMoveUsed: false,
-        recallUsedThisPhase: false,  // v0.5
-        orbitalHangarUsed: false,    // v0.5
-        finalTrialScore: null,       // v0.5
-    }));
+    // Create players with modifier bonuses
+    const players: Player[] = Array.from({ length: count }).map((_, i) => {
+        const startPos = startingPositions[i];
+        
+        // Base stats
+        let hp = 5;
+        let maxHp = 5;
+        let biomass = 0;
+        let materials = 0;
+        let alloys = 0;
+        
+        // v0.5: Asymmetric Start modifier
+        if (modifier.asymmetricStart) {
+            const bonus = ASYMMETRIC_BONUSES[i % ASYMMETRIC_BONUSES.length];
+            if (bonus.resource === "biomass") biomass += 1;
+            if (bonus.resource === "materials") materials += 1;
+            if (bonus.resource === "alloys") alloys += 1;
+            if (bonus.hp) {
+                hp += bonus.hp;
+                maxHp += bonus.hp;
+            }
+        }
+        
+        return {
+            id: `P${i + 1}`,
+            position: startPos, // Start in own sector, not hub
+            hp,
+            maxHp,
+            raceId: null, // Set in lobby before game starts
+            raceOption: null, // Set in lobby (A or B)
+            biomass,
+            materials,
+            alloys,
+            components: 0, // v0.5: crafting components
+            inventory: {
+                weapons: [null, null],     // v0.5: 2 weapon slots
+                spells: [null, null],      // v0.5: 2 module slots
+                amulet: null,              // v0.5: 1 amulet slot
+            },
+            modules: [],
+            units: [null, null], // v0.5: 2 unit slots
+            prestige: 0,
+            basePosition: null, // Players must BUILD their base (not automatic)
+            pendingTokens: [],
+            // Race flags (v0.5)
+            forgeDiscountUsed: false,
+            forgeCraftFreeUsed: false,
+            forgeSalvageBonusUsed: false,
+            voidFreeMoveUsed: false,
+            voidPhaseStepAvailable: false,
+            voidRecallsRemaining: 1, // Default 1, becomes 2 if Void+OptionB
+            warboundBattleRushAvailable: false,
+            chronoRerollUsed: false,
+            nomadGatherBonusUsed: false,
+            nomadScoutBonusUsed: false,
+            // Other flags
+            recallUsedThisPhase: false,  // v0.5
+            orbitalHangarUsed: false,    // v0.5
+            finalTrialScore: null,       // v0.5
+            pushedBackFromTile: null,    // v0.5: Combat retry restriction
+            underdogBonusUsed: false,    // v0.5: Underdog Bonus
+        };
+    });
+    
+    // Get risky tiles count from modifier
+    const riskyTiles = getRiskyTilesCount(modifier);
 
     return {
         board,
@@ -92,12 +153,15 @@ export function createInitialState(): GameState {
         round: 1,
         actionPoints: 2,
         uiMode: "NONE",
+        // v0.5: Game Modifier
+        modifierId: selectedModifierId,
+        componentMultiplier: modifier.componentMultiplier ?? 1.0,
         movedInCurrentSlot: false,
         actionUsedInCurrentSlot: false,
-        tileDeck: new TileDeck(),
+        tileDeck: new TileDeck(riskyTiles.tier1, riskyTiles.tier2),
         pendingTileRotation: 0,
         selectedPlacementPosition: null,
-        eventLog: [],
+        eventLog: [`🎛️ Modifier: ${modifier.name}`],
         // Final Phase (v0.5: Variant B)
         isFinalPhase: false,
         isFinalPreparation: false,
