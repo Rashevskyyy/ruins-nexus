@@ -9,7 +9,8 @@ export type ModuleType =
     | "TacticalUplink"  // 1 reroll per combat
     | "SupplyDepot"     // +1 resource on Gather
     | "RelicVault"      // activates relic system (future)
-    | "BeaconSpire";    // reserved for final content
+    | "BeaconSpire"     // reserved for final content
+    | "OrbitalHangar";  // v0.5: 1 teleport per game from base to safe tile
 
 export type ModuleDefinition = {
     type: ModuleType;
@@ -17,6 +18,7 @@ export type ModuleDefinition = {
     description: string;
     effect: string;
     prestigeGain: number;
+    prestigeCost?: number; // v0.5: some modules cost Prestige to build
 };
 
 export const MODULES: Record<ModuleType, ModuleDefinition> = {
@@ -61,6 +63,14 @@ export const MODULES: Record<ModuleType, ModuleDefinition> = {
         description: "Beacon Spire",
         effect: "Reserved for final content hooks",
         prestigeGain: 3,
+    },
+    OrbitalHangar: {
+        type: "OrbitalHangar",
+        cost: { materials: 2, alloys: 2, biomass: 0 },
+        description: "Orbital Hangar",
+        effect: "1 teleport per game: Base → safe tile (1 AP, not to Final)",
+        prestigeGain: 1,
+        prestigeCost: 1, // v0.5: costs 1 Prestige to build
     },
 };
 

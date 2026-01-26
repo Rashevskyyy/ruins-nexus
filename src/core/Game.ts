@@ -8,7 +8,10 @@ import { CombatSystem } from "../systems/CombatSystem";
 import { SettlementSystem } from "../systems/SettlementSystem";
 import { applyRotation, canMoveBetween } from "../board/BlockedEdges";
 import type { Tile } from "../board/Tile";
+import type { Player } from "../entities/Player";
 import { MODULES, type ModuleType, canAffordModule } from "../entities/BuildingType";
+import { CraftingSystem, CRAFT_RECIPES, canSpendPrestige, spendPrestige } from "../systems/CraftingSystem";
+import { UNIT_DEFINITIONS, createUnit, canAffordUnit, type UnitType } from "../entities/Unit";
 
 /**
  * Game - Cosmic Frontier
@@ -21,12 +24,16 @@ export class Game {
     private exploration: ExplorationSystem;
     private combat = new CombatSystem();
     private settlement = new SettlementSystem();
+    private crafting = new CraftingSystem();
 
     // Callback for showing dice roll UI
     public onDiceRoll: ((result: { swords: number; skulls: number }, callback: () => void) => void) | null = null;
 
     // Callback for toast notifications
     public onToast: ((message: string, type: "info" | "success" | "warning" | "error") => void) | null = null;
+    
+    // Callback for syncing state after combat resolution (multiplayer)
+    public onCombatResolved: (() => void) | null = null;
 
     constructor(public state: GameState) {
         this.exploration = new ExplorationSystem(state.tileDeck);
@@ -135,12 +142,23 @@ export class Game {
                 this.addLog(`${player.id} +${prestigeGain} Prestige (explore Tier ${newTile.tier})`);
             }
 
-            // Final Tile - triggers Final Phase!
+            // Final Tile - triggers Orbital Phase / Final Preparation (v0.5)
             if (newTile.isFinalTile) {
                 this.state.isFinalPhase = true;
-                this.state.finalRoundsLeft = 6; // 6 rounds countdown
-                this.state.finalThreatHp = 40;  // 40 HP shared boss
-                this.addLog(`🚨 FINAL TILE REVEALED! Final Threat spawned (40 HP)! 6 rounds remaining!`);
+                this.state.isFinalPreparation = true;
+                this.state.finalPrepRoundsLeft = 4; // 4 rounds for preparation
+                
+                // Reset recall flags for all players
+                for (const p of this.state.players) {
+                    p.recallUsedThisPhase = false;
+                }
+                
+                this.addLog(`🚨 FINAL TILE REVEALED! Orbital Phase begins! 4 rounds to prepare!`);
+                this.addLog(`📡 RECALL TO BASE available for each player (1 use)`);
+                
+                if (this.onToast) {
+                    this.onToast(`🚨 ORBITAL PHASE! Explore disabled. Prepare for Final Trial!`, "warning");
+                }
             }
 
             this.addLog(
@@ -150,40 +168,57 @@ export class Game {
             // AUTO-MOVE: Player moves onto the new tile
             player.position = target;
 
-            // AUTO-COMBAT: If there's a threat, fight immediately
+            // AUTO-COMBAT: If there's a threat, show dice FIRST then apply results
             if (newTile.encounterActive === true) {
-                const outcome = this.combat.fightOnce(player, newTile);
+                this.state.phase = Phase.ResolveAction;
                 
-                this.addLog(
-                    `${player.id} fought Threat (⚔${outcome.roll.swords}/💀${outcome.roll.skulls}) ${outcome.killed ? "WON" : "LOST"}`
-                );
-                
-                // Show dice roll UI if callback is set (after combat resolved)
+                // Show dice UI FIRST - combat applied AFTER animation
                 if (this.onDiceRoll) {
+                    // Simulate combat (calculate result without applying)
+                    const outcome = this.combat.simulateCombat(player, newTile, player.prestige);
+                    
                     this.onDiceRoll(outcome.roll, () => {
-                        // Dice dismissed - state already updated
+                        // AFTER dice animation: NOW apply results
+                        this.combat.applyCombatResult(player, newTile, outcome);
+                        
+                        // v0.5: Detailed combat logging with breakdown
+                        const tierNote = outcome.prestigePenalty 
+                            ? `👹T${outcome.monsterTier}+1(prestige)=${outcome.requiredTier}⚔` 
+                            : `👹T${outcome.monsterTier}=${outcome.requiredTier}⚔`;
+                        const dmgNote = outcome.damageToPlayer > 0 ? `, took ${outcome.damageToPlayer}💀` : "";
+                        this.addLog(
+                            `${player.id} vs ${tierNote}: 🎲${outcome.roll.swords}+${outcome.bonusSwords}=${outcome.totalSwords}⚔ → ${outcome.victory ? "WON" : "PUSHBACK"}${dmgNote}`
+                        );
+                        
+                        if (outcome.victory) {
+                            this.awardCombatRewards(player, newTile);
+                            this.showVictoryResult(outcome);
+                        } else {
+                            player.position = { q: from.q, r: from.r }; // Pushback
+                            this.showDefeatResult(outcome);
+                            this.forceEndTurnAfterEncounter();
+                        }
+                        
+                        // Trigger state sync after combat resolution
+                        if (this.onCombatResolved) {
+                            this.onCombatResolved();
+                        }
                     });
+                    return; // Wait for dice callback
                 }
-
+                
+                // Fallback without dice UI
+                const outcome = this.combat.fightOnce(player, newTile, player.prestige);
                 if (outcome.killed) {
-                    // Victory! Award Prestige based on tier
-                    const prestigeGain = newTile.tier === 1 ? 1 : newTile.tier === 2 ? 2 : 3;
-                    player.prestige += prestigeGain;
-                    this.addLog(`${player.id} +${prestigeGain} Prestige (combat)`);
-                    if (this.onToast) {
-                        this.onToast(`🎉 Threat eliminated! +${prestigeGain} Prestige`, "success");
-                    }
+                    this.awardCombatRewards(player, newTile);
                 } else {
-                    // Pushed back to original position
                     player.position = from;
-                    if (this.onToast) {
-                        this.onToast(`💥 Pushed back! Threat HP: ${newTile.enemyHp}`, "error");
-                    }
+                    this.forceEndTurnAfterEncounter();
                 }
+            } else {
+                // No combat - just end turn
+                this.forceEndTurnAfterEncounter();
             }
-
-            // Explore + auto-move + combat = turn ends
-            this.forceEndTurnAfterEncounter();
             return;
         }
 
@@ -212,8 +247,26 @@ export class Game {
                 return;
             }
 
+            // 🌪 Gravity Rift: Leaving always consumes a slot (overrides Void Navigator)
+            const leavingRift = fromTile?.riskyEffect === "rift";
+            if (leavingRift) {
+                this.addLog(`🌪 Gravity Rift! ${player.id} spent extra effort leaving`);
+                if (this.onToast) {
+                    this.onToast(`🌪 Gravity Rift slows your movement!`, "warning");
+                }
+            }
+
             player.position = target;
-            this.state.movedInCurrentSlot = true;
+            
+            // ⚙ Void Navigators: Once per turn, one Move does not consume a slot
+            // (Gravity Rift overrides this!)
+            if (player.raceId === "void" && !player.voidFreeMoveUsed && !leavingRift) {
+                player.voidFreeMoveUsed = true;
+                // Don't set movedInCurrentSlot - this move is free!
+                this.addLog(`${player.id} used Void Navigator free move`);
+            } else {
+                this.state.movedInCurrentSlot = true;
+            }
         }
 
         const tile = this.state.board.getTile(target);
@@ -228,41 +281,276 @@ export class Game {
         if (tile.encounterActive === true) {
             this.state.phase = Phase.ResolveAction;
 
-            const outcome = this.combat.fightOnce(this.currentPlayer, tile);
-            
-            // Show dice roll UI if callback is set
+            // Show dice UI FIRST - combat applied AFTER animation
             if (this.onDiceRoll) {
+                // Simulate combat (calculate result without applying)
+                const outcome = this.combat.simulateCombat(player, tile, player.prestige);
+                
                 this.onDiceRoll(outcome.roll, () => {
-                    // Continue after user dismisses dice
+                    // AFTER dice animation: NOW apply results
+                    this.combat.applyCombatResult(player, tile, outcome);
+                    
+                    // v0.5: Detailed combat logging with breakdown
+                    const tierNote = outcome.prestigePenalty 
+                        ? `👹T${outcome.monsterTier}+1(prestige)=${outcome.requiredTier}⚔` 
+                        : `👹T${outcome.monsterTier}=${outcome.requiredTier}⚔`;
+                    const dmgNote = outcome.damageToPlayer > 0 ? `, took ${outcome.damageToPlayer}💀` : "";
+                    this.addLog(
+                        `${player.id} vs ${tierNote}: 🎲${outcome.roll.swords}+${outcome.bonusSwords}=${outcome.totalSwords}⚔ → ${outcome.victory ? "WON" : "PUSHBACK"}${dmgNote}`
+                    );
+                    
+                    if (outcome.victory) {
+                        this.awardCombatRewards(player, tile);
+                        this.showVictoryResult(outcome);
+                    } else {
+                        player.position = from;
+                        this.showDefeatResult(outcome);
+                        this.forceEndTurnAfterEncounter();
+                    }
+                    
+                    // Trigger state sync after combat resolution
+                    if (this.onCombatResolved) {
+                        this.onCombatResolved();
+                    }
                 });
+                return; // Wait for dice callback
             }
             
+            // Fallback without dice UI
+            const outcome = this.combat.fightOnce(player, tile, player.prestige);
             this.addLog(
-                `${this.currentPlayer.id} fought Threat (⚔${outcome.roll.swords}/💀${outcome.roll.skulls}) ${outcome.killed ? "WON" : "LOST"}`
+                `${player.id} fought Threat ${outcome.killed ? "WON" : "PUSHBACK"}`
             );
-
             if (outcome.killed) {
-                // Victory! Award Prestige
-                const prestigeGain = tile.tier === 1 ? 1 : tile.tier === 2 ? 2 : 3;
-                player.prestige += prestigeGain;
-                this.addLog(`${player.id} +${prestigeGain} Prestige (combat)`);
-                if (this.onToast) {
-                    this.onToast(`🎉 Threat eliminated! +${prestigeGain} Prestige`, "success");
-                }
+                this.awardCombatRewards(player, tile);
             } else {
-                // Pushed back
                 player.position = from;
-                if (this.onToast) {
-                    this.onToast(`💥 Pushed back! Threat HP: ${tile.enemyHp}`, "error");
-                }
+                this.forceEndTurnAfterEncounter();
             }
-
-            // Combat ends turn
-            this.forceEndTurnAfterEncounter();
             return;
         } else {
             this.state.phase = Phase.AwaitInput;
         }
+    }
+
+    /**
+     * Set up pending reward choice after defeating a monster
+     * v0.5: New tier-based rewards with Components (no direct item drops)
+     * 
+     * Tier 1 (HP 1): +1 Prestige (AUTOMATIC)
+     * Tier 2 (HP 2): +1 Prestige +1 Component (AUTOMATIC)
+     * Tier 3 (HP 3): +2 Prestige +2 Components (CHOICE)
+     * Tier 4 (HP 4): +3 Prestige +3 Components (CHOICE)
+     * Tier 6 (HP 6): +5 Prestige +4 Components (CHOICE)
+     */
+    private awardCombatRewards(player: Player, tile: Tile): void {
+        const monsterTier = tile.monsterTier ?? 1;
+        
+        // v0.5: New tier-based rewards
+        let prestigeGain = 1;
+        let componentGain = 0;
+        
+        switch (monsterTier) {
+            case 1:
+                prestigeGain = 1;
+                componentGain = 0;
+                break;
+            case 2:
+                prestigeGain = 1;
+                componentGain = 1;
+                break;
+            case 3:
+                prestigeGain = 2;
+                componentGain = 2;
+                break;
+            case 4:
+                prestigeGain = 3;
+                componentGain = 3;
+                break;
+            case 6:
+                prestigeGain = 5;
+                componentGain = 4;
+                break;
+            default:
+                prestigeGain = 1;
+                componentGain = 0;
+        }
+        
+        // v0.5: No more direct item drops from monsters
+        // Clear any legacy pending rewards
+        tile.pendingRewards = [];
+        
+        // v0.5: Tier 1-2 rewards are AUTOMATIC (no choice dialog)
+        if (monsterTier <= 2) {
+            player.prestige += prestigeGain;
+            player.components += componentGain;
+            
+            const parts: string[] = [`+${prestigeGain} Prestige`];
+            if (componentGain > 0) {
+                parts.push(`+${componentGain} 🧩`);
+            }
+            
+            this.addLog(`${player.id} defeated Tier ${monsterTier} threat: ${parts.join(", ")}`);
+            if (this.onToast) {
+                this.onToast(`⚔️ Threat defeated: ${parts.join(", ")}`, "success");
+            }
+            
+            // End turn immediately (no choice needed)
+            this.forceEndTurnAfterEncounter();
+            return;
+        }
+        
+        // Tier 3+: Show reward choice dialog
+        this.state.phase = Phase.ResolveAction;
+        this.state.actionPoints = 0; // Prevent any actions
+        
+        // Set up pending reward choice
+        this.state.pendingRewardChoice = {
+            playerId: player.id,
+            monsterTier,
+            standardReward: { prestige: prestigeGain, tokens: [], components: componentGain },
+        };
+        
+        this.addLog(`${player.id} defeated Tier ${monsterTier} threat! Choose reward...`);
+        // Toast shown after dice animation
+    }
+    
+    /**
+     * Show victory result after dice animation (with breakdown)
+     */
+    showVictoryResult(outcome?: import("../systems/CombatSystem").CombatResult): void {
+        if (this.onToast) {
+            if (outcome) {
+                const b = outcome.breakdown;
+                
+                // Build sword breakdown
+                const swordParts: string[] = [`🎲${b.diceRoll}`];
+                if (b.raceBonus > 0) swordParts.push(`+${b.raceBonus}🧬`);
+                if (b.unitBonus > 0) swordParts.push(`+${b.unitBonus}🤖`);
+                if (b.weaponBonus > 0) swordParts.push(`+${b.weaponBonus}⚔`);
+                if (b.moduleBonus > 0) swordParts.push(`+${b.moduleBonus}🔧`);
+                if (b.amuletBonus > 0) swordParts.push(`+${b.amuletBonus}📿`);
+                
+                // Monster info
+                const tierInfo = outcome.prestigePenalty 
+                    ? `👹T${outcome.monsterTier}+1(prestige)=${outcome.requiredTier}⚔`
+                    : `👹T${outcome.monsterTier}=${outcome.requiredTier}⚔`;
+                
+                // Damage info
+                const dmgInfo = outcome.damageToPlayer > 0 
+                    ? ` | 💀${outcome.damageToPlayer} dmg`
+                    : "";
+                
+                this.onToast(`✅ WIN! ${swordParts.join("")}=${outcome.totalSwords}⚔ ≥ ${tierInfo}${dmgInfo}`, "success");
+            } else {
+                this.onToast(`🎉 Threat eliminated!`, "success");
+            }
+        }
+    }
+    
+    /**
+     * Show defeat result after dice animation (with breakdown)
+     */
+    showDefeatResult(outcome?: import("../systems/CombatSystem").CombatResult): void {
+        if (this.onToast) {
+            if (outcome) {
+                const b = outcome.breakdown;
+                
+                // Build sword breakdown
+                const swordParts: string[] = [`🎲${b.diceRoll}`];
+                if (b.raceBonus > 0) swordParts.push(`+${b.raceBonus}🧬`);
+                if (b.unitBonus > 0) swordParts.push(`+${b.unitBonus}🤖`);
+                if (b.weaponBonus > 0) swordParts.push(`+${b.weaponBonus}⚔`);
+                if (b.moduleBonus > 0) swordParts.push(`+${b.moduleBonus}🔧`);
+                if (b.amuletBonus > 0) swordParts.push(`+${b.amuletBonus}📿`);
+                
+                // Monster info with explanation
+                const tierInfo = outcome.prestigePenalty 
+                    ? `👹T${outcome.monsterTier}+1(prestige)=${outcome.requiredTier}⚔`
+                    : `👹T${outcome.monsterTier}=${outcome.requiredTier}⚔`;
+                
+                // Damage info
+                const dmgInfo = outcome.damageToPlayer > 0 
+                    ? ` | 💀${outcome.damageToPlayer} dmg`
+                    : "";
+                
+                this.onToast(`❌ PUSHBACK! ${swordParts.join("")}=${outcome.totalSwords}⚔ < ${tierInfo}${dmgInfo}`, "error");
+            } else {
+                this.onToast(`💥 Pushed back!`, "error");
+            }
+        }
+    }
+
+    /**
+     * Player chooses reward after defeating monster (v0.5)
+     * Now includes Components instead of item tokens
+     */
+    chooseReward(choice: "standard" | "recover" | "push"): void {
+        const pending = this.state.pendingRewardChoice;
+        if (!pending) return;
+        
+        const player = this.state.players.find(p => p.id === pending.playerId);
+        if (!player) return;
+        
+        switch (choice) {
+            case "standard":
+                // Standard: Prestige + Components (v0.5)
+                player.prestige += pending.standardReward.prestige;
+                player.components += pending.standardReward.components;
+                
+                const parts: string[] = [`+${pending.standardReward.prestige} Prestige`];
+                if (pending.standardReward.components > 0) {
+                    parts.push(`+${pending.standardReward.components} 🧩`);
+                }
+                this.addLog(`${player.id} chose Standard Reward: ${parts.join(", ")}`);
+                
+                if (this.onToast) {
+                    this.onToast(`🎖️ ${parts.join(", ")}`, "success");
+                }
+                break;
+                
+            case "recover":
+                // Recover: +2 HP (only if not full HP)
+                const healed = Math.min(2, player.maxHp - player.hp);
+                player.hp = Math.min(player.maxHp, player.hp + 2);
+                this.addLog(`${player.id} chose Recover: +${healed} HP`);
+                if (this.onToast) {
+                    this.onToast(`❤️ +${healed} HP`, "success");
+                }
+                break;
+                
+            case "push":
+                // Push Forward: +1 extra Prestige (not available at 10+)
+                if (player.prestige < 10) {
+                    player.prestige += pending.standardReward.prestige + 1;
+                    this.addLog(`${player.id} chose Push Forward: +${pending.standardReward.prestige + 1} Prestige`);
+                    if (this.onToast) {
+                        this.onToast(`⭐ +${pending.standardReward.prestige + 1} Prestige`, "success");
+                    }
+                }
+                break;
+        }
+        
+        this.state.pendingRewardChoice = null;
+        
+        // v0.5: No more pending tokens (items come from crafting now)
+        // End turn immediately
+        this.forceEndTurnAfterEncounter();
+    }
+    
+    /**
+     * Called after player selects equipment from token
+     */
+    finishTokenSelection(): void {
+        const player = this.currentPlayer;
+        
+        // If more tokens pending, keep waiting
+        if (player.pendingTokens.length > 0) {
+            return;
+        }
+        
+        // All tokens claimed - end turn
+        this.forceEndTurnAfterEncounter();
     }
 
     // ========================================
@@ -294,19 +582,54 @@ export class Game {
 
         // Collect all resources
         if (tile.resources) {
-            if (tile.resources.biomass) p.biomass += tile.resources.biomass;
-            if (tile.resources.materials) p.materials += tile.resources.materials;
-            if (tile.resources.alloys) p.alloys += tile.resources.alloys;
+            let bonusBiomass = 0;
+            let bonusMaterials = 0;
+            let bonusAlloys = 0;
+            
+            // SupplyDepot: +1 to each resource type gathered
+            const hasSupplyDepot = p.modules.includes("SupplyDepot");
+            
+            if (tile.resources.biomass) {
+                p.biomass += tile.resources.biomass;
+                if (hasSupplyDepot) { p.biomass += 1; bonusBiomass = 1; }
+            }
+            if (tile.resources.materials) {
+                p.materials += tile.resources.materials;
+                if (hasSupplyDepot) { p.materials += 1; bonusMaterials = 1; }
+            }
+            if (tile.resources.alloys) {
+                p.alloys += tile.resources.alloys;
+                if (hasSupplyDepot) { p.alloys += 1; bonusAlloys = 1; }
+            }
 
             // Log
             const parts: string[] = [];
-            if (tile.resources.biomass) parts.push(`${tile.resources.biomass} 🧬`);
-            if (tile.resources.materials) parts.push(`${tile.resources.materials} 🧱`);
-            if (tile.resources.alloys) parts.push(`${tile.resources.alloys} ⚙`);
+            if (tile.resources.biomass) {
+                const bonus = bonusBiomass ? `+${bonusBiomass}` : "";
+                parts.push(`${tile.resources.biomass}${bonus} 🧬`);
+            }
+            if (tile.resources.materials) {
+                const bonus = bonusMaterials ? `+${bonusMaterials}` : "";
+                parts.push(`${tile.resources.materials}${bonus} 🧱`);
+            }
+            if (tile.resources.alloys) {
+                const bonus = bonusAlloys ? `+${bonusAlloys}` : "";
+                parts.push(`${tile.resources.alloys}${bonus} ⚙`);
+            }
 
-            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}`);
+            const depotText = hasSupplyDepot ? " (🏠 SupplyDepot bonus!)" : "";
+            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}${depotText}`);
             if (this.onToast) {
-                this.onToast(`📦 Gathered: ${parts.join(", ")}`, "success");
+                this.onToast(`📦 Gathered: ${parts.join(", ")}${depotText}`, "success");
+            }
+        }
+
+        // ⚡ Unstable Ground: -1 HP every Gather
+        if (tile.riskyEffect === "unstable") {
+            p.hp = Math.max(0, p.hp - 1);
+            this.addLog(`⚡ Unstable Ground! ${p.id} took 1 damage`);
+            if (this.onToast) {
+                this.onToast(`⚡ Unstable Ground! -1 HP`, "warning");
             }
         }
 
@@ -425,8 +748,9 @@ export class Game {
         );
         if (otherPlayersHere.length > 0) return false;
 
-        // Need 2 Materials
-        if (p.materials < 2) return false;
+        // 🧱 Forge Syndicate: First Build action costs -1 Materials
+        const cost = (p.raceId === "forge" && !p.forgeDiscountUsed) ? 1 : 2;
+        if (p.materials < cost) return false;
 
         return true;
     }
@@ -447,8 +771,16 @@ export class Game {
 
         this.state.phase = Phase.ResolveAction;
 
+        // 🧱 Forge Syndicate: First Build action costs -1 Materials
+        let cost = 2;
+        if (p.raceId === "forge" && !p.forgeDiscountUsed) {
+            cost = 1;
+            p.forgeDiscountUsed = true;
+            this.addLog(`${p.id} used Forge Syndicate discount (-1 🧱)`);
+        }
+
         // Spend resources
-        p.materials -= 2;
+        p.materials -= cost;
 
         // Mark tile as player's Base
         tile.ownerId = p.id;
@@ -575,6 +907,14 @@ export class Game {
         if (this.state.phase !== Phase.AwaitInput) return false;
         if (this.state.actionPoints <= 0) return false;
         if (this.state.actionUsedInCurrentSlot) return false;
+        
+        // v0.5: Block Explore during Final Preparation
+        if (this.state.isFinalPreparation) {
+            if (this.onToast) {
+                this.onToast(`🚫 Explore disabled during Orbital Phase!`, "error");
+            }
+            return false;
+        }
 
         // If already moved (without action) → finish current slot before Explore
         if (this.state.movedInCurrentSlot && !this.state.actionUsedInCurrentSlot) {
@@ -599,6 +939,476 @@ export class Game {
         if (this.state.uiMode !== "TILE_PLACEMENT") return;
         this.state.pendingTileRotation = (this.state.pendingTileRotation + 1) % 6;
         this.state.selectedPlacementPosition = null;
+    }
+
+    // ========================================
+    // CRAFTING SYSTEM (v0.5)
+    // ========================================
+
+    /**
+     * Check if player can craft (must be in own base)
+     */
+    canCraft(): boolean {
+        if (this.state.phase !== Phase.AwaitInput) return false;
+        if (this.state.actionPoints <= 0) return false;
+        if (this.state.actionUsedInCurrentSlot) return false;
+        return this.isInOwnBase();
+    }
+
+    /**
+     * Get available craft recipes for current player
+     */
+    getAvailableCraftRecipes() {
+        const player = this.currentPlayer;
+        return this.crafting.getAvailableRecipes(player);
+    }
+
+    /**
+     * Get all craft recipes (for UI display)
+     */
+    getAllCraftRecipes() {
+        return CRAFT_RECIPES;
+    }
+
+    /**
+     * Toggle craft menu
+     */
+    toggleCraftMenu(): boolean {
+        if (!this.canCraft() && this.state.uiMode !== "CRAFT_MENU") {
+            if (this.onToast) {
+                this.onToast(`🚫 Must be at your Base to craft!`, "error");
+            }
+            return false;
+        }
+
+        if (this.state.uiMode === "CRAFT_MENU") {
+            this.state.uiMode = "NONE";
+        } else {
+            this.state.uiMode = "CRAFT_MENU";
+        }
+        return true;
+    }
+
+    /**
+     * Craft an item (costs 1 AP)
+     */
+    doCraft(recipeId: string): boolean {
+        if (!this.canCraft()) return false;
+
+        const player = this.currentPlayer;
+        const result = this.crafting.craft(player, recipeId);
+
+        if (result.success) {
+            this.addLog(`🔧 ${player.id} crafted ${result.message}`);
+            if (this.onToast) {
+                this.onToast(`🔧 ${result.message}`, "success");
+            }
+
+            this.state.actionUsedInCurrentSlot = true;
+            this.state.uiMode = "NONE";
+            this.tryFinishCurrentSlotAndStartNew();
+            return true;
+        } else {
+            if (this.onToast) {
+                this.onToast(`❌ ${result.message}`, "error");
+            }
+            return false;
+        }
+    }
+
+    // ========================================
+    // UNIT HIRING (v0.5)
+    // ========================================
+
+    /**
+     * Check if player can hire units (must be in own base)
+     */
+    canHireUnit(): boolean {
+        if (this.state.phase !== Phase.AwaitInput) return false;
+        if (this.state.actionPoints <= 0) return false;
+        if (this.state.actionUsedInCurrentSlot) return false;
+        if (!this.isInOwnBase()) return false;
+        
+        // Check if player has empty unit slots
+        const player = this.currentPlayer;
+        const hasEmptySlot = player.units.some(u => u === null);
+        return hasEmptySlot;
+    }
+
+    /**
+     * Get available units player can hire
+     */
+    getAvailableUnits(): UnitType[] {
+        const player = this.currentPlayer;
+        
+        // Must be in base and have empty slot
+        if (!this.isInOwnBase()) return [];
+        if (!player.units.some(u => u === null)) return [];
+        
+        return (Object.keys(UNIT_DEFINITIONS) as UnitType[]).filter(type => {
+            return canAffordUnit(type, player.components, player.alloys, player.materials);
+        });
+    }
+
+    /**
+     * Hire a unit (costs 1 AP)
+     */
+    doHireUnit(unitType: UnitType): boolean {
+        if (!this.canHireUnit()) return false;
+        
+        const player = this.currentPlayer;
+        const def = UNIT_DEFINITIONS[unitType];
+        
+        // Check resources
+        if (!canAffordUnit(unitType, player.components, player.alloys, player.materials)) {
+            if (this.onToast) {
+                this.onToast(`❌ Not enough resources!`, "error");
+            }
+            return false;
+        }
+        
+        // Find empty slot
+        const slotIndex = player.units.findIndex(u => u === null);
+        if (slotIndex < 0) {
+            if (this.onToast) {
+                this.onToast(`❌ No empty unit slots!`, "error");
+            }
+            return false;
+        }
+        
+        // Spend resources
+        player.components -= def.cost.components;
+        player.alloys -= def.cost.alloys;
+        player.materials -= def.cost.materials;
+        
+        // Create and add unit
+        const unit = createUnit(unitType);
+        player.units[slotIndex] = unit;
+        
+        this.addLog(`🤖 ${player.id} hired ${def.name}`);
+        if (this.onToast) {
+            this.onToast(`🤖 ${def.name} hired!`, "success");
+        }
+        
+        this.state.actionUsedInCurrentSlot = true;
+        this.state.uiMode = "NONE";
+        this.tryFinishCurrentSlotAndStartNew();
+        return true;
+    }
+
+    // ========================================
+    // PRESTIGE SPENDING (v0.5)
+    // ========================================
+
+    /**
+     * Check if player can spend prestige
+     */
+    canSpendPrestige(amount: number): boolean {
+        return canSpendPrestige(this.currentPlayer, amount);
+    }
+
+    /**
+     * Spend prestige (generic)
+     */
+    spendPrestige(amount: number): boolean {
+        return spendPrestige(this.currentPlayer, amount);
+    }
+
+    // ========================================
+    // RECALL TO BASE (v0.5 - Orbital Phase)
+    // ========================================
+
+    /**
+     * Check if player can recall to base
+     */
+    canRecallToBase(): boolean {
+        if (!this.state.isFinalPreparation) return false;
+        
+        const player = this.currentPlayer;
+        
+        // Must have a base
+        if (!player.basePosition) return false;
+        
+        // Can only use once per Orbital Phase
+        if (player.recallUsedThisPhase) return false;
+        
+        // Already at base?
+        if (player.position.q === player.basePosition.q && 
+            player.position.r === player.basePosition.r) {
+            return false;
+        }
+        
+        return true;
+    }
+
+    /**
+     * Recall player to their base (free action, once per Orbital Phase)
+     */
+    doRecallToBase(): boolean {
+        if (!this.canRecallToBase()) {
+            if (this.onToast) {
+                if (!this.state.isFinalPreparation) {
+                    this.onToast(`🚫 Recall only available during Orbital Phase!`, "error");
+                } else if (this.currentPlayer.recallUsedThisPhase) {
+                    this.onToast(`🚫 Already used Recall this phase!`, "error");
+                } else if (!this.currentPlayer.basePosition) {
+                    this.onToast(`🚫 You don't have a Base!`, "error");
+                }
+            }
+            return false;
+        }
+
+        const player = this.currentPlayer;
+        const base = player.basePosition!;
+        
+        player.position = { q: base.q, r: base.r };
+        player.recallUsedThisPhase = true;
+        
+        this.addLog(`📡 ${player.id} RECALLED to Base!`);
+        if (this.onToast) {
+            this.onToast(`📡 Recalled to Base!`, "success");
+        }
+        
+        return true;
+    }
+
+    // ========================================
+    // ORBITAL HANGAR TELEPORT (v0.5)
+    // ========================================
+
+    /**
+     * Check if player can use Orbital Hangar teleport
+     */
+    canUseOrbitalHangar(): boolean {
+        if (this.state.phase !== Phase.AwaitInput) return false;
+        if (this.state.actionPoints <= 0) return false;
+        
+        const player = this.currentPlayer;
+        
+        // Must have Orbital Hangar module
+        if (!player.modules.includes("OrbitalHangar")) return false;
+        
+        // Can only use once per game
+        if (player.orbitalHangarUsed) return false;
+        
+        // Must be at own base
+        if (!this.isInOwnBase()) return false;
+        
+        return true;
+    }
+
+    /**
+     * Get valid teleport destinations for Orbital Hangar
+     * Only safe, discovered tiles (no active encounters, not Final Tile)
+     */
+    getOrbitalHangarDestinations(): HexCoord[] {
+        const destinations: HexCoord[] = [];
+        const player = this.currentPlayer;
+        
+        for (const tile of this.state.board.getAllTiles()) {
+            // Must be discovered
+            if (!tile.discovered) continue;
+            
+            // No active encounters
+            if (tile.encounterActive) continue;
+            
+            // Not the Final Tile
+            if (tile.isFinalTile) continue;
+            
+            // Not current position
+            if (tile.coord.q === player.position.q && 
+                tile.coord.r === player.position.r) continue;
+            
+            destinations.push(tile.coord);
+        }
+        
+        return destinations;
+    }
+
+    /**
+     * Use Orbital Hangar to teleport (costs 1 AP)
+     */
+    doOrbitalHangarTeleport(destination: HexCoord): boolean {
+        if (!this.canUseOrbitalHangar()) return false;
+        
+        const destinations = this.getOrbitalHangarDestinations();
+        const isValid = destinations.some(d => d.q === destination.q && d.r === destination.r);
+        
+        if (!isValid) {
+            if (this.onToast) {
+                this.onToast(`🚫 Invalid teleport destination!`, "error");
+            }
+            return false;
+        }
+        
+        const player = this.currentPlayer;
+        player.position = { q: destination.q, r: destination.r };
+        player.orbitalHangarUsed = true;
+        
+        this.addLog(`🚀 ${player.id} used Orbital Hangar teleport!`);
+        if (this.onToast) {
+            this.onToast(`🚀 Teleported via Orbital Hangar!`, "success");
+        }
+        
+        // Costs 1 AP (full slot)
+        this.state.actionUsedInCurrentSlot = true;
+        this.tryFinishCurrentSlotAndStartNew();
+        
+        return true;
+    }
+
+    // ========================================
+    // FINAL TRIAL (v0.5)
+    // ========================================
+
+    /**
+     * Calculate Final Trial score for a player
+     * Score = weapon bonuses + module bonuses + optional prestige spend
+     */
+    calculateFinalTrialScore(player: Player, prestigeSpend: number = 0): number {
+        let score = 0;
+        
+        // Weapon bonuses
+        for (const weapon of player.inventory.weapons) {
+            if (!weapon) continue;
+            
+            switch (weapon.effectId) {
+                case "blaster_core":
+                case "pulse_blade":
+                    score += 1;
+                    break;
+                case "plasma_edge":
+                case "shock_pike":
+                    score += 2;
+                    break;
+                case "heavy_cannon":
+                case "quantum_blade":
+                    score += 3;
+                    break;
+            }
+        }
+        
+        // Module bonuses (from spells that are actually modules)
+        for (const spell of player.inventory.spells) {
+            if (!spell) continue;
+            
+            switch (spell.effectId) {
+                case "reroll_module":
+                case "shield_matrix":
+                    score += 1;
+                    break;
+                case "overdrive":
+                    score += 2;
+                    break;
+            }
+        }
+        
+        // Amulet bonus
+        if (player.inventory.amulet) {
+            switch (player.inventory.amulet.effectId) {
+                case "stabilizer_plating":
+                    score += 1;
+                    break;
+                case "core_relic":
+                    score += 3;
+                    break;
+                case "chrono_shield":
+                    score += 2;
+                    break;
+            }
+        }
+        
+        // Prestige spend (1 Prestige = 1 score point)
+        score += prestigeSpend;
+        
+        return score;
+    }
+
+    /**
+     * Start Final Trial for current player
+     */
+    doFinalTrial(prestigeSpend: number = 0): boolean {
+        if (!this.state.finalTrialStarted) return false;
+        
+        const player = this.currentPlayer;
+        
+        // Already did trial?
+        if (player.finalTrialScore !== null) {
+            if (this.onToast) {
+                this.onToast(`🚫 Already completed Final Trial!`, "error");
+            }
+            return false;
+        }
+        
+        // Can afford prestige spend?
+        if (prestigeSpend > 0 && !canSpendPrestige(player, prestigeSpend)) {
+            if (this.onToast) {
+                this.onToast(`🚫 Not enough Prestige!`, "error");
+            }
+            return false;
+        }
+        
+        // Spend prestige
+        if (prestigeSpend > 0) {
+            spendPrestige(player, prestigeSpend);
+        }
+        
+        // Calculate score
+        const score = this.calculateFinalTrialScore(player, prestigeSpend);
+        player.finalTrialScore = score;
+        
+        // Record result
+        this.state.finalTrialResults.push({ playerId: player.id, score });
+        
+        this.addLog(`🎯 ${player.id} completed Final Trial! Score: ${score}`);
+        if (this.onToast) {
+            this.onToast(`🎯 Final Trial Score: ${score}`, "info");
+        }
+        
+        // Check if all players completed
+        const allCompleted = this.state.players.every(p => p.finalTrialScore !== null);
+        if (allCompleted) {
+            this.resolveVictory();
+        }
+        
+        return true;
+    }
+
+    /**
+     * Resolve victory after all Final Trials complete
+     */
+    private resolveVictory(): void {
+        // Find best trial score
+        const bestTrialResult = this.state.finalTrialResults.reduce((best, curr) => 
+            curr.score > best.score ? curr : best
+        );
+        
+        // Winner of Final Trial gets +5 Prestige
+        const trialWinner = this.state.players.find(p => p.id === bestTrialResult.playerId);
+        if (trialWinner) {
+            trialWinner.prestige += 5;
+            this.addLog(`🏆 ${trialWinner.id} won Final Trial! +5 Prestige`);
+        }
+        
+        // Find player with highest prestige
+        const winner = this.state.players.reduce((best, curr) => {
+            if (curr.prestige > best.prestige) return curr;
+            if (curr.prestige === best.prestige) {
+                // Tie-breaker: higher Final Trial score
+                const currScore = curr.finalTrialScore ?? 0;
+                const bestScore = best.finalTrialScore ?? 0;
+                return currScore > bestScore ? curr : best;
+            }
+            return best;
+        });
+        
+        this.state.gameOver = true;
+        this.state.winnerId = winner.id;
+        
+        this.addLog(`🎉 ${winner.id} WINS with ${winner.prestige} Prestige!`);
+        if (this.onToast) {
+            this.onToast(`🎉 ${winner.id} WINS!`, "success");
+        }
     }
 
     selectPlacementPosition(coord: HexCoord | null): void {
@@ -629,12 +1439,27 @@ export class Game {
         if (nextIndex === 0) {
             this.state.round += 1;
 
-            // Final Phase: decrease round counter
-            if (this.state.isFinalPhase && this.state.finalRoundsLeft > 0) {
+            // v0.5: Final Preparation countdown
+            if (this.state.isFinalPreparation && this.state.finalPrepRoundsLeft > 0) {
+                this.state.finalPrepRoundsLeft--;
+                this.addLog(`⏳ Orbital Phase: ${this.state.finalPrepRoundsLeft} rounds left`);
+                
+                if (this.onToast) {
+                    this.onToast(`⏳ ${this.state.finalPrepRoundsLeft} rounds until Final Trial!`, "warning");
+                }
+
+                // Preparation over? Start Final Trial!
+                if (this.state.finalPrepRoundsLeft === 0) {
+                    this.startFinalTrial();
+                    return;
+                }
+            }
+            
+            // Legacy: Final Phase with Final Threat (kept for compatibility)
+            if (this.state.isFinalPhase && !this.state.isFinalPreparation && this.state.finalRoundsLeft > 0) {
                 this.state.finalRoundsLeft--;
                 this.addLog(`⏳ Final Phase: ${this.state.finalRoundsLeft} rounds left`);
 
-                // Game over?
                 if (this.state.finalRoundsLeft === 0 && this.state.finalThreatHp > 0) {
                     this.endGameMissionFailed();
                     return;
@@ -664,7 +1489,34 @@ export class Game {
         this.state.movedInCurrentSlot = false;
         this.state.actionUsedInCurrentSlot = false;
         this.state.uiMode = "NONE";
+        
+        // Reset race passives for new turn
+        currentPlayer.voidFreeMoveUsed = false;
 
+        this.state.phase = Phase.AwaitInput;
+    }
+    
+    /**
+     * Start Final Trial phase (v0.5)
+     * All players must complete their trial
+     */
+    private startFinalTrial(): void {
+        this.state.isFinalPreparation = false;
+        this.state.finalTrialStarted = true;
+        this.state.finalTrialResults = [];
+        
+        // Reset all players' trial scores
+        for (const p of this.state.players) {
+            p.finalTrialScore = null;
+        }
+        
+        this.addLog(`🎯 FINAL TRIAL BEGINS! Each player makes one attempt.`);
+        if (this.onToast) {
+            this.onToast(`🎯 FINAL TRIAL! Complete your attempt!`, "warning");
+        }
+        
+        // First player starts
+        this.state.currentPlayerIndex = 0;
         this.state.phase = Phase.AwaitInput;
     }
 

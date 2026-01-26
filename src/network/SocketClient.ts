@@ -17,6 +17,7 @@ export interface LobbyPlayer {
     isAdmin: boolean;
     ready: boolean;
     connected: boolean;
+    raceId?: string; // v0.4 race selection
 }
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "in-lobby" | "in-game";
@@ -249,6 +250,14 @@ export class SocketClient {
     setReady(ready: boolean): void {
         if (!this.socket || !this.roomCode) return;
         this.socket.emit("player-ready", { roomCode: this.roomCode, ready });
+    }
+
+    /**
+     * Update player data (race selection, etc.)
+     */
+    updatePlayerData(data: { raceId?: string }): void {
+        if (!this.socket || !this.roomCode) return;
+        this.socket.emit("update-player-data", { roomCode: this.roomCode, data });
     }
 
     async startGame(initialState: any): Promise<{ success: boolean; error?: string }> {

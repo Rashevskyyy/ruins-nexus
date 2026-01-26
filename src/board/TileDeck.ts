@@ -1,8 +1,12 @@
 /**
- * TileDeck - Cosmic Frontier tile deck
+ * TileDeck - Cosmic Frontier v0.4
  * 
  * Order: ALL Tier 1 first → ALL Tier 2 → Final Tile (LAST)
- * Total: 40 T1 + 20 T2 + 1 Final = 61 tiles
+ * Total: 20 T1 + 10 T2 + 1 Final = 31 tiles
+ * 
+ * Monster Tier = HP (deterministic assignment)
+ * 
+ * v0.4: Added 3 Risky Tiles (2 T1, 1 T2)
  */
 
 export type ResourceMap = {
@@ -11,12 +15,21 @@ export type ResourceMap = {
     alloys?: number;    // ⚙
 };
 
+// Token types for rewards
+export type TokenType = "CommonLoot" | "UncommonLoot" | "SpellToken" | "Medkit" | "Legendary";
+
+// Risky tile effects (v0.4)
+export type RiskyEffect = "toxic" | "unstable" | "rift";
+
 export type TileTemplate = {
-    tier: number;
+    tier: number;           // Tile tier (1, 2, or 3 for Final)
     resources: ResourceMap;
-    enemyHp: number; // Total HP of local threat
+    monsterTier: number;    // Monster tier (1-4, determines HP and rewards)
+    enemyHp: number;        // Monster HP = monsterTier
     blockedEdges: number[]; // Which edges are blocked (0-5, before rotation)
     isFinalTile?: boolean;
+    rewards?: TokenType[];  // Deterministic rewards for defeating monster
+    riskyEffect?: RiskyEffect; // v0.4: Risky tile effect
 };
 
 export class TileDeck {
@@ -29,102 +42,113 @@ export class TileDeck {
     }
 
     private initializeDeck() {
-        // ===== TIER 1 (40 tiles) =====
-        // Simple tiles: 1 resource, 2 HP threat
+        // ===== TIER 1 TILES (20 total) =====
+        // 1 resource each, monster tier 1 or 2
+        
+        // First 12 tiles → Monster Tier 1 (HP 1)
+        // Rewards: +1 Prestige, CommonLoot
+        this.addTier1Tiles(10, 1, ["CommonLoot"]); // 10 normal
+        
+        // 2 Risky T1 tiles with Monster Tier 1
+        this.addRiskyTier1Tile("toxic", 1, ["CommonLoot"]);
+        this.addRiskyTier1Tile("unstable", 1, ["CommonLoot"]);
+        
+        // Next 8 tiles → Monster Tier 2 (HP 2)
+        // Rewards: +1 Prestige, CommonLoot + Medkit
+        this.addTier1Tiles(8, 2, ["CommonLoot", "Medkit"]);
 
-        // 🧬 Biomass - 13 tiles
-        for (let i = 0; i < 13; i++) {
+        // ===== TIER 2 TILES (10 total) =====
+        // 2-3 resources each, monster tier 3 or 4
+        
+        // First 6 tiles → Monster Tier 3 (HP 3)
+        // Rewards: +2 Prestige, UncommonLoot
+        this.addTier2Tiles(5, 3, ["UncommonLoot"]); // 5 normal
+        
+        // 1 Risky T2 tile with Monster Tier 3
+        this.addRiskyTier2Tile("rift", 3, ["UncommonLoot"]);
+        
+        // Next 4 tiles → Monster Tier 4 (HP 4)
+        // Rewards: +2 Prestige, UncommonLoot + SpellToken
+        this.addTier2Tiles(4, 4, ["UncommonLoot", "SpellToken"]);
+    }
+
+    private addTier1Tiles(count: number, monsterTier: number, rewards: TokenType[]) {
+        const resourceTypes: Array<keyof ResourceMap> = ["biomass", "materials", "alloys"];
+        
+        for (let i = 0; i < count; i++) {
+            const resourceType = resourceTypes[i % 3];
+            const resources: ResourceMap = {};
+            resources[resourceType] = 1;
+            
             this.deck.push({
                 tier: 1,
-                resources: { biomass: 1 },
-                enemyHp: 2,
+                resources,
+                monsterTier,
+                enemyHp: monsterTier, // HP = Tier
                 blockedEdges: this.randomBlockedEdges(1),
+                rewards: [...rewards],
             });
         }
+    }
 
-        // 🧱 Materials - 13 tiles
-        for (let i = 0; i < 13; i++) {
-            this.deck.push({
-                tier: 1,
-                resources: { materials: 1 },
-                enemyHp: 2,
-                blockedEdges: this.randomBlockedEdges(1),
-            });
-        }
-
-        // ⚙ Alloys - 14 tiles
-        for (let i = 0; i < 14; i++) {
-            this.deck.push({
-                tier: 1,
-                resources: { alloys: 1 },
-                enemyHp: 2,
-                blockedEdges: this.randomBlockedEdges(1),
-            });
-        }
-
-        // ===== TIER 2 (20 tiles) =====
-        // Complex tiles: 2-3 resources, 4 HP threat
-
-        // 🧬+🧱 (Biomass + Materials) - 5 tiles
-        for (let i = 0; i < 5; i++) {
+    private addTier2Tiles(count: number, monsterTier: number, rewards: TokenType[]) {
+        // Mixed resource combinations for Tier 2
+        const resourceCombos: ResourceMap[] = [
+            { biomass: 1, materials: 1 },
+            { biomass: 1, alloys: 1 },
+            { materials: 1, alloys: 1 },
+            { biomass: 2, materials: 1 },
+            { materials: 2, alloys: 1 },
+            { alloys: 2, biomass: 1 },
+        ];
+        
+        for (let i = 0; i < count; i++) {
+            const resources = { ...resourceCombos[i % resourceCombos.length] };
+            
             this.deck.push({
                 tier: 2,
-                resources: { biomass: 1, materials: 1 },
-                enemyHp: 4,
+                resources,
+                monsterTier,
+                enemyHp: monsterTier, // HP = Tier
                 blockedEdges: this.randomBlockedEdges(2),
+                rewards: [...rewards],
             });
         }
+    }
 
-        // 🧬+⚙ (Biomass + Alloys) - 5 tiles
-        for (let i = 0; i < 5; i++) {
-            this.deck.push({
-                tier: 2,
-                resources: { biomass: 1, alloys: 1 },
-                enemyHp: 4,
-                blockedEdges: this.randomBlockedEdges(2),
-            });
-        }
+    private addRiskyTier1Tile(effect: RiskyEffect, monsterTier: number, rewards: TokenType[]) {
+        const resourceTypes: Array<keyof ResourceMap> = ["biomass", "materials", "alloys"];
+        const resourceType = resourceTypes[Math.floor(Math.random() * 3)];
+        const resources: ResourceMap = {};
+        resources[resourceType] = 1;
+        
+        this.deck.push({
+            tier: 1,
+            resources,
+            monsterTier,
+            enemyHp: monsterTier,
+            blockedEdges: this.randomBlockedEdges(1),
+            rewards: [...rewards],
+            riskyEffect: effect,
+        });
+    }
 
-        // 🧱+⚙ (Materials + Alloys) - 5 tiles
-        for (let i = 0; i < 5; i++) {
-            this.deck.push({
-                tier: 2,
-                resources: { materials: 1, alloys: 1 },
-                enemyHp: 4,
-                blockedEdges: this.randomBlockedEdges(2),
-            });
-        }
-
-        // Rich deposits (3x single resource) - 5 tiles
+    private addRiskyTier2Tile(effect: RiskyEffect, monsterTier: number, rewards: TokenType[]) {
+        const resourceCombos: ResourceMap[] = [
+            { biomass: 1, materials: 1 },
+            { biomass: 1, alloys: 1 },
+            { materials: 1, alloys: 1 },
+        ];
+        const resources = { ...resourceCombos[Math.floor(Math.random() * 3)] };
+        
         this.deck.push({
             tier: 2,
-            resources: { biomass: 3 },
-            enemyHp: 4,
+            resources,
+            monsterTier,
+            enemyHp: monsterTier,
             blockedEdges: this.randomBlockedEdges(2),
-        });
-        this.deck.push({
-            tier: 2,
-            resources: { biomass: 3 },
-            enemyHp: 4,
-            blockedEdges: this.randomBlockedEdges(2),
-        });
-        this.deck.push({
-            tier: 2,
-            resources: { materials: 3 },
-            enemyHp: 4,
-            blockedEdges: this.randomBlockedEdges(2),
-        });
-        this.deck.push({
-            tier: 2,
-            resources: { materials: 3 },
-            enemyHp: 4,
-            blockedEdges: this.randomBlockedEdges(2),
-        });
-        this.deck.push({
-            tier: 2,
-            resources: { alloys: 3 },
-            enemyHp: 4,
-            blockedEdges: this.randomBlockedEdges(2),
+            rewards: [...rewards],
+            riskyEffect: effect,
         });
     }
 
@@ -150,7 +174,7 @@ export class TileDeck {
     private shuffle() {
         // Separate Tier 1 and Tier 2
         const tier1 = this.deck.filter(t => t.tier === 1);
-        const tier2 = this.deck.filter(t => t.tier === 2 && !t.isFinalTile);
+        const tier2 = this.deck.filter(t => t.tier === 2);
 
         // Fisher-Yates shuffle for each tier
         this.shuffleArray(tier1);
@@ -160,9 +184,11 @@ export class TileDeck {
         const finalTile: TileTemplate = {
             tier: 3,
             resources: {}, // Final Tile has no resources (Final Threat instead)
+            monsterTier: 6, // Final Threat tier
             enemyHp: 0, // Final Threat is tracked separately (40 HP)
             blockedEdges: [], // No blocked edges - can enter from any side
             isFinalTile: true,
+            rewards: ["Legendary"],
         };
 
         // Assemble deck: Tier 1, then Tier 2, then Final Tile

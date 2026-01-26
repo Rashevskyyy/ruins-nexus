@@ -19,6 +19,7 @@ import {
     type UserProfile 
 } from "../auth/supabase";
 import { GAME_VERSION } from "../assets/AssetLoader";
+import { RACE_LIST, type RaceId } from "../entities/Race";
 
 type LobbyState = "menu" | "creating" | "joining" | "in-lobby";
 
@@ -33,6 +34,9 @@ export class LobbyScreen {
     // Auth state
     private currentUser: UserProfile | null = null;
     private authLoading = false;
+    
+    // Race selection (v0.4)
+    private selectedRace: RaceId | null = null;
 
     // Callbacks - now includes initialState for server-authoritative
     public onGameStart: ((playerCount: number, myPlayerId: string, initialState?: any) => void) | null = null;
@@ -539,6 +543,9 @@ export class LobbyScreen {
         shareInfo.position.set(w / 2, 260);
         this.container.addChild(shareInfo);
 
+        // Race selection (for current player)
+        this.renderRaceSelection(w, h);
+
         // Players list
         const playersTitle = new PIXI.Text({
             text: `Players (${this.players.length}/4)`,
@@ -555,14 +562,14 @@ export class LobbyScreen {
 
             // Player card
             const card = new PIXI.Graphics();
-            card.roundRect(w / 2 - 150, y, 300, 40, 8);
+            card.roundRect(w / 2 - 180, y, 360, 40, 8);
             card.fill({ color: 0x1a1a2e });
             card.stroke({ color: playerColors[i], width: 2 });
             this.container.addChild(card);
 
             // Player color dot
             const dot = new PIXI.Graphics();
-            dot.circle(w / 2 - 130, y + 20, 8);
+            dot.circle(w / 2 - 160, y + 20, 8);
             dot.fill({ color: playerColors[i] });
             this.container.addChild(dot);
 
@@ -571,16 +578,30 @@ export class LobbyScreen {
                 text: player.name + (player.id === socketClient.playerId ? " (you)" : ""),
                 style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffffff }),
             });
-            nameText.position.set(w / 2 - 110, y + 10);
+            nameText.position.set(w / 2 - 140, y + 10);
             this.container.addChild(nameText);
+
+            // Player race (show emoji)
+            const playerRace = player.id === socketClient.playerId 
+                ? this.selectedRace 
+                : (player as any).raceId;
+            const raceData = RACE_LIST.find(r => r.id === playerRace);
+            if (raceData) {
+                const raceText = new PIXI.Text({
+                    text: raceData.emoji,
+                    style: new PIXI.TextStyle({ fontSize: 20 }),
+                });
+                raceText.position.set(w / 2 + 60, y + 8);
+                this.container.addChild(raceText);
+            }
 
             // Admin badge
             if (player.isAdmin) {
                 const badge = new PIXI.Text({
-                    text: "👑 ADMIN",
-                    style: new PIXI.TextStyle({ fontSize: 12, fill: 0xffd700 }),
+                    text: "👑",
+                    style: new PIXI.TextStyle({ fontSize: 14 }),
                 });
-                badge.position.set(w / 2 + 80, y + 12);
+                badge.position.set(w / 2 + 100, y + 10);
                 this.container.addChild(badge);
             }
 
@@ -589,7 +610,7 @@ export class LobbyScreen {
                 text: player.ready ? "✅" : "⏳",
                 style: new PIXI.TextStyle({ fontSize: 18 }),
             });
-            ready.position.set(w / 2 + 120, y + 10);
+            ready.position.set(w / 2 + 140, y + 10);
             this.container.addChild(ready);
         });
 
@@ -647,6 +668,121 @@ export class LobbyScreen {
                 socketClient.disconnect();
                 this.state = "menu";
                 this.players = [];
+                this.render();
+            }
+        );
+    }
+
+    // ========================================
+    // RACE SELECTION (v0.4)
+    // ========================================
+
+    private renderRaceSelection(_w: number, _h: number): void {
+        // Race selection panel (left side)
+        const panelX = 20;
+        const panelY = 180;
+        const panelW = 200;
+        
+        const raceTitle = new PIXI.Text({
+            text: "🧬 Select Race",
+            style: new PIXI.TextStyle({ 
+                fontSize: 16, 
+                fill: 0x00ffff,
+                fontWeight: "600" 
+            }),
+        });
+        raceTitle.position.set(panelX, panelY);
+        this.container.addChild(raceTitle);
+
+        RACE_LIST.forEach((race, i) => {
+            const y = panelY + 30 + i * 50;
+            const isSelected = this.selectedRace === race.id;
+            
+            // Race card
+            const card = new PIXI.Container();
+            card.position.set(panelX, y);
+            card.eventMode = "static";
+            card.cursor = "pointer";
+            card.hitArea = new PIXI.Rectangle(0, 0, panelW, 45);
+            
+            const cardBg = new PIXI.Graphics();
+            cardBg.roundRect(0, 0, panelW, 45, 6);
+            cardBg.fill({ color: isSelected ? 0x1e3a5f : 0x1a1a2e });
+            cardBg.stroke({ color: isSelected ? 0x00ffff : 0x3a3a5a, width: isSelected ? 2 : 1 });
+            card.addChild(cardBg);
+            
+            // Race emoji
+            const emoji = new PIXI.Text({
+                text: race.emoji,
+                style: new PIXI.TextStyle({ fontSize: 20 }),
+            });
+            emoji.position.set(10, 12);
+            card.addChild(emoji);
+            
+            // Race name
+            const name = new PIXI.Text({
+                text: race.name,
+                style: new PIXI.TextStyle({ 
+                    fontSize: 12, 
+                    fill: isSelected ? 0x00ffff : 0xffffff,
+                    fontWeight: isSelected ? "700" : "400"
+                }),
+            });
+            name.position.set(40, 8);
+            card.addChild(name);
+            
+            // Passive description
+            const desc = new PIXI.Text({
+                text: race.passiveDescription.slice(0, 25) + (race.passiveDescription.length > 25 ? "..." : ""),
+                style: new PIXI.TextStyle({ 
+                    fontSize: 9, 
+                    fill: 0x888888,
+                }),
+            });
+            desc.position.set(40, 26);
+            card.addChild(desc);
+            
+            // Click handler
+            card.on("pointerdown", () => {
+                this.selectedRace = race.id;
+                socketClient.updatePlayerData({ raceId: race.id });
+                this.render();
+            });
+            
+            // Hover effect
+            card.on("pointerover", () => {
+                if (!isSelected) {
+                    cardBg.clear();
+                    cardBg.roundRect(0, 0, panelW, 45, 6);
+                    cardBg.fill({ color: 0x2a2a4e });
+                    cardBg.stroke({ color: 0x5a5a7a, width: 1 });
+                }
+            });
+            card.on("pointerout", () => {
+                if (!isSelected) {
+                    cardBg.clear();
+                    cardBg.roundRect(0, 0, panelW, 45, 6);
+                    cardBg.fill({ color: 0x1a1a2e });
+                    cardBg.stroke({ color: 0x3a3a5a, width: 1 });
+                }
+            });
+            
+            this.container.addChild(card);
+        });
+        
+        // Random button
+        const randomY = panelY + 30 + RACE_LIST.length * 50;
+        this.createButton(
+            "🎲 Random",
+            panelX + panelW / 2,
+            randomY + 10,
+            panelW - 20,
+            35,
+            0x4a4a6a,
+            () => {
+                const randomRace = RACE_LIST[Math.floor(Math.random() * RACE_LIST.length)];
+                this.selectedRace = randomRace.id;
+                socketClient.updatePlayerData({ raceId: randomRace.id });
                 this.render();
             }
         );

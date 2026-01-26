@@ -25,12 +25,15 @@ export class ExplorationSystem {
         tile.resources = template.resources;
         tile.blockedEdges = template.blockedEdges;
         tile.isFinalTile = template.isFinalTile;
+        tile.riskyEffect = template.riskyEffect; // v0.4 risky tiles
         // rotation is applied later during placement
 
         // Local threat (Final Tile has no regular encounter - Final Threat is global)
         if (!template.isFinalTile) {
             tile.encounterActive = true;
-            tile.enemyHp = template.enemyHp;
+            tile.monsterTier = template.monsterTier;
+            tile.enemyHp = template.enemyHp; // HP = monsterTier
+            tile.pendingRewards = template.rewards; // Rewards for defeating this monster
         } else {
             tile.encounterActive = false;
         }

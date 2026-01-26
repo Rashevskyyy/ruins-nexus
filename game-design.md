@@ -1,379 +1,449 @@
-# PROJECT: Cosmic Frontier
-## Game Design Document v1.1 (Cosmic Frontier rewrite, same core)
+# Cosmic Frontier — Game Design Document
+## Version v0.5 (Components & Crafting)
 
-> **Theme**: Humanoid alien expeditions discover a habitable planet.  
-> They explore uncharted regions, survive local lifeforms, build bases, and compete for Prestige.  
-> No direct PvP.
-
----
-
-# 0) Design Goals
-
-- **No PvP** — no stealing, raiding, or destroying other players' assets
-- **Tile Placement** — players build the map by placing tiles (Carcassonne-style)
-- **Karak 2 action slots** — 2 slots, move before action within a slot
-- **Base + Modules** — each player builds their own base with upgrades
-- **Prestige** — primary scoring during the expedition
-- **Mountains/Cliffs** — blocked edges create tactical decisions during tile placement
-- **Final Threat** — Final Tile reveals a global threat; victory requires defeating it
+> **Theme**: Humanoid alien races explore a newly discovered habitable planet.  
+> They face environmental threats, local creatures, and strategic dilemmas while racing to complete the expedition.  
+> **No PvP. All interaction is indirect.**
 
 ---
 
-# 1) Map Model
+# 0) Design Goals (v0.5)
 
-## Dynamic Map (Tile Placement)
-The map is **not fixed**. Players reveal and place tiles during exploration.
+v0.5 focuses on **crafting economy and final phase resolution**.
 
-### Starting Setup
-- **1 Landing Hub** (center, discovered) — previously "Settlement"
-- **6 fog tiles** (Ring 1, undiscovered placeholders)
-- **2 random tiles** pre-opened with 🧱 Materials (no monster) *(optional “tutorial boost”)*
-
-> Note: the “fog tiles” are placeholders; real tiles come from the deck via EXPLORE placement.
-
-### Tile Placement Rules
-- Player selects **EXPLORE** → enters placement mode
-- Can rotate tile (6 orientations, 60° each)
-- Must place adjacent to a discovered tile
-- **Cannot place** if a blocked edge would prevent entering the new tile from the player’s current position
-- After placement → tile is revealed (resources + local encounter)
+Key pillars:
+- No PvP, no stealing, no blocking opponents directly
+- Meaningful player identity through **Races**
+- Catch-up mechanics without punishment
+- Risk vs reward through **dangerous terrain**
+- Player agency through **reward choice**
+- **Components** as universal crafting currency
+- **Crafting system** at Base
+- **Orbital Phase** with Final Trial victory condition
+- Prestige as **spendable currency**
+- Rules remain readable and portable to a tabletop version
 
 ---
 
-# 2) Tile Deck
+# 1) Races System (New)
 
-## Deck Composition (same math as previous version)
-| Tier | Count | Resources | Local Threat (HP) | Blocked Edges |
-|------|-------|-----------|-------------------|--------------|
-| **Tier 1** | 40 | 1 resource | 2 HP | 0–2 edges |
-| **Tier 2** | 20 | 2–3 resources | 4 HP | 1–3 edges |
-| **Final Tile** | 1 | — | Final Threat | 0 edges |
+## Core Concept
+Each player selects a **Race** before the game starts.
 
-**Total: 61 tiles**
+- One race per player (no duplicates)
+- Each race provides **1 passive ability**
+- Passives are always active
+- No upgrades, no progression, no conditions
 
-### Tier 1 Distribution (40 tiles)
-- 🧬 Biomass: 13 tiles
-- 🧱 Materials: 13 tiles
-- ⚙ Alloys: 14 tiles
-
-### Tier 2 Distribution (20 tiles)
-- 🧬+🧱: 5 tiles
-- 🧬+⚙: 5 tiles
-- 🧱+⚙: 5 tiles
-- “Rich deposit” (3x single resource): 5 tiles
-
-### Deck Order (unchanged)
-**Tier 1 first** → **Tier 2 second** → **Final Tile last**
-
-Tiles within each tier are shuffled, but tiers appear sequentially.
+> Race = playstyle, not power creep
 
 ---
 
-# 3) Resources
+## 1.1 Race Selection (Lobby)
 
-| Icon | Name | Primary Use |
-|------|------|-------------|
-| 🧬 | **Biomass** | healing/support, crew upkeep |
-| 🧱 | **Materials** | base modules, infrastructure |
-| ⚙ | **Alloys** | advanced modules, upgrades |
-
----
-
-# 4) Turn Structure (Karak 2 Slot Rules)
-
-## Action Slots
-Each player has **2 slots per turn**.
-
-### Slot Structure
-Each slot = **optional Move (before)** + **optional Action (after)**
-
-- **Move** — walk to adjacent discovered tile (FREE, but commits the slot)
-- **Action** — Gather, Trade, Explore, Build
-
-### Key Rules (same as before)
-1. Movement is always **BEFORE** action, never after
-2. Move without action = **slot consumed** (wasted)
-3. Combat against a local threat **ends turn immediately** (burns remaining slots)
-4. If you moved in current slot, you cannot move again until the next slot
-
-### Example Turns
-- `Move → Gather → Move → Explore` = 2 slots used
-- `Move → Move → Gather` = 2 slots (first slot was just move)
-- `Move → Fight` = turn ends (combat forces end)
+- Race selection happens in the **Lobby**
+- Each player chooses:
+  - A specific race
+  - Or **Random**
+- Selected race is locked once the game starts
+- Race icon + short description visible to all players
 
 ---
 
-# 5) Movement & Blocked Edges (“Mountains”)
+## 1.2 Available Races (MVP Set)
 
-## Basic Movement
-- Click adjacent **discovered** tile → move there
-- Cannot walk through fog (undiscovered)
-- Cannot cross **blocked edges**
+### 🧬 Bioform Collective
+*Survivability, stability*
 
-## Blocked Edges
-- Tiles have 0–3 blocked edges
-- Rotation during placement changes which edges are blocked
-- You **cannot place** a tile if its blocked edge would prevent entering it from your current position
-
-> Visual: cliffs / mountain ridges / impassable canyons in sci-fi skin.
+- **Passive:** Ignore the **first 💀** in every combat.
 
 ---
 
-# 6) Combat System (Local Threats)
+### 🧱 Forge Syndicate
+*Economy, infrastructure*
 
-## Local Threat tiers (unchanged numbers)
-| Tile Tier | Threat HP | Prestige Reward |
-|----------|-----------|-----------------|
-| Tier 1 | 2 HP | +1 |
-| Tier 2 | 4 HP | +2 |
-
-## Hero Die (same as current)
-| Face | Swords ⚔ | Skulls 💀 |
-|------|----------|-----------|
-| 1 | 3 | 0 |
-| 2 | 2 | 0 |
-| 3 | 1 | 0 |
-| 4 | 1 | 1 |
-| 5 | 0 | 1 |
-| 6 | 0 | 2 |
-
-## Combat Flow (same core)
-1. Roll Hero Die
-2. ⚔ reduces threat HP
-3. 💀 reduces player HP
-4. If threat HP ≤ 0 → Victory (gain Prestige, encounter removed)
-5. If threat still alive → pushed back (rollback to previous tile)
-6. **Combat ends turn immediately** (remaining slots burned)
-
-> Flavor: local lifeforms / hazards / guardians.
+- **Passive:** The **first Build action** of the game costs **−1 🧱 Materials**.
 
 ---
 
-# 7) Actions
+### ⚙ Void Navigators
+*Mobility, positioning*
 
-## Gather (1 slot)
-- Must be on discovered tile with **no active threat**
-- Collect all resources on tile
-- **Per-player cooldown**: once per round per tile
-
-## Trade (1 slot)
-- Only in Landing Hub (center)
-- Exchange resources (implementation varies)
-
-## Explore (1 slot)
-- Enter tile placement mode
-- Place new tile adjacent to any discovered tile
-- Must be enterable from player position (blocked edges cannot deny entry)
-- Reveals tile: resources + local threat spawn
-- **Player does NOT move onto the new tile** (separate movement)
-
-### Explore Prestige (optional, keep if you liked it)
-- Explore Tier 2 tile: +1 Prestige
-- Explore Final Tile: +2 Prestige
-
-## Build (1 slot)
-See **Base & Modules** below.
+- **Passive:** **Once per turn**, one Move **does not consume a slot**.
 
 ---
 
-# 8) Gathering Rules
+### 🔥 Warbound Legion
+*Aggression, momentum*
 
-## Resource Collection
-- Gather gives **all resources** on the tile
-- Tier 1: 1 resource
-- Tier 2: 2–3 resources
-
-## Cooldown System
-- Each player can gather a tile **once per round**
-- Other players can gather same tile in same round (no denial)
-- Cooldown tracked per-player per-tile
+- **Passive:** If you deal at least **1 ⚔** in combat, deal **+1 ⚔**.
 
 ---
 
-# 9) Base & Modules (Outpost & Districts, sci-fi skin)
-
-## Base (previously Outpost)
-Each player can build **exactly 1 Base**.
-
-### Base Rules
-- **Cost**: 2 🧱 Materials
-- **Location**: Any discovered tile (NOT Landing Hub, NOT another player's Base)
-- **Restriction**: Cannot build if another player is standing on the tile
-- **Reward**: +2 Prestige
-- **Effect**: Tile becomes your Base; gathering disabled on that tile
-
-## Modules (previously Districts)
-Modules can only be built **when standing in your own Base**.
-
-**MVP rule (unchanged):** build any number of modules in **one Build action** (1 slot).  
-(We can nerf later if it’s too strong; keep for now to not break your core.)
-
-### Module List (same effects, sci-fi names)
-| Module | Cost | Effect | Prestige |
-|--------|------|--------|----------|
-| **Assault Bay** (Warrior Lodge) | 2🧱 1⚙ | +1 ⚔ when roll has ⚔ | +1 |
-| **Shield Array** (Shield Hall) | 2🧱 1⚙ | Ignore 1 💀 per combat | +1 |
-| **Tactical Uplink** (Axe Hall) | 1🧱 2⚙ | 1 reroll per combat | +1 |
-| **Supply Depot** (Storehouse) | 3🧱 | +1 resource on Gather | +1 |
-| **Relic Vault** (Relic Hall) | 2🧱 2⚙ | Activates relic system (future) | +2 |
-| **Beacon Spire** (Shrine) | 3🧱 3⚙ | Reserved for final content hooks | +3 |
+## Race Design Rules
+- No race modifies Prestige directly
+- No race affects other players
+- All effects are simple numeric modifiers (+1 / −1 / ignore once)
 
 ---
 
-# 10) Prestige (Victory Points)
+# 2) Combat System (v0.5 - OVERHAULED)
 
-## Prestige Sources (keep as-is for now)
-| Action | Prestige |
-|--------|----------|
-| Kill Tier 1 threat | +1 |
-| Kill Tier 2 threat | +2 |
-| (Final Threat kill) | Special |
-| Explore Tier 2 tile | +1 |
-| Explore Final Tile | +2 |
-| Build Base | +2 |
-| Build Module | +1 to +3 (varies) |
+## Core Change
+Combat is now a **single check**, not a damage accumulation system.
 
-> Note: we will playtest snowball later; for now keep this stable.
+## Combat Flow
+1. Roll dice (swords ⚔ and skulls 💀)
+2. Add bonuses from equipment, units, and race passives
+3. **Check:** `totalSwords >= monsterTier`
+   - **Victory:** Monster defeated, collect rewards
+   - **Pushback:** Return to previous tile, monster stays, no state change
+
+## Player Damage
+- Player **always takes skull damage** (even on victory)
+- `damageToPlayer = rolledSkulls + extraSkulls - reducedSkulls`
+
+## No HP Accumulation
+- Monsters no longer track HP between attempts
+- Each combat is a fresh check
+- No "whittling down" monsters over multiple turns
 
 ---
 
-# 11) Final Phase (NEW, but fits the same core)
+# 2.1) Units System (v0.5 - NEW)
+
+## Core Concept
+Players can hire **combat units** at their Base to provide permanent bonuses.
+
+## Limits
+- Maximum **2 units** per player
+- Units persist for the entire game
+
+---
+
+## Available Units
+
+### 🤖 Assault Drone
+- **Effect:** +1 ⚔ in every combat
+- **Cost:** 2🧩 1⚙
+
+### 🛡️ Shield Bot
+- **Effect:** -1 💀 in every combat
+- **Cost:** 2🧩 1🧱
+
+### 📡 Tactical Scanner
+- **Effect:** 1 free reroll per combat
+- **Cost:** 3🧩 1⚙
+
+---
+
+## Hiring Units
+- Can only hire at your **own Base**
+- Hiring costs **1 AP**
+- Units are added to combat calculations automatically
+
+---
+
+# 3) Prestige Pressure (Leader Limiter)
+
+## Purpose
+Prevent runaway leaders **without removing Prestige or punishing players**.
+
+## Rule
+Prestige thresholds apply **only to the player who reaches them**.
+
+| Prestige | Effect |
+|--------:|--------|
+| 12+ | All monsters you fight require **+1 tier** to defeat |
+| 15+ | You **cannot use rerolls** |
+
+Notes:
+- Prestige is never reduced
+- Effects stack progressively
+- Other players are unaffected
+
+---
+
+# 3) Risky Tiles (Environmental Danger)
+
+## Concept
+Some tiles are inherently dangerous even after monsters are cleared.
+
+- These tiles introduce **permanent negative effects**
+- Effects are visible **before placement**
+- Entering or using these tiles is always a player choice
+
+---
+
+## Distribution
+- **3 Risky Tiles** total in the 31-tile deck
+  - 2 in Tier 1
+  - 1 in Tier 2
+
+---
+
+## Available Risky Effects (MVP)
+
+### ☣ Toxic Zone
+- Every combat on this tile: **+1 💀**
+
+### ⚡ Unstable Ground
+- Every Gather action on this tile: **−1 HP**
+
+### 🌪 Gravity Rift
+- Leaving this tile always consumes a slot (even Move-only)
+
+(Choose any 2–3 for v0.4 implementation.)
+
+---
+
+# 4) Monster Rewards — Player Choice (Tier 3+ Only)
+
+## Core Change (v0.5 Update)
+- **Tier 1-2**: Rewards are **automatic** (no dialog)
+- **Tier 3+**: Player **chooses ONE reward**
+
+---
+
+## Reward Options (Tier 3+ Only)
+
+After defeating a Tier 3+ monster, choose **one**:
+
+1. 🎖 **Standard Reward**
+  - Prestige + Components (as defined by monster tier)
+
+2. ❤️ **Recover**
+  - Heal **+2 HP**
+
+3. ⭐ **Push Forward**
+  - Gain **+1 additional Prestige**
+
+---
+
+## Restrictions
+- Option ⭐ (extra Prestige) is **not available** if player Prestige ≥ 10
+- Option ❤️ (heal) is unavailable if HP is already full
+
+This system:
+- **Early game** (Tier 1-2): Fast, no decisions needed
+- **Mid-late game** (Tier 3+): Meaningful choices
+- Gives agency
+- Helps trailing players survive
+- Slows snowballing naturally
+
+---
+
+# 5) Components & Monster Rewards (v0.5)
+
+## Monster Tier = HP
+| Tier | HP |
+|------|----|
+| Tier 1 | 1 |
+| Tier 2 | 2 |
+| Tier 3 | 3 |
+| Tier 4 | 4 |
+| Tier 6 | 6 (classification only) |
+
+---
+
+## Standard Rewards by Tier (v0.5 - Components)
+
+| Monster Tier | Prestige | Components (🧩) | Reward Type |
+|-------------|----------|----------------|-------------|
+| Tier 1 | +1 | 0 | **AUTOMATIC** |
+| Tier 2 | +1 | +1 | **AUTOMATIC** |
+| Tier 3 | +2 | +2 | Choice |
+| Tier 4 | +3 | +3 | Choice |
+| Tier 6 | +5 | +4 | Choice |
+
+**v0.5 Changes:**
+- **Tier 1-2**: Rewards are applied automatically (no choice dialog)
+- **Tier 3+**: Player chooses between Standard, Recover, or Push Forward
+- No more direct item drops from monsters. Items are now obtained through **Crafting**.
+
+All rewards are **deterministic**.
+
+---
+
+# 6) Crafting System (v0.5 - NEW)
+
+## Core Concept
+Players craft items using **Components (🧩)** and other resources.
+Crafting can only be done **at your own Base**.
+
+## Rules
+- Crafting costs **1 AP** (one action slot)
+- Must be at your own Base
+- Components are earned from killing monsters (Tier 2+)
+
+---
+
+## Craft Recipes (MVP)
+
+| Item | Type | Cost | Effect |
+|------|------|------|--------|
+| Blaster Core | Weapon | 2🧩 1⚙ | +1 ⚔ per combat |
+| Plasma Edge | Weapon | 3🧩 1⚙ | +2 ⚔ if roll ≥1 ⚔ |
+| Heavy Cannon | Weapon | 4🧩 2⚙ | +3 ⚔ per combat |
+| Reroll Module | Module | 2🧩 | 1 free reroll per combat |
+| Shield Matrix | Module | 2🧩 1🧱 | Ignore first 💀 per combat |
+| Overdrive | Module | 3🧩 | +2 ⚔ next combat (one-time) |
+| Core Relic | Amulet | 4🧩 2⭐ | +1 ⚔ and ignore 1 💀 per combat |
+
+---
+
+## Equipment Slots (v0.5 - SIMPLIFIED)
+
+Each player has:
+- **2 Weapon slots** - Filled by crafting weapons
+- **2 Module slots** - Filled by crafting modules
+- **1 Amulet slot** - Filled by crafting amulets
+
+### Key Rules
+- **No random drops** - All items are crafted at base
+- **Empty slots show "CRAFT" hint** when player is at their base
+- Slots are always unlocked (no prestige required to unlock)
+
+---
+
+# 7) Prestige as Currency (v0.5 - NEW)
+
+## Core Change
+Prestige can now be **spent** for special effects.
+Prestige can never go below **0**.
+
+---
+
+## Prestige Spending Options
+
+| Action | Cost | Effect |
+|--------|------|--------|
+| Reroll Dice | 1⭐ | Reroll combat dice once |
+| Ignore Skull | 1⭐ | Ignore 1 💀 in combat |
+| Core Relic | 2⭐ | Required for crafting Core Relic |
+| Orbital Hangar | 1⭐ | Required for building Orbital Hangar |
+
+---
+
+# 8) Orbital Phase & Final Trial (v0.5 - NEW)
 
 ## Trigger
-When the **Final Tile** is drawn and placed → Final Phase begins immediately.
-
-## Final Threat
-- Global threat appears (planetary guardian / cataclysm entity)
-- **Shared HP = 40**
-- HP does **not** regenerate
-- Players attack it solo on their turns (no teams / no PvP)
-
-## Countdown
-- **6 rounds** after Final Tile reveal (recommended for testing)
-- A “round” = all players complete their turns
-
-## Win / Lose (Draft, test-ready)
-- If Final Threat is defeated within the countdown:
-  - **Winner = the player who deals the final blow**
-- If countdown ends and Final Threat still lives:
-  - **No winner** (mission fails)
-
-> This removes the dominant strategy where the Prestige leader “waits to win by points”.
-> You must engage the final threat to have any chance of victory.
+When the **Final Tile** is revealed, the game enters **Orbital Phase**.
 
 ---
 
-# 12) Player Stats
+## Orbital Phase (FINAL_PREPARATION)
 
-## Starting Stats
-- **HP**: 5 (max 5)
-- **Resources**: 0 each
-- **Prestige**: 0
-- **Base**: none
-- **Modules**: none
+Duration: **4 rounds**
 
----
+### Allowed Actions
+- Move
+- Gather
+- Build
+- Craft
 
-# 13) UI/HUD Requirements (same core, with Final additions)
+### Disabled Actions
+- **Explore** (no new tiles can be placed)
 
-## Must Display
-- Current player (color-coded)
-- Round number
-- Slots remaining (0–2)
-- HP
-- Resources
-- Prestige
-- Event Log (last 10 events)
-- Tile Deck remaining (T1: X, T2: Y, Final: 0/1)
-
-## Action Buttons
-- **GATHER** — enabled if can gather
-- **TRADE** — enabled if at Landing Hub
-- **EXPLORE** — placement mode
-- **BUILD** — dynamic:
-  - "🏠 BASE" if can build Base
-  - "🏗 MODULES" if in own Base
-
-## Tile Placement Mode
-- Ghost hexes show valid positions
-- Rotation indicator
-- ROTATE button (60°)
-- PLACE TILE button
-- Preview: tier + blocked edges + resource icons
-
-## Final Phase UI (new)
-- Final Threat HP (0–40)
-- Final rounds left (0–6)
-- “Final Phase” banner state
+### Special: Recall to Base
+- Each player can **Recall to Base** once during Orbital Phase
+- Teleports player directly to their Base
+- **Free action** (does not cost AP)
+- Only available if player has a Base
 
 ---
 
-# 14) Expected Game Length (same math, updated final)
+## Orbital Hangar (Optional Building)
 
-## Tile Math
-- 61 tiles in deck
-- Expected exploration: 2–4 tiles per round (4 players)
-- Final tile near the end due to tier ordering
+**Cost:** 2🧱 2⚙ 1⭐ (Prestige cost!)
 
-**Target total length:** 20–30 rounds + Final Phase (up to 6 rounds).
-
----
-
-# 15) Future Features (Backlog, unchanged categories)
-
-### Phase 2
-- More threat types (HP 1–6 range)
-- Loot drops (weapons, spells, amulets)
-- Relics system (Relic Vault)
-- Balance pass for Build-many-in-one-action
-
-### Phase 3
-- Factions with simple passives (+1/-1)
-- More Final Threat variants
-- Events on Tier 2 tiles
-
-### Phase 4
-- Mobile-friendly controls
-- Multiplayer (online)
-- Save/load
-- Replay
+**Effect:**
+- 1 teleport per game
+- Only from your Base
+- Only to a **safe, discovered tile** (no active encounter)
+- Cannot teleport to Final Tile
+- Costs 1 AP
 
 ---
 
-# 16) Implementation Notes (minimal rename only)
+## Final Trial (Victory Condition)
 
-## Data Model Summary (keep structure; names updated)
-```typescript
-// Player
-{
-  id, position, hp, maxHp,
-  biomass, materials, alloys,
-  inventory: { weapons[], spells[], amulet },
-  modules: ModuleType[],
-  prestige: number,
-  basePosition: HexCoord | null
-}
+After Orbital Phase ends (4 rounds), **Final Trial** begins.
 
-// Tile
-{
-  coord, discovered, type, tier,
-  resources: { biomass?, materials?, alloys? },
-  blockedEdges: number[],
-  rotation: number,
-  encounterActive, enemyHp,
-  cooldownUntilRoundByPlayer: Record<string, number>,
-  ownerId, isFinalTile
-}
+### Each Player Makes One Attempt
 
-// GameState
-{
-  board, players[], currentPlayerIndex,
-  phase, round, actionSlotsRemaining,
-  movedInCurrentSlot, actionUsedInCurrentSlot,
-  tileDeck, pendingTileRotation,
-  selectedPlacementPosition,
-  eventLog[],
-  isFinalPhase, finalRoundsLeft,
-  finalThreatHp,
-  gameOver, winnerId
-}
+Trial Score = Sum of:
+- Weapon bonuses
+- Module bonuses
+- Amulet bonuses
+- Optional Prestige spend (1 Prestige = 1 Score)
+
+### Victory Resolution
+
+1. Player with **highest Final Trial score** gets **+5 Prestige**
+2. Player with **highest total Prestige** wins
+3. **Tie-breaker:** Higher Final Trial score
+
+---
+
+# 9) Final Phase (Legacy - v0.4)
+
+> Note: The Final Threat system from v0.4 has been replaced by Final Trial in v0.5.
+
+- Final Tile triggers **Final Threat** (legacy)
+- Final Threat HP = **40**
+- Countdown: **6 rounds**
+
+(Kept for reference only. Not used in v0.5.)
+
+---
+
+---
+
+# Why v0.5 Works
+
+v0.5 adds:
+- **Crafting economy** (Components as universal currency)
+- **Player agency** (craft what you need, when you need it)
+- **Clear endgame** (Orbital Phase → Final Trial)
+- **Prestige decisions** (save vs spend)
+- **Catch-up mechanics** (crafting lets anyone compete)
+
+Without adding:
+- PvP
+- Complex rule exceptions
+- Hidden randomness
+- Heavy UI burden
+
+---
+
+# 10) Version History
+
+## v0.5
+- **COMBAT OVERHAUL:** Single check system (totalSwords >= tier), no HP accumulation
+- Added **Units System** (Assault, Shield, Tactical) - max 2 per player
+- Added **Components (🧩)** as crafting resource
+- Added **Crafting System** (Base-only, 7 recipes)
+- Added **Unit Hiring** at Base (costs 1 AP)
+- Monster rewards now give **Components** instead of item tokens
+- Tier 1-2 rewards are **automatic**, Tier 3+ have **choice**
+- Added **Prestige spending** (reroll, ignore skull, crafting)
+- Added **Orbital Phase** (FINAL_PREPARATION) with 4-round countdown
+- Added **Recall to Base** during Orbital Phase
+- Added **Orbital Hangar** building (teleport once per game)
+- Added **Final Trial** victory condition
+- Replaced Final Threat with Final Trial system
+- Victory = highest Prestige, tie-breaker = Final Trial score
+
+## v0.4
+- Added Races and lobby selection
+- Added Prestige Pressure
+- Added Risky Tiles
+- Added Reward Choice after combat
+
+## v0.3
+- Reduced deck (31 tiles)
+- Deterministic monster tiers
+- Deterministic rewards
+- Final Threat + countdown
+

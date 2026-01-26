@@ -253,6 +253,23 @@ io.on("connection", (socket: Socket) => {
     });
 
     // ========================================
+    // UPDATE PLAYER DATA (race selection, etc.)
+    // ========================================
+    socket.on("update-player-data", (data: { roomCode: string; data: { raceId?: string } }) => {
+        const room = rooms.get(data.roomCode);
+        if (!room) return;
+
+        const player = getPlayerBySocket(room, socket.id);
+        if (player) {
+            // Apply updates
+            if (data.data.raceId) {
+                (player as any).raceId = data.data.raceId;
+            }
+            io.to(data.roomCode).emit("player-updated", { players: room.players });
+        }
+    });
+
+    // ========================================
     // START GAME
     // ========================================
     socket.on("start-game", (data: { roomCode: string; initialState: any }, callback) => {

@@ -1,6 +1,7 @@
 import * as PIXI from "pixi.js";
 import { createInitialState } from "./core/GameState";
 import { Game } from "./core/Game";
+import { Phase } from "./core/Phase";
 import { GameRenderer } from "./render/GameRenderer";
 import { LobbyScreen } from "./screens/LobbyScreen";
 import { LoadingScreen } from "./screens/LoadingScreen";
@@ -99,8 +100,12 @@ async function main() {
             selectedPlacementPosition: state.selectedPlacementPosition,
             eventLog: state.eventLog,
             isFinalPhase: state.isFinalPhase,
+            isFinalPreparation: state.isFinalPreparation,
+            finalPrepRoundsLeft: state.finalPrepRoundsLeft,
             finalRoundsLeft: state.finalRoundsLeft,
             finalThreatHp: state.finalThreatHp,
+            finalTrialStarted: state.finalTrialStarted,
+            finalTrialResults: state.finalTrialResults,
             gameOver: state.gameOver,
             winnerId: state.winnerId,
             missionFailed: state.missionFailed,
@@ -214,7 +219,7 @@ async function main() {
         state.players = state.players.slice(0, playerCount);
         
         game = new Game(state);
-        applyServerState(serverState);
+        applyServerState(serverState, true); // isReconnect = true
         
         renderer = new GameRenderer(app, game);
         setupDebugCallbacks();
@@ -229,7 +234,7 @@ async function main() {
         renderer.renderAll();
     }
 
-    function applyServerState(serverState: any): void {
+    function applyServerState(serverState: any, isReconnect: boolean = false): void {
         if (!game) return;
         
         game.state.currentPlayerIndex = serverState.currentPlayerIndex;
@@ -241,7 +246,15 @@ async function main() {
         // Restore UI mode only for the active player (others shouldn't see TILE_PLACEMENT)
         const isActivePlayer = myPlayerId === `P${serverState.currentPlayerIndex + 1}`;
         if (isActivePlayer) {
-            game.state.uiMode = serverState.uiMode || "NONE";
+            const restoredMode = serverState.uiMode || "NONE";
+            // On reconnect, don't restore modal modes (CRAFT_MENU, BUILD_MENU) - they should not auto-open
+            // On regular updates, restore them normally
+            if (isReconnect) {
+                const isModalMode = restoredMode === "CRAFT_MENU" || restoredMode === "BUILD_MENU";
+                game.state.uiMode = isModalMode ? "NONE" : restoredMode;
+            } else {
+                game.state.uiMode = restoredMode;
+            }
             game.state.pendingTileRotation = serverState.pendingTileRotation || 0;
             game.state.selectedPlacementPosition = serverState.selectedPlacementPosition || null;
         } else {
@@ -258,6 +271,15 @@ async function main() {
         game.state.gameOver = serverState.gameOver;
         game.state.winnerId = serverState.winnerId;
         game.state.missionFailed = serverState.missionFailed;
+        game.state.pendingRewardChoice = serverState.pendingRewardChoice || null;
+        // v0.5 Final Trial
+        game.state.isFinalPreparation = serverState.isFinalPreparation ?? false;
+        game.state.finalPrepRoundsLeft = serverState.finalPrepRoundsLeft ?? 0;
+        game.state.finalTrialStarted = serverState.finalTrialStarted ?? false;
+        game.state.finalTrialResults = serverState.finalTrialResults ?? [];
+        if (serverState.phase !== undefined) {
+            game.state.phase = serverState.phase;
+        }
         game.state.players = serverState.players;
         
         // Sync tile deck from server (CRITICAL for consistent tile order!)
@@ -271,6 +293,11 @@ async function main() {
             const coords = discoveredTiles.map((t: any) => `${t.coord.q},${t.coord.r}`).sort().join(" | ");
             console.log(`[Sync] Applying ${serverState.tiles.length} tiles (${discoveredTiles.length} discovered): ${coords}`);
             game.state.board.replaceAllTiles(serverState.tiles);
+            
+            // Force re-render to rebuild tileViews
+            if (renderer) {
+                renderer.forceRebuildViews();
+            }
         }
     }
 
@@ -287,15 +314,22 @@ async function main() {
             pendingTileRotation: game.state.pendingTileRotation,
             selectedPlacementPosition: game.state.selectedPlacementPosition,
             eventLog: game.state.eventLog,
+            // Final Phase (v0.5)
             isFinalPhase: game.state.isFinalPhase,
+            isFinalPreparation: game.state.isFinalPreparation,
+            finalPrepRoundsLeft: game.state.finalPrepRoundsLeft,
             finalRoundsLeft: game.state.finalRoundsLeft,
             finalThreatHp: game.state.finalThreatHp,
+            finalTrialStarted: game.state.finalTrialStarted,
+            finalTrialResults: game.state.finalTrialResults,
             gameOver: game.state.gameOver,
             winnerId: game.state.winnerId,
             missionFailed: game.state.missionFailed,
+            pendingRewardChoice: game.state.pendingRewardChoice,
+            phase: game.state.phase,
             players: game.state.players,
             tiles: game.state.board.getAllTiles(),
-            tileDeck: game.state.tileDeck.serialize(), // Sync tile deck!
+            tileDeck: game.state.tileDeck.serialize(),
         };
     }
 
@@ -310,7 +344,12 @@ async function main() {
         game.handleHexClick = (target) => {
             if (!isMyTurn()) return;
             originalHandleHexClick(target);
-            sendActionToServer({ type: "hex-click", target });
+            // Don't send state immediately if combat is pending (will be sent after dice)
+            // Combat sets phase to ResolveAction
+            if (game!.state.phase !== Phase.ResolveAction) {
+                sendActionToServer({ type: "hex-click", target });
+            }
+            // If combat started, state will be synced via onCombatResolved
         };
         
         const originalDoGather = game.doGather.bind(game);
@@ -356,7 +395,10 @@ async function main() {
         game.placeTileAtSelected = () => {
             if (!isMyTurn()) return false;
             const result = originalPlaceTile();
-            if (result) sendActionToServer({ type: "place-tile" });
+            // Don't send state if combat is pending (will be sent via combat-resolved)
+            if (result && game!.state.phase !== Phase.ResolveAction) {
+                sendActionToServer({ type: "place-tile" });
+            }
             return result;
         };
         
@@ -373,6 +415,81 @@ async function main() {
             if (!isMyTurn()) return false;
             const result = originalBuildModules(modules);
             if (result) sendActionToServer({ type: "build-modules", modules });
+            return result;
+        };
+        
+        // v0.4: Wrap chooseReward for multiplayer
+        const originalChooseReward = game.chooseReward.bind(game);
+        game.chooseReward = (choice) => {
+            if (!isMyTurn()) return;
+            originalChooseReward(choice);
+            sendActionToServer({ type: "choose-reward", choice });
+            renderer?.renderAll();
+        };
+        
+        // Wrap finishTokenSelection for multiplayer
+        const originalFinishTokenSelection = game.finishTokenSelection.bind(game);
+        game.finishTokenSelection = () => {
+            originalFinishTokenSelection();
+            sendActionToServer({ type: "finish-token-selection" });
+            renderer?.renderAll();
+        };
+        
+        // v0.5: Wrap crafting for multiplayer
+        const originalDoCraft = game.doCraft.bind(game);
+        game.doCraft = (recipeId) => {
+            if (!isMyTurn()) return false;
+            const result = originalDoCraft(recipeId);
+            if (result) sendActionToServer({ type: "craft", recipeId });
+            return result;
+        };
+        
+        const originalToggleCraftMenu = game.toggleCraftMenu.bind(game);
+        game.toggleCraftMenu = () => {
+            if (!isMyTurn()) return false;
+            const result = originalToggleCraftMenu();
+            if (result) sendActionToServer({ type: "toggle-craft-menu" });
+            renderer?.renderAll();
+            return result;
+        };
+        
+        // v0.5: Wrap recall to base for multiplayer
+        const originalDoRecallToBase = game.doRecallToBase.bind(game);
+        game.doRecallToBase = () => {
+            if (!isMyTurn()) return false;
+            const result = originalDoRecallToBase();
+            if (result) sendActionToServer({ type: "recall-to-base" });
+            renderer?.renderAll();
+            return result;
+        };
+        
+        // v0.5: Wrap Orbital Hangar teleport for multiplayer
+        const originalDoOrbitalHangarTeleport = game.doOrbitalHangarTeleport.bind(game);
+        game.doOrbitalHangarTeleport = (destination) => {
+            if (!isMyTurn()) return false;
+            const result = originalDoOrbitalHangarTeleport(destination);
+            if (result) sendActionToServer({ type: "orbital-hangar-teleport", destination });
+            renderer?.renderAll();
+            return result;
+        };
+        
+        // v0.5: Wrap Final Trial for multiplayer
+        const originalDoFinalTrial = game.doFinalTrial.bind(game);
+        game.doFinalTrial = (prestigeSpend) => {
+            if (!isMyTurn()) return false;
+            const result = originalDoFinalTrial(prestigeSpend);
+            if (result) sendActionToServer({ type: "final-trial", prestigeSpend });
+            renderer?.renderAll();
+            return result;
+        };
+        
+        // v0.5: Wrap unit hire for multiplayer
+        const originalDoHireUnit = game.doHireUnit.bind(game);
+        game.doHireUnit = (unitType) => {
+            if (!isMyTurn()) return false;
+            const result = originalDoHireUnit(unitType);
+            if (result) sendActionToServer({ type: "hire-unit", unitType });
+            renderer?.renderAll();
             return result;
         };
     }
@@ -396,13 +513,20 @@ async function main() {
         if (!game || !renderer) return;
         
         game.onDiceRoll = (result, callback) => {
-            // IMPORTANT: Render BEFORE showing dice so tiles are updated
-            renderer!.renderAll();
-            
+            // Show dice UI BEFORE combat is applied
             renderer!.showDiceRoll(result, () => {
+                // AFTER dice animation: combat callback applies results
                 callback();
                 renderer!.renderAll();
             });
+        };
+        
+        // Sync state after combat resolution (multiplayer)
+        game.onCombatResolved = () => {
+            if (isMultiplayer) {
+                sendActionToServer({ type: "combat-resolved" });
+            }
+            renderer?.renderAll();
         };
         
         // Connect toast notifications

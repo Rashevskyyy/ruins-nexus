@@ -1,6 +1,6 @@
 import type { HexCoord } from "./Hex.ts";
 import type { TileType } from "./TileTypes.ts";
-import type { ResourceMap } from "./TileDeck.ts";
+import type { ResourceMap, TokenType } from "./TileDeck.ts";
 
 export type ResourceKind = "Biomass" | "Materials" | "Alloys";
 
@@ -24,11 +24,19 @@ export type Tile = {
 
     // Local threat (encounter)
     encounterActive?: boolean;
-    enemyHp?: number; // tier 1 = 2 HP, tier 2 = 4 HP
+    monsterTier?: number;  // Monster tier (1-4, determines HP and rewards)
+    enemyHp?: number;      // Monster HP = monsterTier
+    pendingRewards?: TokenType[]; // Rewards to give after defeating monster
 
     // Final Tile - triggers Final Phase
     isFinalTile?: boolean;
 
     // Player's Base on this tile
     ownerId?: string;
+    
+    // Risky Tile effect (v0.4)
+    // toxic: +1 💀 in every combat
+    // unstable: -1 HP every Gather
+    // rift: leaving consumes a slot
+    riskyEffect?: "toxic" | "unstable" | "rift";
 };

@@ -8,7 +8,7 @@
 
 import * as PIXI from "pixi.js";
 
-export const GAME_VERSION = "v0.2";
+export const GAME_VERSION = "v0.4";
 
 // Asset manifest - add new assets here
 const ASSET_MANIFEST = {

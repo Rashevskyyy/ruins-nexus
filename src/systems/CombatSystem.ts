@@ -2,37 +2,403 @@ import type { Player } from "../entities/Player";
 import type { Tile } from "../board/Tile";
 import { DiceResolver, type DiceResult } from "./DiceResolver";
 
+/**
+ * Detailed breakdown of combat bonuses for UI
+ */
+export type CombatBreakdown = {
+    // Sword sources
+    diceRoll: number;           // Base dice roll
+    raceBonus: number;          // From race passive (e.g. Warbound +1)
+    unitBonus: number;          // From units (Assault Drone etc)
+    buildingBonus: number;      // From base buildings (AssaultBay etc)
+    weaponBonus: number;        // From weapons
+    moduleBonus: number;        // From modules/spells
+    amuletBonus: number;        // From amulet
+    
+    // Skull reduction sources
+    skullsFromDice: number;
+    skullsFromTile: number;     // Toxic zone etc
+    skullReductionRace: number;
+    skullReductionUnit: number;
+    skullReductionBuilding: number; // From base buildings (ShieldArray etc)
+    skullReductionEquip: number;
+    
+    // Labels for UI display
+    labels: string[];
+};
+
+/**
+ * Combat result with detailed info for logging/UI
+ */
+export type CombatResult = {
+    victory: boolean;           // true if monster defeated
+    roll: DiceResult;           // Raw dice roll
+    rolledSwords: number;       // Swords from dice
+    bonusSwords: number;        // Bonus swords from equipment/units
+    totalSwords: number;        // Total swords (rolled + bonus)
+    requiredTier: number;       // Monster tier to beat
+    monsterTier: number;        // Base monster tier (before prestige)
+    prestigePenalty: boolean;   // True if prestige added +1 to required
+    rolledSkulls: number;       // Skulls from dice
+    extraSkulls: number;        // Extra skulls from tile effects
+    reducedSkulls: number;      // Skulls reduced by equipment/units
+    damageToPlayer: number;     // Final damage to player
+    breakdown: CombatBreakdown; // Detailed breakdown
+};
+
 export class CombatSystem {
     private dice = new DiceResolver();
 
     /**
-     * Roll Hero Die (for Final Threat combat)
+     * Roll Hero Die
      */
     rollDie(): DiceResult {
         return this.dice.rollHeroDie();
     }
 
     /**
-     * Fight local threat on a tile
+     * v0.5: New combat system - single check, no HP accumulation
+     * 
+     * Combat is a CHECK:
+     * - totalSwords >= monsterTier = VICTORY
+     * - else: PUSHBACK (player moves back, monster stays, no state change)
+     * 
+     * Player still takes skull damage regardless of outcome
      */
-    fightOnce(player: Player, tile: Tile): { killed: boolean; roll: DiceResult } {
-        const hp = tile.enemyHp ?? 2;
-        tile.enemyHp = hp;
+    simulateCombat(player: Player, tile: Tile, prestige: number = 0): CombatResult {
+        const monsterTier = tile.monsterTier ?? 1;
+        
+        // Prestige Pressure: +1 tier at 12+ prestige
+        const prestigePenalty = prestige >= 12;
+        const requiredTier = prestigePenalty ? monsterTier + 1 : monsterTier;
+        
+        // Roll dice
+        let roll = this.dice.rollHeroDie();
+        const rolledSwords = roll.swords;
+        const rolledSkulls = roll.skulls;
+        
+        // Breakdown tracking
+        const breakdown: CombatBreakdown = {
+            diceRoll: roll.swords,
+            raceBonus: 0,
+            unitBonus: 0,
+            buildingBonus: 0,
+            weaponBonus: 0,
+            moduleBonus: 0,
+            amuletBonus: 0,
+            skullsFromDice: roll.skulls,
+            skullsFromTile: 0,
+            skullReductionRace: 0,
+            skullReductionUnit: 0,
+            skullReductionBuilding: 0,
+            skullReductionEquip: 0,
+            labels: [],
+        };
+        
+        let bonusSwords = 0;
+        let reducedSkulls = 0;
+        let extraSkulls = 0;
 
-        const roll = this.dice.rollHeroDie();
-
-        tile.enemyHp = Math.max(0, (tile.enemyHp ?? 0) - roll.swords);
-        player.hp = Math.max(0, player.hp - roll.skulls);
-
-        const killed = (tile.enemyHp ?? 0) <= 0;
-
-        if (killed) {
-            tile.encounterActive = false;
-            tile.enemyHp = undefined;
-        } else {
-            tile.encounterActive = true;
+        // ========================================
+        // RISKY TILE: Toxic Zone (+1 💀)
+        // ========================================
+        if (tile.riskyEffect === "toxic") {
+            extraSkulls += 1;
+            breakdown.skullsFromTile += 1;
+            breakdown.labels.push("☣️ Toxic +1💀");
         }
 
-        return { killed, roll };
+        // ========================================
+        // RACE PASSIVES
+        // ========================================
+        
+        // 🧬 Bioform Collective: Ignore first 💀 in every combat
+        if (player.raceId === "bioform" && (rolledSkulls + extraSkulls) > 0) {
+            reducedSkulls += 1;
+            breakdown.skullReductionRace += 1;
+            breakdown.labels.push("🧬 Bioform -1💀");
+        }
+        
+        // 🔥 Warbound Legion: If deal ≥1 ⚔, deal +1 ⚔
+        if (player.raceId === "warbound" && rolledSwords >= 1) {
+            bonusSwords += 1;
+            breakdown.raceBonus += 1;
+            breakdown.labels.push("🔥 Warbound +1⚔");
+        }
+
+        // ========================================
+        // UNIT BONUSES (v0.5)
+        // ========================================
+        if (player.units) {
+            for (const unit of player.units) {
+                if (!unit) continue;
+                switch (unit.type) {
+                    case "assault":
+                        bonusSwords += 1;
+                        breakdown.unitBonus += 1;
+                        breakdown.labels.push("🤖 Assault +1⚔");
+                        break;
+                    case "shield":
+                        if (rolledSkulls + extraSkulls > reducedSkulls) {
+                            reducedSkulls += 1;
+                            breakdown.skullReductionUnit += 1;
+                            breakdown.labels.push("🛡️ Shield -1💀");
+                        }
+                        break;
+                    // tactical reroll handled separately
+                }
+            }
+        }
+
+        // ========================================
+        // BASE BUILDING BONUSES (player.modules)
+        // ========================================
+        
+        // AssaultBay: +1 ⚔ when roll has ⚔
+        if (player.modules.includes("AssaultBay") && rolledSwords >= 1) {
+            bonusSwords += 1;
+            breakdown.buildingBonus += 1;
+            breakdown.labels.push("🏠 AssaultBay +1⚔");
+        }
+        
+        // ShieldArray: ignore 1 💀
+        if (player.modules.includes("ShieldArray") && (rolledSkulls + extraSkulls) > reducedSkulls) {
+            reducedSkulls += 1;
+            breakdown.skullReductionBuilding += 1;
+            breakdown.labels.push("🏠 ShieldArray -1💀");
+        }
+        
+        // TacticalUplink: handled in reroll section below
+
+        // ========================================
+        // PRESTIGE PRESSURE: No rerolls at 15+ prestige
+        // ========================================
+        const canReroll = prestige < 15;
+        
+        // TacticalUplink: 1 free reroll if no swords rolled (before weapon rerolls)
+        const hasTacticalUplink = player.modules.includes("TacticalUplink");
+        const hasTacticalUnit = player.units?.some(u => u?.type === "tactical");
+        
+        if (rolledSwords === 0 && canReroll && (hasTacticalUplink || hasTacticalUnit)) {
+            roll = this.dice.rollHeroDie();
+            breakdown.diceRoll = roll.swords;
+            if (hasTacticalUplink) {
+                breakdown.labels.push("🏠 TacticalUplink reroll");
+            } else {
+                breakdown.labels.push("📡 Tactical reroll");
+            }
+        }
+
+        // ========================================
+        // WEAPON EFFECTS
+        // ========================================
+        
+        // Heavy Striker: If roll 0 ⚔, reroll once
+        if (rolledSwords === 0 && canReroll) {
+            const hasHeavyStriker = player.inventory.weapons.some(
+                w => w && w.effectId === "heavy_striker"
+            );
+            if (hasHeavyStriker) {
+                roll = this.dice.rollHeroDie();
+                breakdown.diceRoll = roll.swords;
+                breakdown.labels.push("⚔ Heavy Striker reroll");
+            }
+        }
+
+        // Pulse Blade / Blaster Core: +1 ⚔
+        const hasPulseBlade = player.inventory.weapons.some(
+            w => w && (w.effectId === "pulse_blade" || w.effectId === "blaster_core")
+        );
+        if (hasPulseBlade) {
+            bonusSwords += 1;
+            breakdown.weaponBonus += 1;
+            breakdown.labels.push("⚔ Blaster +1⚔");
+        }
+
+        // Shock Pike: If roll ≥2 ⚔ then +1 ⚔
+        const hasShockPike = player.inventory.weapons.some(
+            w => w && w.effectId === "shock_pike"
+        );
+        if (hasShockPike && roll.swords >= 2) {
+            bonusSwords += 1;
+            breakdown.weaponBonus += 1;
+            breakdown.labels.push("⚔ Shock Pike +1⚔");
+        }
+
+        // Plasma Edge: +2 ⚔ if roll ≥1 ⚔
+        const hasPlasmaEdge = player.inventory.weapons.some(
+            w => w && w.effectId === "plasma_edge"
+        );
+        if (hasPlasmaEdge && roll.swords >= 1) {
+            bonusSwords += 2;
+            breakdown.weaponBonus += 2;
+            breakdown.labels.push("⚔ Plasma Edge +2⚔");
+        }
+
+        // Heavy Cannon: +3 ⚔
+        const hasHeavyCannon = player.inventory.weapons.some(
+            w => w && w.effectId === "heavy_cannon"
+        );
+        if (hasHeavyCannon) {
+            bonusSwords += 3;
+            breakdown.weaponBonus += 3;
+            breakdown.labels.push("⚔ Heavy Cannon +3⚔");
+        }
+
+        // Quantum Blade (Legendary): +2 ⚔
+        const hasQuantumBlade = player.inventory.weapons.some(
+            w => w && w.effectId === "quantum_blade"
+        );
+        if (hasQuantumBlade) {
+            bonusSwords += 2;
+            breakdown.weaponBonus += 2;
+            breakdown.labels.push("⚔ Quantum Blade +2⚔");
+        }
+
+        // ========================================
+        // AMULET/ARMOR EFFECTS
+        // ========================================
+
+        // Stabilizer Plating: Ignore first 💀
+        if (player.inventory.amulet?.effectId === "stabilizer_plating" && roll.skulls > 0) {
+            reducedSkulls += 1;
+            breakdown.skullReductionEquip += 1;
+            breakdown.labels.push("📿 Stabilizer -1💀");
+        }
+
+        // Shield Matrix: Ignore first 💀
+        const hasShieldMatrix = player.inventory.spells.some(
+            s => s && s.effectId === "shield_matrix"
+        );
+        if (hasShieldMatrix && roll.skulls > 0) {
+            reducedSkulls += 1;
+            breakdown.skullReductionEquip += 1;
+            breakdown.labels.push("🔧 Shield Matrix -1💀");
+        }
+
+        // Core Relic: +1 ⚔ and ignore 1 💀
+        if (player.inventory.amulet?.effectId === "core_relic") {
+            bonusSwords += 1;
+            breakdown.amuletBonus += 1;
+            breakdown.labels.push("📿 Core Relic +1⚔");
+            if (roll.skulls > 0) {
+                reducedSkulls += 1;
+                breakdown.skullReductionEquip += 1;
+                breakdown.labels.push("📿 Core Relic -1💀");
+            }
+        }
+
+        // Chrono Shield (Legendary): Ignore ALL 💀
+        if (player.inventory.amulet?.effectId === "chrono_shield" && roll.skulls > 0) {
+            const totalSkullsToReduce = roll.skulls + extraSkulls;
+            breakdown.skullReductionEquip += totalSkullsToReduce - reducedSkulls;
+            reducedSkulls = totalSkullsToReduce;
+            breakdown.labels.push("📿 Chrono Shield ALL💀");
+        }
+
+        // ========================================
+        // MODULE/SPELL EFFECTS (one-time, consume spell)
+        // ========================================
+
+        // Overdrive / Overcharge: +2 ⚔ (one-time)
+        const overdriveIndex = player.inventory.spells.findIndex(
+            s => s && (s.effectId === "overdrive" || s.effectId === "overcharge")
+        );
+        if (overdriveIndex >= 0) {
+            bonusSwords += 2;
+            breakdown.moduleBonus += 2;
+            breakdown.labels.push("🔧 Overdrive +2⚔");
+            player.inventory.spells[overdriveIndex] = null; // Consume
+        }
+
+        // ========================================
+        // CALCULATE RESULTS
+        // ========================================
+
+        const totalSwords = roll.swords + bonusSwords;
+        const damageToPlayer = Math.max(0, roll.skulls + extraSkulls - reducedSkulls);
+        
+        // v0.5: Single check - victory if totalSwords >= requiredTier
+        const victory = totalSwords >= requiredTier;
+
+        // Detailed logging with full breakdown
+        console.log(`[Combat] ═══════════════════════════════════════`);
+        console.log(`[Combat] Monster: Tier ${monsterTier}${prestigePenalty ? ` (+1 Prestige Penalty) = ${requiredTier}` : ""}`);
+        console.log(`[Combat] Required: ${requiredTier}⚔ to defeat`);
+        console.log(`[Combat] ───────────────────────────────────────`);
+        console.log(`[Combat] 🎲 Dice Roll: ${roll.swords}⚔ ${roll.skulls}💀`);
+        if (breakdown.raceBonus > 0) console.log(`[Combat] 🧬 Race Bonus: +${breakdown.raceBonus}⚔`);
+        if (breakdown.unitBonus > 0) console.log(`[Combat] 🤖 Unit Bonus: +${breakdown.unitBonus}⚔`);
+        if (breakdown.buildingBonus > 0) console.log(`[Combat] 🏠 Building Bonus: +${breakdown.buildingBonus}⚔`);
+        if (breakdown.weaponBonus > 0) console.log(`[Combat] ⚔ Weapon Bonus: +${breakdown.weaponBonus}⚔`);
+        if (breakdown.moduleBonus > 0) console.log(`[Combat] 🔧 Module Bonus: +${breakdown.moduleBonus}⚔`);
+        if (breakdown.amuletBonus > 0) console.log(`[Combat] 📿 Amulet Bonus: +${breakdown.amuletBonus}⚔`);
+        console.log(`[Combat] ───────────────────────────────────────`);
+        console.log(`[Combat] ⚔ TOTAL: ${totalSwords}⚔ vs ${requiredTier} needed`);
+        console.log(`[Combat] 💀 Damage: ${damageToPlayer} (${roll.skulls}+${extraSkulls}-${reducedSkulls})`);
+        console.log(`[Combat] Result: ${victory ? "✅ VICTORY" : "❌ PUSHBACK"}`);
+        console.log(`[Combat] ═══════════════════════════════════════`);
+
+        return {
+            victory,
+            roll,
+            monsterTier,
+            prestigePenalty,
+            rolledSwords: roll.swords,
+            bonusSwords,
+            totalSwords,
+            requiredTier,
+            rolledSkulls: roll.skulls,
+            extraSkulls,
+            reducedSkulls,
+            damageToPlayer,
+            breakdown,
+        };
+    }
+
+    /**
+     * Apply combat results after dice animation
+     * v0.5: No HP tracking on monsters - just clear encounter if victory
+     */
+    applyCombatResult(player: Player, tile: Tile, result: CombatResult): void {
+        // Player always takes damage
+        player.hp = Math.max(0, player.hp - result.damageToPlayer);
+        
+        if (result.victory) {
+            // Monster defeated - clear encounter
+            tile.encounterActive = false;
+            tile.enemyHp = undefined;
+        }
+        // If not victory: encounter stays active, player will be pushed back by Game.ts
+    }
+
+    /**
+     * Legacy method - wraps new system for compatibility
+     */
+    fightOnce(player: Player, tile: Tile, prestige: number = 0): { killed: boolean; roll: DiceResult; bonusSwords: number; reducedSkulls: number } {
+        const result = this.simulateCombat(player, tile, prestige);
+        this.applyCombatResult(player, tile, result);
+        
+        return {
+            killed: result.victory,
+            roll: result.roll,
+            bonusSwords: result.bonusSwords,
+            reducedSkulls: result.reducedSkulls,
+        };
+    }
+
+    /**
+     * Use Med Gel spell (heal +2 HP)
+     */
+    useMedGel(player: Player): boolean {
+        const medGelIndex = player.inventory.spells.findIndex(
+            s => s && s.effectId === "med_gel"
+        );
+        if (medGelIndex >= 0) {
+            player.hp = Math.min(player.maxHp, player.hp + 2);
+            player.inventory.spells[medGelIndex] = null;
+            return true;
+        }
+        return false;
     }
 }
