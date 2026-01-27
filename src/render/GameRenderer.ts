@@ -3957,6 +3957,19 @@ export class GameRenderer {
                         this.renderAll();
                     }
                 });
+
+                actions.push({
+                    key: "HEAL",
+                    label: "Heal",
+                    emoji: "❤️",
+                    hint: player.hp < player.maxHp ? "Restore 2 HP (1 AP)" : "Already at full HP",
+                    enabled: this.game.state.actionPoints >= 1 && player.hp < player.maxHp,
+                    action: () => {
+                        this.hideContextMenu();
+                        this.game.doHeal();
+                        this.renderAll();
+                    }
+                });
             }
             
             // TRADE - if on Landing Hub
@@ -3973,6 +3986,8 @@ export class GameRenderer {
                         this.renderAll();
                     }
                 });
+
+
             }
             
             // BUILD - Base or Modules

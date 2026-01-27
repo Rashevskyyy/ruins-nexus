@@ -831,6 +831,33 @@ export class Game {
     }
 
     // ========================================
+    // HEAL
+    // ========================================
+
+    doHeal(): boolean {
+        if (this.state.phase !== Phase.AwaitInput) return false;
+        if (this.state.actionPoints <= 0) return false;
+        if (this.state.actionUsedInCurrentSlot) return false;
+
+        const p = this.currentPlayer;
+        if (p.hp >= p.maxHp) return false;
+
+        const healed = Math.min(2, p.maxHp - p.hp);
+        p.hp = Math.min(p.maxHp, p.hp + 2);
+        this.addLog(`${p.id} HEAL: +${healed} HP`);
+        if (this.onToast) {
+            this.onToast(`❤️ +${healed} HP`, "success");
+        }
+
+        this.state.actionUsedInCurrentSlot = true;
+        this.state.uiMode = "NONE";
+        this.state.phase = Phase.AwaitInput;
+
+        this.tryFinishCurrentSlotAndStartNew();
+        return true;
+    }
+
+    // ========================================
     // FINAL THREAT COMBAT
     // ========================================
 
