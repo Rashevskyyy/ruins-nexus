@@ -1298,9 +1298,6 @@ export class Game {
         if (!player.basePosition) return false;
         
         // Check remaining recalls (Void Option B has 2, others have 1)
-        const maxRecalls = (player.raceId === "void" && player.raceOption === "B") ? 2 : 1;
-        const usedRecalls = player.recallUsedThisPhase ? 1 : 0;
-        const remainingRecalls = Math.max(0, player.voidRecallsRemaining - usedRecalls);
         
         // For Void Option B, check voidRecallsRemaining
         if (player.raceId === "void" && player.raceOption === "B") {

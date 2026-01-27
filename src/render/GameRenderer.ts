@@ -1571,7 +1571,7 @@ export class GameRenderer {
         }
     }
     
-    private addCombatLine(label: string, value: string, color: number, panelX: number, y: number) {
+    public addCombatLine(label: string, value: string, color: number, panelX: number, y: number) {
         const labelText = new PIXI.Text({
             text: label,
             style: new PIXI.TextStyle({ fontSize: 12, fill: 0x8b949e }),
@@ -2043,7 +2043,7 @@ export class GameRenderer {
     /**
      * v0.6: Ultra compact equipment summary - single row (improved)
      */
-    private renderEquipmentSummaryCompact(p: import("../entities/Player").Player, x: number, y: number, width: number) {
+    public renderEquipmentSummaryCompact(p: import("../entities/Player").Player, x: number, y: number, width: number) {
         const weaponsCount = p.inventory.weapons.filter(w => w !== null).length;
         const modulesCount = p.inventory.spells.filter(s => s !== null).length;
         const unitsCount = p.units.filter(u => u !== null).length;
@@ -2101,7 +2101,7 @@ export class GameRenderer {
     /**
      * v0.6: Simplified equipment summary - just icons with counts
      */
-    private renderEquipmentSummary(p: import("../entities/Player").Player, x: number, y: number, width: number) {
+    public renderEquipmentSummary(p: import("../entities/Player").Player, x: number, y: number, _width: number) {
         const slotSize = 42;
         const gap = 10;
         
@@ -2194,7 +2194,7 @@ export class GameRenderer {
         this.heroBoardLayer.addChild(slot);
     }
     
-    private renderSectionHeader(text: string, x: number, y: number, color: number) {
+    public renderSectionHeader(text: string, x: number, y: number, color: number) {
         const label = new PIXI.Text({
             text: text,
             style: new PIXI.TextStyle({
@@ -2208,7 +2208,7 @@ export class GameRenderer {
         this.heroBoardLayer.addChild(label);
     }
     
-    private renderLifeTokensCompact(p: { hp: number; maxHp: number }, x: number, y: number) {
+    public renderLifeTokensCompact(p: { hp: number; maxHp: number }, x: number, y: number) {
         const heartSize = 16;
         const gap = 4;
 
@@ -2245,7 +2245,7 @@ export class GameRenderer {
     /**
      * v0.6: Modern Prestige Bar with large display
      */
-    private renderPrestigeBarModern(p: { prestige: number }, x: number, y: number, width: number) {
+    public renderPrestigeBarModern(p: { prestige: number }, x: number, y: number, width: number) {
         const barH = 32; // Tall bar
         const pressureThreshold = 12;
         const noRerollThreshold = 15;
@@ -2342,7 +2342,7 @@ export class GameRenderer {
     /**
      * v0.6: Prestige as a progress bar with pressure warnings (LARGER VERSION)
      */
-    private renderPrestigeBar(p: { prestige: number }, x: number, y: number, width: number) {
+    public renderPrestigeBar(p: { prestige: number }, x: number, y: number, width: number) {
         const barH = 24; // Increased from 16
         const pressureThreshold = 12;
         const noRerollThreshold = 15;
@@ -2435,7 +2435,7 @@ export class GameRenderer {
         this.heroBoardLayer.addChild(warning);
     }
     
-    private renderModuleTokensCompact(p: { modules: string[] }, x: number, y: number, _width: number) {
+    public renderModuleTokensCompact(p: { modules: string[] }, x: number, y: number, _width: number) {
         if (p.modules.length === 0) {
             const none = new PIXI.Text({
                 text: "No modules built yet",
@@ -2465,7 +2465,7 @@ export class GameRenderer {
         }
     }
     
-    private renderUnitsCompact(p: import("../entities/Player").Player, x: number, y: number, _width: number) {
+    public renderUnitsCompact(p: import("../entities/Player").Player, x: number, y: number, _width: number) {
         const slotSize = 36;
         const gap = 8;
         
@@ -2524,7 +2524,7 @@ export class GameRenderer {
         }
     }
     
-    private renderEquipmentCompact(p: import("../entities/Player").Player, x: number, y: number, _width: number) {
+    public renderEquipmentCompact(p: import("../entities/Player").Player, x: number, y: number, _width: number) {
         const slotSize = 36;
         const gap = 6;
         const isAtBase = this.game.isInOwnBase();
@@ -2616,7 +2616,7 @@ export class GameRenderer {
         this.heroBoardLayer.addChild(slot);
     }
     
-    private renderDivider(x: number, y: number, width: number) {
+    public renderDivider(x: number, y: number, width: number) {
         const divider = new PIXI.Graphics();
         divider.moveTo(x, y);
         divider.lineTo(x + width, y);
