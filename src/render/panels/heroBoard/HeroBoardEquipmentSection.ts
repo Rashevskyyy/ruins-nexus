@@ -63,7 +63,7 @@ export class HeroBoardEquipmentSection {
 
             const eqBox = new PIXI.Graphics();
             eqBox.roundRect(ex, y, eqW, 50, 6);
-            eqBox.fill({ color: filled ? 0x1a2535 : 0x0d1117 });
+            eqBox.fill({ color: filled ? 0x1a2535 : 0x0d1117, alpha: 0 });
             eqBox.stroke({ color: eq.color, width: filled ? 2 : 1, alpha: filled ? 0.8 : 0.3 });
             layer.addChild(eqBox);
 

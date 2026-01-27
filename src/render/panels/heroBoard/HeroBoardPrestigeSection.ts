@@ -10,7 +10,7 @@ export class HeroBoardPrestigeSection {
 
         const prestigeBox = new PIXI.Graphics();
         prestigeBox.roundRect(leftX, y, panelW - 28, 56, 8);
-        prestigeBox.fill({ color: prestigeBgColor });
+        prestigeBox.fill({ color: prestigeBgColor, alpha: 0 });
         prestigeBox.stroke({ color: prestigeBorderColor, width: 2 });
         layer.addChild(prestigeBox);
 
@@ -42,7 +42,7 @@ export class HeroBoardPrestigeSection {
 
         const prestigeBarBg = new PIXI.Graphics();
         prestigeBarBg.roundRect(barX, barY, barW, barH, 3);
-        prestigeBarBg.fill({ color: 0x0d1117 });
+        prestigeBarBg.fill({ color: 0x0d1117, alpha: 0 });
         layer.addChild(prestigeBarBg);
 
         const fillW = Math.min(prestige / maxPrestige, 1) * barW;

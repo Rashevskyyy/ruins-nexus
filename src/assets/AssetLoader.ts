@@ -11,7 +11,13 @@ import * as PIXI from "pixi.js";
 export const GAME_VERSION = "v0.4";
 
 // Asset manifest - add new assets here
-const ASSET_MANIFEST = {
+export type AssetManifest = {
+    textures: Record<string, string>;
+    spritesheets: Record<string, string>;
+    audio: Record<string, string>;
+};
+
+export const ASSET_MANIFEST: AssetManifest = {
     // Textures
     textures: {
         // Example: "hero": "/assets/hero.png",
@@ -33,20 +39,23 @@ class AssetLoaderClass {
     private loaded = false;
     private textures: Map<string, PIXI.Texture> = new Map();
     private spritesheets: Map<string, PIXI.Spritesheet> = new Map();
+    private manifest: AssetManifest = ASSET_MANIFEST;
     
     /**
      * Load all assets with progress callback
      */
     async loadAll(onProgress?: (progress: number) => void): Promise<void> {
         if (this.loaded) return;
-        
+
+        await this.loadManifest();
+
         const allAssets: { name: string; src: string; type: string }[] = [];
         
         // Collect all assets
-        for (const [name, src] of Object.entries(ASSET_MANIFEST.textures)) {
+        for (const [name, src] of Object.entries(this.manifest.textures)) {
             allAssets.push({ name, src, type: "texture" });
         }
-        for (const [name, src] of Object.entries(ASSET_MANIFEST.spritesheets)) {
+        for (const [name, src] of Object.entries(this.manifest.spritesheets)) {
             allAssets.push({ name, src, type: "spritesheet" });
         }
         
@@ -98,6 +107,23 @@ class AssetLoaderClass {
      */
     isLoaded(): boolean {
         return this.loaded;
+    }
+
+    private async loadManifest(): Promise<void> {
+        try {
+            const response = await fetch(`/assets/manifest.json?${GAME_VERSION}`);
+            if (!response.ok) {
+                return;
+            }
+            const manifest = (await response.json()) as AssetManifest;
+            this.manifest = {
+                textures: manifest.textures ?? {},
+                spritesheets: manifest.spritesheets ?? {},
+                audio: manifest.audio ?? {},
+            };
+        } catch (error) {
+            console.warn("[AssetLoader] Failed to load asset manifest, using defaults.", error);
+        }
     }
 }
 
