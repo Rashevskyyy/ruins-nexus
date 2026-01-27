@@ -1,6 +1,12 @@
 {
   "textures": {
-    "heroCard": "/assets/heroCard.png"
+    "heroCard": "/assets/heroCard.png",
+    "hero-bioform": "/assets/bioform.png",
+    "hero-chrono": "/assets/chrono.png",
+    "hero-forge": "/assets/forge.png",
+    "hero-nomad": "/assets/nomad.png",
+    "hero-void": "/assets/void.png",
+    "hero-warbound": "/assets/warbound.png"
   },
   "spritesheets": {},
   "audio": {}
