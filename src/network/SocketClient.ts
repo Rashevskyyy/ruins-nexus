@@ -18,6 +18,7 @@ export interface LobbyPlayer {
     ready: boolean;
     connected: boolean;
     raceId?: string; // v0.4 race selection
+    raceOption?: string; // v0.5 race option selection
 }
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "in-lobby" | "in-game";

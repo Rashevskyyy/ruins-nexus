@@ -30,6 +30,8 @@ interface LobbyPlayer {
     isAdmin: boolean;
     ready: boolean;
     connected: boolean;  // Track connection status
+    raceId?: string;
+    raceOption?: string;
 }
 
 interface Room {
@@ -255,7 +257,7 @@ io.on("connection", (socket: Socket) => {
     // ========================================
     // UPDATE PLAYER DATA (race selection, etc.)
     // ========================================
-    socket.on("update-player-data", (data: { roomCode: string; data: { raceId?: string } }) => {
+    socket.on("update-player-data", (data: { roomCode: string; data: { raceId?: string; raceOption?: string } }) => {
         const room = rooms.get(data.roomCode);
         if (!room) return;
 
@@ -264,6 +266,9 @@ io.on("connection", (socket: Socket) => {
             // Apply updates
             if (data.data.raceId) {
                 (player as any).raceId = data.data.raceId;
+            }
+            if (data.data.raceOption) {
+                (player as any).raceOption = data.data.raceOption;
             }
             io.to(data.roomCode).emit("player-updated", { players: room.players });
         }
@@ -287,6 +292,12 @@ io.on("connection", (socket: Socket) => {
 
         if (room.players.length < 2) {
             callback({ success: false, error: "Need at least 2 players" });
+            return;
+        }
+
+        const missingRace = room.players.find(p => !(p as any).raceId || !(p as any).raceOption);
+        if (missingRace) {
+            callback({ success: false, error: "All players must select a race and option" });
             return;
         }
 

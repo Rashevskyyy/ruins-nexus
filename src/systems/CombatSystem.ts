@@ -74,8 +74,8 @@ export class CombatSystem {
         
         // Roll dice
         let roll = this.dice.rollHeroDie();
-        const rolledSwords = roll.swords;
-        const rolledSkulls = roll.skulls;
+        let rolledSwords = roll.swords;
+        let rolledSkulls = roll.skulls;
         
         // Breakdown tracking
         const breakdown: CombatBreakdown = {
@@ -98,6 +98,13 @@ export class CombatSystem {
         let bonusSwords = 0;
         let reducedSkulls = 0;
         let extraSkulls = 0;
+        
+        const syncRollBreakdown = () => {
+            rolledSwords = roll.swords;
+            rolledSkulls = roll.skulls;
+            breakdown.diceRoll = roll.swords;
+            breakdown.skullsFromDice = roll.skulls;
+        };
 
         // ========================================
         // RISKY TILE: Toxic Zone (+1 💀)
@@ -107,6 +114,64 @@ export class CombatSystem {
             breakdown.skullsFromTile += 1;
             breakdown.labels.push("☣️ Toxic +1💀");
         }
+
+        // ========================================
+        // PRESTIGE PRESSURE: No rerolls at 15+ prestige
+        // ========================================
+        const canReroll = prestige < 15;
+        let rerollUsed = false; // v0.5: Only 1 reroll per combat!
+        
+        // ========================================
+        // CHRONO PASSIVE: Once per turn free die reroll
+        // (Does NOT count as system reroll - separate from equipment rerolls)
+        // ========================================
+        if (player.raceId === "chrono" && !player.chronoRerollUsed && roll.swords === 0) {
+            roll = this.dice.rollHeroDie();
+            syncRollBreakdown();
+            breakdown.labels.push("⏳ Chrono reroll");
+            player.chronoRerollUsed = true; // Will be reset at turn start
+            // Note: This does NOT set rerollUsed, so equipment rerolls can still trigger
+        }
+        
+        // ========================================
+        // REROLL PRIORITY (only first available source used):
+        // 1. Tactical Scanner (Unit)
+        // 2. TacticalUplink (Module)
+        // 3. Reroll Module (Equipment)
+        // 4. Heavy Striker (Weapon)
+        // ========================================
+        
+        const hasTacticalUnit = player.units?.some(u => u?.type === "tactical");
+        const hasTacticalUplink = player.modules.includes("TacticalUplink");
+        const hasRerollModule = player.inventory.spells.some(s => s && s.effectId === "reroll_module");
+        const hasHeavyStriker = player.inventory.weapons.some(w => w && w.effectId === "heavy_striker");
+        
+        // Only reroll if rolled 0 swords
+        if (roll.swords === 0 && canReroll && !rerollUsed) {
+            if (hasTacticalUnit) {
+                roll = this.dice.rollHeroDie();
+                syncRollBreakdown();
+                breakdown.labels.push("📡 Tactical Scanner reroll");
+                rerollUsed = true;
+            } else if (hasTacticalUplink) {
+                roll = this.dice.rollHeroDie();
+                syncRollBreakdown();
+                breakdown.labels.push("🏠 TacticalUplink reroll");
+                rerollUsed = true;
+            } else if (hasRerollModule) {
+                roll = this.dice.rollHeroDie();
+                syncRollBreakdown();
+                breakdown.labels.push("🎲 Reroll Module reroll");
+                rerollUsed = true;
+            } else if (hasHeavyStriker) {
+                roll = this.dice.rollHeroDie();
+                syncRollBreakdown();
+                breakdown.labels.push("⚔ Heavy Striker reroll");
+                rerollUsed = true;
+            }
+        }
+
+        syncRollBreakdown();
 
         // ========================================
         // RACE PASSIVES (v0.5 - updated)
@@ -183,62 +248,6 @@ export class CombatSystem {
         }
         
         // TacticalUplink: handled in reroll section below
-
-        // ========================================
-        // PRESTIGE PRESSURE: No rerolls at 15+ prestige
-        // ========================================
-        const canReroll = prestige < 15;
-        let rerollUsed = false; // v0.5: Only 1 reroll per combat!
-        
-        // ========================================
-        // CHRONO PASSIVE: Once per turn free die reroll
-        // (Does NOT count as system reroll - separate from equipment rerolls)
-        // ========================================
-        if (player.raceId === "chrono" && !player.chronoRerollUsed && roll.swords === 0) {
-            roll = this.dice.rollHeroDie();
-            breakdown.diceRoll = roll.swords;
-            breakdown.labels.push("⏳ Chrono reroll");
-            player.chronoRerollUsed = true; // Will be reset at turn start
-            // Note: This does NOT set rerollUsed, so equipment rerolls can still trigger
-        }
-        
-        // ========================================
-        // REROLL PRIORITY (only first available source used):
-        // 1. Tactical Scanner (Unit)
-        // 2. TacticalUplink (Module)
-        // 3. Reroll Module (Equipment)
-        // 4. Heavy Striker (Weapon)
-        // ========================================
-        
-        const hasTacticalUnit = player.units?.some(u => u?.type === "tactical");
-        const hasTacticalUplink = player.modules.includes("TacticalUplink");
-        const hasRerollModule = player.inventory.spells.some(s => s && s.effectId === "reroll_module");
-        const hasHeavyStriker = player.inventory.weapons.some(w => w && w.effectId === "heavy_striker");
-        
-        // Only reroll if rolled 0 swords
-        if (roll.swords === 0 && canReroll && !rerollUsed) {
-            if (hasTacticalUnit) {
-                roll = this.dice.rollHeroDie();
-                breakdown.diceRoll = roll.swords;
-                breakdown.labels.push("📡 Tactical Scanner reroll");
-                rerollUsed = true;
-            } else if (hasTacticalUplink) {
-                roll = this.dice.rollHeroDie();
-                breakdown.diceRoll = roll.swords;
-                breakdown.labels.push("🏠 TacticalUplink reroll");
-                rerollUsed = true;
-            } else if (hasRerollModule) {
-                roll = this.dice.rollHeroDie();
-                breakdown.diceRoll = roll.swords;
-                breakdown.labels.push("🎲 Reroll Module reroll");
-                rerollUsed = true;
-            } else if (hasHeavyStriker) {
-                roll = this.dice.rollHeroDie();
-                breakdown.diceRoll = roll.swords;
-                breakdown.labels.push("⚔ Heavy Striker reroll");
-                rerollUsed = true;
-            }
-        }
 
         // Pulse Blade / Blaster Core: +1 ⚔
         const hasPulseBlade = player.inventory.weapons.some(

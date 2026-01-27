@@ -714,7 +714,7 @@ export class LobbyScreen {
             // Player race (larger emoji only - saves space)
             const playerRace = player.id === socketClient.playerId 
                 ? this.selectedRace 
-                : (player as any).raceId;
+                : player.raceId;
             const raceData = RACE_LIST.find(r => r.id === playerRace);
             if (raceData) {
                 const raceEmoji = new PIXI.Text({
@@ -766,7 +766,8 @@ export class LobbyScreen {
 
         // Start button (admin only)
         if (socketClient.isAdmin) {
-            const canStart = this.players.length >= 2;
+            const allRacesSelected = this.players.every(player => player.raceId && player.raceOption);
+            const canStart = this.players.length >= 2 && allRacesSelected;
             this.createButton(
                 "🚀 START GAME",
                 w / 2 - 120,
@@ -776,7 +777,11 @@ export class LobbyScreen {
                 canStart ? 0x22c55e : 0x4b5563,
                 () => {
                     if (!canStart) {
-                        this.errorMessage = "Need at least 2 players";
+                        if (this.players.length < 2) {
+                            this.errorMessage = "Need at least 2 players";
+                        } else {
+                            this.errorMessage = "All players must select a race and option";
+                        }
                         this.render();
                         return;
                     }
