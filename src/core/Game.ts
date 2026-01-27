@@ -94,7 +94,15 @@ export class Game {
     public addLog(message: string) {
         this.state.eventLog.push(message);
         if (this.state.eventLog.length > 10) {
-            this.state.eventLog.shift();
+            const modifierIndex = this.state.eventLog.findIndex((event) => event.includes("Modifier:"));
+            const oldestNonModifierIndex = this.state.eventLog.findIndex(
+                (event, index) => index !== modifierIndex,
+            );
+            if (oldestNonModifierIndex >= 0) {
+                this.state.eventLog.splice(oldestNonModifierIndex, 1);
+            } else {
+                this.state.eventLog.shift();
+            }
         }
         console.log(message);
     }

@@ -6,6 +6,31 @@ export class DiceRollUI {
 
     constructor(private app: PIXI.Application, private layer: PIXI.Container) {}
 
+    private getPanelLayout(): {
+        panelW: number;
+        panelH: number;
+        panelX: number;
+        panelY: number;
+        diceX: number;
+        diceY: number;
+    } {
+        const screenW = this.app.screen.width;
+        const screenH = this.app.screen.height;
+        const panelW = 240;
+        const panelH = 240;
+        const panelX = screenW - panelW - 48;
+        const panelY = screenH - panelH - 72;
+
+        return {
+            panelW,
+            panelH,
+            panelX,
+            panelY,
+            diceX: panelX + panelW / 2,
+            diceY: panelY + 110,
+        };
+    }
+
     public showDiceRoll(result: { swords: number; skulls: number }, onComplete?: () => void): void {
         this.diceResult = result;
         this.diceCallback = onComplete || null;
@@ -16,45 +41,42 @@ export class DiceRollUI {
     private showDiceReadyToRoll(): void {
         this.layer.removeChildren();
 
-        const screenW = this.app.screen.width;
-        const screenH = this.app.screen.height;
-
-        // Panel in bottom-right corner (moved up and left)
-        const panelW = 200;
-        const panelH = 220;
-        const panelX = screenW - panelW - 400;
-        const panelY = screenH - panelH - 90;
+        const { panelW, panelH, panelX, panelY, diceX, diceY } = this.getPanelLayout();
 
         // Semi-transparent panel background
         const panel = new PIXI.Graphics();
-        panel.roundRect(panelX, panelY, panelW, panelH, 12);
-        panel.fill({ color: 0x1a1a2e, alpha: 0.95 });
-        panel.stroke({ color: 0x00ffff, width: 2 });
+        panel.roundRect(panelX, panelY, panelW, panelH, 14);
+        panel.fill({ color: 0x0f172a, alpha: 0.96 });
+        panel.stroke({ color: 0x38bdf8, width: 2, alpha: 0.9 });
         this.layer.addChild(panel);
+
+        const header = new PIXI.Graphics();
+        header.roundRect(panelX + 6, panelY + 6, panelW - 12, 34, 10);
+        header.fill({ color: 0x111827, alpha: 0.95 });
+        header.stroke({ color: 0x22d3ee, width: 1, alpha: 0.7 });
+        this.layer.addChild(header);
 
         // Combat title
         const titleText = new PIXI.Text({
-            text: "⚔️ COMBAT!",
+            text: "🎲 DICE ROLL",
             style: new PIXI.TextStyle({
-                fontSize: 18,
-                fill: 0xff6b6b,
+                fontSize: 16,
+                fill: 0xe2e8f0,
                 fontWeight: "bold",
             }),
         });
         titleText.anchor.set(0.5);
-        titleText.position.set(panelX + panelW / 2, panelY + 25);
+        titleText.position.set(panelX + panelW / 2, panelY + 23);
         this.layer.addChild(titleText);
 
         // Dice container
-        const diceSize = 80;
-        const diceX = panelX + panelW / 2;
-        const diceY = panelY + 90;
+        const diceSize = 86;
 
         // Static dice with "🎲"
         const dice = new PIXI.Graphics();
-        dice.roundRect(diceX - diceSize / 2, diceY - diceSize / 2, diceSize, diceSize, 12);
-        dice.fill({ color: 0x2a2a4e });
-        dice.stroke({ color: 0x00ffff, width: 3 });
+        dice.roundRect(diceX - diceSize / 2, diceY - diceSize / 2, diceSize, diceSize, 14);
+        dice.fill({ color: 0x1f2937 });
+        dice.stroke({ color: 0x38bdf8, width: 3 });
         dice.eventMode = "static";
         dice.cursor = "pointer";
         this.layer.addChild(dice);
@@ -72,30 +94,30 @@ export class DiceRollUI {
 
         // "Click to Roll" text
         const rollText = new PIXI.Text({
-            text: "🎯 Click to Roll!",
+            text: "🎯 Click to Roll",
             style: new PIXI.TextStyle({
-                fontSize: 14,
-                fill: 0x00ffff,
+                fontSize: 13,
+                fill: 0x7dd3fc,
                 fontWeight: "bold",
             }),
         });
         rollText.anchor.set(0.5);
-        rollText.position.set(diceX, panelY + panelH - 30);
+        rollText.position.set(diceX, panelY + panelH - 28);
         this.layer.addChild(rollText);
 
         // Hover effect on dice
         dice.on("pointerover", () => {
             dice.clear();
-            dice.roundRect(diceX - diceSize / 2, diceY - diceSize / 2, diceSize, diceSize, 12);
-            dice.fill({ color: 0x3a3a5e });
-            dice.stroke({ color: 0xffd700, width: 4 });
+            dice.roundRect(diceX - diceSize / 2, diceY - diceSize / 2, diceSize, diceSize, 14);
+            dice.fill({ color: 0x273449 });
+            dice.stroke({ color: 0xfbbf24, width: 4 });
         });
 
         dice.on("pointerout", () => {
             dice.clear();
-            dice.roundRect(diceX - diceSize / 2, diceY - diceSize / 2, diceSize, diceSize, 12);
-            dice.fill({ color: 0x2a2a4e });
-            dice.stroke({ color: 0x00ffff, width: 3 });
+            dice.roundRect(diceX - diceSize / 2, diceY - diceSize / 2, diceSize, diceSize, 14);
+            dice.fill({ color: 0x1f2937 });
+            dice.stroke({ color: 0x38bdf8, width: 3 });
         });
 
         // Click to start rolling
@@ -109,27 +131,24 @@ export class DiceRollUI {
 
         this.layer.removeChildren();
 
-        const screenW = this.app.screen.width;
-        const screenH = this.app.screen.height;
-
-        // Panel in bottom-right corner (moved up and left)
-        const panelW = 200;
-        const panelH = 220;
-        const panelX = screenW - panelW - 40;
-        const panelY = screenH - panelH - 60;
+        const { panelW, panelH, panelX, panelY, diceX, diceY } = this.getPanelLayout();
 
         // Semi-transparent panel background
         const panel = new PIXI.Graphics();
-        panel.roundRect(panelX, panelY, panelW, panelH, 12);
-        panel.fill({ color: 0x1a1a2e, alpha: 0.95 });
-        panel.stroke({ color: 0xffd700, width: 2 });
+        panel.roundRect(panelX, panelY, panelW, panelH, 14);
+        panel.fill({ color: 0x0f172a, alpha: 0.96 });
+        panel.stroke({ color: 0xfbbf24, width: 2 });
         panel.eventMode = "static"; // Make panel interactive
         this.layer.addChild(panel);
 
+        const header = new PIXI.Graphics();
+        header.roundRect(panelX + 6, panelY + 6, panelW - 12, 34, 10);
+        header.fill({ color: 0x111827, alpha: 0.95 });
+        header.stroke({ color: 0xfbbf24, width: 1, alpha: 0.8 });
+        this.layer.addChild(header);
+
         // Dice container
-        const diceSize = 80;
-        const diceX = panelX + panelW / 2;
-        const diceY = panelY + 90;
+        const diceSize = 86;
 
         // Animation: show random faces quickly, then settle on result
         const DICE_FACES = [
@@ -157,12 +176,12 @@ export class DiceRollUI {
             text: "🎲 Rolling...",
             style: new PIXI.TextStyle({
                 fontSize: 16,
-                fill: 0xffd700,
+                fill: 0xfbbf24,
                 fontWeight: "bold",
             }),
         });
         rollingText.anchor.set(0.5);
-        rollingText.position.set(diceX, panelY + 25);
+        rollingText.position.set(diceX, panelY + 23);
         this.layer.addChild(rollingText);
 
         // Animate rolling
@@ -186,8 +205,8 @@ export class DiceRollUI {
             const scale = frame < totalFrames ? 1 + Math.sin(frame * 0.5) * 0.03 : 1;
 
             const actualSize = diceSize * scale;
-            dice.roundRect(diceX - actualSize / 2 + wobble, diceY - actualSize / 2, actualSize, actualSize, 12);
-            dice.fill({ color: 0x2a2a4e });
+            dice.roundRect(diceX - actualSize / 2 + wobble, diceY - actualSize / 2, actualSize, actualSize, 14);
+            dice.fill({ color: 0x1f2937 });
             dice.stroke({ color: currentFace.color, width: 3 });
             this.layer.addChild(dice);
 
@@ -215,26 +234,26 @@ export class DiceRollUI {
                 const resultText = new PIXI.Text({
                     text: `🗡️${this.diceResult!.swords}  💀${this.diceResult!.skulls}`,
                     style: new PIXI.TextStyle({
-                        fontSize: 18,
+                        fontSize: 20,
                         fill: 0xffffff,
                         fontWeight: "700",
                     }),
                 });
                 resultText.anchor.set(0.5);
-                resultText.position.set(diceX, panelY + panelH - 55);
+                resultText.position.set(diceX, panelY + panelH - 60);
                 this.layer.addChild(resultText);
 
                 // "Click to continue" text
                 const continueText = new PIXI.Text({
                     text: "Click to continue...",
                     style: new PIXI.TextStyle({
-                        fontSize: 11,
+                        fontSize: 12,
                         fill: 0x888888,
                         fontStyle: "italic",
                     }),
                 });
                 continueText.anchor.set(0.5);
-                continueText.position.set(diceX, panelY + panelH - 25);
+                continueText.position.set(diceX, panelY + panelH - 28);
                 this.layer.addChild(continueText);
 
                 // Make dice and panel clickable to dismiss
