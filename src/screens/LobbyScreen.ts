@@ -844,17 +844,30 @@ export class LobbyScreen {
 
         const texture = AssetLoader.getTexture(`hero-${race.id}`);
         if (texture) {
+            const heroSettings: Record<string, { scale: number; anchorY: number }> = {
+                "bioform":  { scale: 0.7, anchorY: 0.30 },
+                "chrono":   { scale: 1, anchorY: 0.25 },
+                "forge":    { scale: 0.9, anchorY: 0.24 },
+                "nomad":    { scale: 0.55, anchorY: 0.35 },
+                "void":     { scale: 0.5, anchorY: 0.40 },
+                "warbound": { scale: 0.7, anchorY: 0.30 },
+            };
+            const settings = heroSettings[race.id] || { scale: 1.0, anchorY: 0.35 };
+            
             const sprite = new PIXI.Sprite(texture);
-            const scale = Math.max(panelW / texture.width, panelH / texture.height);
-            sprite.scale.set(scale);
-            sprite.anchor.set(0.5);
+            const baseScale = Math.max(panelW / texture.width, panelH / texture.height);
+            sprite.scale.set(baseScale * settings.scale);
+            sprite.anchor.set(0.5, settings.anchorY);
             sprite.position.set(panelX + panelW / 2, frameY + panelH / 2);
 
+            // Mask must be filled in PIXI v8
             const mask = new PIXI.Graphics();
             mask.roundRect(panelX, frameY, panelW, panelH, 12);
-            this.container.addChild(mask);
+            mask.fill({ color: 0xffffff }); // Fill is required for mask to work
+            
             sprite.mask = mask;
             this.container.addChild(sprite);
+            this.container.addChild(mask); // Mask added after sprite
         } else {
             const placeholder = new PIXI.Text({
                 text: "Hero art loading...",

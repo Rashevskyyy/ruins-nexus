@@ -117,20 +117,25 @@ export class CombatSystem {
 
         // ========================================
         // PRESTIGE PRESSURE: No rerolls at 15+ prestige
+        // v0.6: Blocks ALL reroll sources (Chrono, Units, Modules, Equipment)
         // ========================================
         const canReroll = prestige < 15;
         let rerollUsed = false; // v0.5: Only 1 reroll per combat!
         
+        if (!canReroll) {
+            breakdown.labels.push("🚫 Prestige 15+: No rerolls");
+        }
+        
         // ========================================
         // CHRONO PASSIVE: Once per turn free die reroll
-        // (Does NOT count as system reroll - separate from equipment rerolls)
+        // v0.6: ALSO blocked by Prestige ≥15 (no exceptions!)
         // ========================================
-        if (player.raceId === "chrono" && !player.chronoRerollUsed && roll.swords === 0) {
+        if (canReroll && player.raceId === "chrono" && !player.chronoRerollUsed && roll.swords === 0) {
             roll = this.dice.rollHeroDie();
             syncRollBreakdown();
             breakdown.labels.push("⏳ Chrono reroll");
             player.chronoRerollUsed = true; // Will be reset at turn start
-            // Note: This does NOT set rerollUsed, so equipment rerolls can still trigger
+            // Note: Chrono reroll does NOT set rerollUsed, so equipment rerolls can still trigger
         }
         
         // ========================================
@@ -146,7 +151,7 @@ export class CombatSystem {
         const hasRerollModule = player.inventory.spells.some(s => s && s.effectId === "reroll_module");
         const hasHeavyStriker = player.inventory.weapons.some(w => w && w.effectId === "heavy_striker");
         
-        // Only reroll if rolled 0 swords
+        // Only reroll if rolled 0 swords AND prestige < 15
         if (roll.swords === 0 && canReroll && !rerollUsed) {
             if (hasTacticalUnit) {
                 roll = this.dice.rollHeroDie();

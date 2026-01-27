@@ -85,4 +85,7 @@ export type Player = {
     
     // v0.5: Underdog Bonus
     underdogBonusUsed: boolean; // +1🧩 on first Tier 3+ kill if lowest prestige
+    
+    // v0.5: Heavy Cannon penalty
+    heavyCannonPenaltyApplied: boolean; // First move costs extra this turn
 };

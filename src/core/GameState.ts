@@ -16,6 +16,10 @@ export type GameState = {
     actionPoints: number; // 2 action slots per turn (Karak 2 rules)
     uiMode: UIMode;
     
+    // v0.6: State versioning for multiplayer sync
+    stateVersion: number;        // Increments on every action
+    lastActionId: string | null; // UUID of last action for deduplication
+    
     // v0.5: Game Modifier (selected at lobby or random)
     modifierId: ModifierId;
     componentMultiplier: number; // For component rewards (1.0 = normal)
@@ -139,6 +143,7 @@ export function createInitialState(playerCount: number = 4, modifierId?: Modifie
             finalTrialScore: null,       // v0.5
             pushedBackFromTile: null,    // v0.5: Combat retry restriction
             underdogBonusUsed: false,    // v0.5: Underdog Bonus
+            heavyCannonPenaltyApplied: false, // v0.5: Heavy Cannon -1 Move
         };
     });
     
@@ -153,6 +158,9 @@ export function createInitialState(playerCount: number = 4, modifierId?: Modifie
         round: 1,
         actionPoints: 2,
         uiMode: "NONE",
+        // v0.6: State versioning
+        stateVersion: 0,
+        lastActionId: null,
         // v0.5: Game Modifier
         modifierId: selectedModifierId,
         componentMultiplier: modifier.componentMultiplier ?? 1.0,

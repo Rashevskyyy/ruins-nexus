@@ -75,23 +75,28 @@ class AssetLoaderClass {
         
         // Load assets one by one
         let loadedCount = 0;
+        console.log(`[AssetLoader] Loading ${allAssets.length} assets:`, allAssets.map(a => a.name));
+        
         for (const asset of allAssets) {
             try {
                 if (asset.type === "texture") {
+                    console.log(`[AssetLoader] Loading texture: ${asset.name} from ${asset.src}`);
                     const texture = await PIXI.Assets.load(asset.src);
                     this.textures.set(asset.name, texture);
+                    console.log(`[AssetLoader] Loaded texture: ${asset.name}`, texture ? "OK" : "FAILED");
                 } else if (asset.type === "spritesheet") {
                     const sheet = await PIXI.Assets.load(asset.src);
                     this.spritesheets.set(asset.name, sheet);
                 }
             } catch (e) {
-                console.warn(`Failed to load asset: ${asset.name}`, e);
+                console.warn(`[AssetLoader] Failed to load asset: ${asset.name}`, e);
             }
             
             loadedCount++;
             onProgress?.(Math.round((loadedCount / allAssets.length) * 100));
         }
         
+        console.log(`[AssetLoader] Finished loading. Textures available:`, Array.from(this.textures.keys()));
         this.loaded = true;
     }
     
@@ -99,7 +104,11 @@ class AssetLoaderClass {
      * Get a loaded texture by name
      */
     getTexture(name: string): PIXI.Texture | null {
-        return this.textures.get(name) || null;
+        const texture = this.textures.get(name);
+        if (!texture) {
+            console.warn(`[AssetLoader] Texture not found: "${name}". Available:`, Array.from(this.textures.keys()));
+        }
+        return texture || null;
     }
     
     /**
@@ -120,14 +129,17 @@ class AssetLoaderClass {
         try {
             const response = await fetch(`/assets/manifest.json?${GAME_VERSION}`);
             if (!response.ok) {
+                console.log("[AssetLoader] No manifest.json found, using built-in manifest");
                 return;
             }
             const manifest = (await response.json()) as AssetManifest;
+            // Merge with built-in manifest (external manifest takes priority)
             this.manifest = {
-                textures: manifest.textures ?? {},
-                spritesheets: manifest.spritesheets ?? {},
-                audio: manifest.audio ?? {},
+                textures: { ...ASSET_MANIFEST.textures, ...(manifest.textures ?? {}) },
+                spritesheets: { ...ASSET_MANIFEST.spritesheets, ...(manifest.spritesheets ?? {}) },
+                audio: { ...ASSET_MANIFEST.audio, ...(manifest.audio ?? {}) },
             };
+            console.log("[AssetLoader] Loaded manifest with textures:", Object.keys(this.manifest.textures));
         } catch (error) {
             console.warn("[AssetLoader] Failed to load asset manifest, using defaults.", error);
         }

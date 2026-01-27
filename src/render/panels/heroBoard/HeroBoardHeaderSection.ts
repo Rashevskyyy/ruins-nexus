@@ -17,17 +17,30 @@ export class HeroBoardHeaderSection {
 
         const portraitTexture = raceId ? AssetLoader.getTexture(`hero-${raceId}`) : null;
         if (portraitTexture) {
+            const heroSettings: Record<string, { scale: number; anchorY: number }> = {
+                "bioform":  { scale: 1.0, anchorY: 0.30 },
+                "chrono":   { scale: 2.5, anchorY: 0.15 },
+                "forge":    { scale: 1.3, anchorY: 0.20 },
+                "nomad":    { scale: 1.0, anchorY: 0.25 },
+                "void":     { scale: 1.0, anchorY: 0.30 },
+                "warbound": { scale: 1.5, anchorY: 0.25 },
+            };
+            const settings = heroSettings[raceId] || { scale: 1.0, anchorY: 0.35 };
+            
             const portraitSprite = new PIXI.Sprite(portraitTexture);
-            const scale = Math.max(portraitSize / portraitTexture.width, portraitSize / portraitTexture.height);
-            portraitSprite.scale.set(scale);
-            portraitSprite.anchor.set(0.5);
+            const baseScale = Math.max(portraitSize / portraitTexture.width, portraitSize / portraitTexture.height);
+            portraitSprite.scale.set(baseScale * settings.scale);
+            portraitSprite.anchor.set(0.5, settings.anchorY);
             portraitSprite.position.set(portraitX + portraitSize / 2, portraitY + portraitSize / 2);
 
+            // Mask must be filled in PIXI v8
             const mask = new PIXI.Graphics();
             mask.roundRect(portraitX, portraitY, portraitSize, portraitSize, 12);
-            layer.addChild(mask);
+            mask.fill({ color: 0xffffff }); // Fill is required for mask to work
+            
             portraitSprite.mask = mask;
             layer.addChild(portraitSprite);
+            layer.addChild(mask); // Mask added after sprite
         } else {
             const portraitHint = new PIXI.Text({
                 text: "HERO",

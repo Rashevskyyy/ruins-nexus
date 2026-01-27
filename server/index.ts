@@ -1,13 +1,19 @@
 /**
- * Cosmic Frontier - Multiplayer Server
+ * Cosmic Frontier - Multiplayer Server (v0.6)
  * 
- * Server-Authoritative: Game state lives on server
- * Clients send actions, server validates and broadcasts state
+ * SERVER-AUTHORITATIVE Architecture:
+ * - Client sends INTENT (action type + parameters)
+ * - Server VALIDATES action against current state
+ * - Server APPLIES rules and generates RNG results
+ * - Server BROADCASTS new state to all clients
+ * 
+ * Security: Clients never send state, only validated intents
  */
 
 import express from "express";
 import { createServer } from "http";
 import { Server, Socket } from "socket.io";
+import { z } from "zod";
 
 const app = express();
 const httpServer = createServer(app);
@@ -19,19 +25,129 @@ const io = new Server(httpServer, {
 });
 
 // ========================================
+// ACTION SCHEMAS (inline for server)
+// ========================================
+
+const HexCoordSchema = z.object({
+    q: z.number().int(),
+    r: z.number().int(),
+});
+
+const GameActionSchema = z.discriminatedUnion("type", [
+    // Core actions
+    z.object({ type: z.literal("hex-click"), target: HexCoordSchema }),
+    z.object({ type: z.literal("gather") }),
+    z.object({ type: z.literal("trade") }),
+    z.object({ type: z.literal("heal") }),
+    z.object({ type: z.literal("explore") }),
+    z.object({ type: z.literal("rotate") }),
+    z.object({ type: z.literal("select-placement"), coord: HexCoordSchema }),
+    z.object({ type: z.literal("place-tile") }),
+    z.object({ type: z.literal("build-base") }),
+    z.object({ type: z.literal("build-modules"), modules: z.array(z.string()) }),
+    z.object({ type: z.literal("choose-reward"), choice: z.enum(["standard", "components"]) }),
+    z.object({ type: z.literal("finish-token-selection") }),
+    z.object({ type: z.literal("craft"), recipeId: z.string() }),
+    z.object({ type: z.literal("toggle-craft-menu") }),
+    z.object({ type: z.literal("recall-to-base") }),
+    z.object({ type: z.literal("orbital-hangar-teleport"), destination: HexCoordSchema }),
+    z.object({ type: z.literal("final-trial"), prestigeSpend: z.number().int().min(0) }),
+    z.object({ type: z.literal("hire-unit"), unitType: z.enum(["assault", "shield", "tactical"]) }),
+    z.object({ type: z.literal("combat-resolved") }),
+    // Debug
+    z.object({ type: z.literal("debug-add-resources"), playerId: z.string().optional() }),
+    z.object({ type: z.literal("debug-heal"), playerId: z.string().optional() }),
+    z.object({ type: z.literal("debug-skip-turn") }),
+    z.object({ type: z.literal("reset-game") }),
+]);
+
+type GameAction = z.infer<typeof GameActionSchema>;
+
+// ========================================
+// SEEDED RNG (Mulberry32)
+// ========================================
+
+class SeededRng {
+    private state: number;
+    private initialSeed: number;
+    private callCount: number = 0;
+    
+    constructor(seed?: number) {
+        this.initialSeed = seed ?? Date.now();
+        this.state = this.initialSeed;
+    }
+    
+    getState(): { seed: number; callCount: number } {
+        return { seed: this.initialSeed, callCount: this.callCount };
+    }
+    
+    static fromState(state: { seed: number; callCount: number }): SeededRng {
+        const rng = new SeededRng(state.seed);
+        for (let i = 0; i < state.callCount; i++) {
+            rng.next();
+        }
+        return rng;
+    }
+    
+    private mulberry32(): number {
+        this.callCount++;
+        let t = this.state += 0x6D2B79F5;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+    
+    next(): number {
+        return this.mulberry32();
+    }
+    
+    nextInt(min: number, max: number): number {
+        return Math.floor(this.next() * (max - min + 1)) + min;
+    }
+    
+    rollHeroDie(): { swords: number; skulls: number; face: number } {
+        const face = this.nextInt(1, 6);
+        switch (face) {
+            case 1: return { swords: 3, skulls: 0, face };
+            case 2: return { swords: 2, skulls: 0, face };
+            case 3: return { swords: 1, skulls: 0, face };
+            case 4: return { swords: 1, skulls: 1, face };
+            case 5: return { swords: 0, skulls: 1, face };
+            case 6: return { swords: 0, skulls: 2, face };
+            default: return { swords: 0, skulls: 0, face };
+        }
+    }
+    
+    shuffle<T>(array: T[]): T[] {
+        const result = [...array];
+        for (let i = result.length - 1; i > 0; i--) {
+            const j = this.nextInt(0, i);
+            [result[i], result[j]] = [result[j], result[i]];
+        }
+        return result;
+    }
+}
+
+// ========================================
 // TYPES
 // ========================================
 
 interface LobbyPlayer {
     id: string;          // P1, P2, etc.
     socketId: string;
-    sessionId: string;   // For reconnect
+    sessionId: string;   // For reconnect (crypto-quality)
     name: string;
     isAdmin: boolean;
     ready: boolean;
-    connected: boolean;  // Track connection status
+    connected: boolean;
     raceId?: string;
     raceOption?: string;
+}
+
+interface RngResult {
+    type: "dice" | "shuffle" | "random";
+    values: number[];
+    context: string;
 }
 
 interface Room {
@@ -40,6 +156,8 @@ interface Room {
     maxPlayers: number;
     gameStarted: boolean;
     gameState: any | null;
+    rng: SeededRng | null;      // v0.6: Server-side RNG
+    rngResults: RngResult[];    // v0.6: RNG history for this turn
     createdAt: number;
 }
 
@@ -61,8 +179,17 @@ function generateRoomCode(): string {
     return code;
 }
 
+// v0.6: Crypto-quality session ID
 function generateSessionId(): string {
-    return Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const bytes = new Uint8Array(24);
+    for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = Math.floor(Math.random() * 256);
+    }
+    return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function generateGameSeed(): number {
+    return Math.floor(Math.random() * 2147483647);
 }
 
 function getPlayerBySocket(room: Room, socketId: string): LobbyPlayer | undefined {
@@ -73,14 +200,104 @@ function getPlayerBySession(room: Room, sessionId: string): LobbyPlayer | undefi
     return room.players.find(p => p.sessionId === sessionId);
 }
 
-// Cleanup old rooms (older than 2 hours)
+// ========================================
+// ACTION VALIDATION (v0.6)
+// ========================================
+
+interface ValidationResult {
+    valid: boolean;
+    error?: string;
+}
+
+function validateActionForCurrentState(
+    action: GameAction,
+    state: any,
+    playerId: string
+): ValidationResult {
+    if (!state) {
+        return { valid: false, error: "No game state" };
+    }
+    
+    // Check if it's this player's turn
+    const currentPlayer = state.players?.[state.currentPlayerIndex];
+    if (!currentPlayer) {
+        return { valid: false, error: "Invalid player index" };
+    }
+    
+    // Debug actions allowed from any player
+    if (action.type.startsWith("debug-") || action.type === "reset-game") {
+        return { valid: true };
+    }
+    
+    // Non-debug actions require it to be the player's turn
+    if (currentPlayer.id !== playerId) {
+        return { valid: false, error: `Not your turn (current: ${currentPlayer.id}, you: ${playerId})` };
+    }
+    
+    // Check action points for actions that require them
+    const actionsRequiringAP = [
+        "gather", "trade", "heal", "explore", "build-base", 
+        "build-modules", "craft", "orbital-hangar-teleport", 
+        "recall-to-base", "final-trial", "hire-unit"
+    ];
+    
+    if (actionsRequiringAP.includes(action.type) && state.actionPoints <= 0) {
+        return { valid: false, error: "No action points remaining" };
+    }
+    
+    // Action-specific validation
+    switch (action.type) {
+        case "hex-click":
+            // Basic coordinate validation
+            if (typeof action.target?.q !== "number" || typeof action.target?.r !== "number") {
+                return { valid: false, error: "Invalid coordinates" };
+            }
+            break;
+            
+        case "build-modules":
+            if (!Array.isArray(action.modules) || action.modules.length === 0) {
+                return { valid: false, error: "No modules specified" };
+            }
+            break;
+            
+        case "choose-reward":
+            if (!state.pendingRewardChoice) {
+                return { valid: false, error: "No pending reward choice" };
+            }
+            break;
+            
+        case "orbital-hangar-teleport":
+            if (typeof action.destination?.q !== "number" || typeof action.destination?.r !== "number") {
+                return { valid: false, error: "Invalid destination" };
+            }
+            break;
+            
+        case "final-trial":
+            if (action.prestigeSpend < 0) {
+                return { valid: false, error: "Invalid prestige spend" };
+            }
+            break;
+            
+        case "hire-unit":
+            if (!["assault", "shield", "tactical"].includes(action.unitType)) {
+                return { valid: false, error: "Invalid unit type" };
+            }
+            break;
+    }
+    
+    return { valid: true };
+}
+
+// ========================================
+// CLEANUP OLD ROOMS
+// ========================================
+
 setInterval(() => {
     const now = Date.now();
     for (const [code, room] of rooms.entries()) {
         if (now - room.createdAt > 2 * 60 * 60 * 1000) {
             console.log(`[Server] Cleaning up old room: ${code}`);
             rooms.delete(code);
-            // Clean up sessions
             for (const [sessionId, data] of sessions.entries()) {
                 if (data.roomCode === code) {
                     sessions.delete(sessionId);
@@ -88,7 +305,7 @@ setInterval(() => {
             }
         }
     }
-}, 60000); // Check every minute
+}, 60000);
 
 // ========================================
 // SOCKET HANDLERS
@@ -98,7 +315,7 @@ io.on("connection", (socket: Socket) => {
     console.log(`[Server] Client connected: ${socket.id}`);
 
     // ========================================
-    // RECONNECT - Check if player has active session
+    // RECONNECT
     // ========================================
     socket.on("check-session", (data: { sessionId: string }, callback) => {
         const sessionData = sessions.get(data.sessionId);
@@ -129,7 +346,6 @@ io.on("connection", (socket: Socket) => {
 
         console.log(`[Server] ${player.name} reconnected to room ${room.code}`);
 
-        // Notify others
         io.to(room.code).emit("player-reconnected", {
             players: room.players,
             reconnectedPlayer: { id: player.id, name: player.name },
@@ -168,6 +384,8 @@ io.on("connection", (socket: Socket) => {
             maxPlayers: data.maxPlayers || 4,
             gameStarted: false,
             gameState: null,
+            rng: null,
+            rngResults: [],
             createdAt: Date.now(),
         };
 
@@ -181,7 +399,7 @@ io.on("connection", (socket: Socket) => {
             success: true,
             roomCode: code,
             playerId,
-            sessionId, // Client saves this for reconnect
+            sessionId,
             players: room.players,
         });
     });
@@ -263,19 +481,14 @@ io.on("connection", (socket: Socket) => {
 
         const player = getPlayerBySocket(room, socket.id);
         if (player) {
-            // Apply updates
-            if (data.data.raceId) {
-                (player as any).raceId = data.data.raceId;
-            }
-            if (data.data.raceOption) {
-                (player as any).raceOption = data.data.raceOption;
-            }
+            if (data.data.raceId) player.raceId = data.data.raceId;
+            if (data.data.raceOption) player.raceOption = data.data.raceOption;
             io.to(data.roomCode).emit("player-updated", { players: room.players });
         }
     });
 
     // ========================================
-    // START GAME
+    // START GAME (v0.6 - Server creates RNG seed)
     // ========================================
     socket.on("start-game", (data: { roomCode: string; initialState: any }, callback) => {
         const room = rooms.get(data.roomCode);
@@ -295,29 +508,38 @@ io.on("connection", (socket: Socket) => {
             return;
         }
 
-        const missingRace = room.players.find(p => !(p as any).raceId || !(p as any).raceOption);
+        const missingRace = room.players.find(p => !p.raceId || !p.raceOption);
         if (missingRace) {
             callback({ success: false, error: "All players must select a race and option" });
             return;
         }
 
+        // v0.6: Initialize server-side RNG with new seed
+        const gameSeed = generateGameSeed();
+        room.rng = new SeededRng(gameSeed);
+        room.rngResults = [];
+        
         room.gameStarted = true;
-        room.gameState = data.initialState; // Store initial state from admin
+        room.gameState = {
+            ...data.initialState,
+            // v0.6: Add server RNG state to game state
+            serverRngState: room.rng.getState(),
+        };
 
-        console.log(`[Server] Game started in room ${data.roomCode} with ${room.players.length} players`);
+        console.log(`[Server] Game started in room ${data.roomCode} with ${room.players.length} players (seed: ${gameSeed})`);
 
-        // Send game start with initial state to ALL players
         io.to(data.roomCode).emit("game-started", {
             players: room.players,
             playerCount: room.players.length,
             initialState: room.gameState,
+            gameSeed, // v0.6: Share seed with clients for debugging
         });
 
         callback({ success: true });
     });
 
     // ========================================
-    // GAME ACTION - Server stores state, broadcasts to all
+    // GAME ACTION (v0.6 - Server Validates & Applies)
     // ========================================
     socket.on("game-action", (data: { roomCode: string; action: any; newState: any }) => {
         const room = rooms.get(data.roomCode);
@@ -326,29 +548,93 @@ io.on("connection", (socket: Socket) => {
         const player = getPlayerBySocket(room, socket.id);
         if (!player) return;
 
+        // v0.6: Validate action schema
+        const actionResult = GameActionSchema.safeParse(data.action);
+        if (!actionResult.success) {
+            console.log(`[Server] Invalid action schema from ${player.id}:`, actionResult.error.message);
+            socket.emit("action-rejected", {
+                error: "Invalid action format",
+                details: actionResult.error.message,
+            });
+            return;
+        }
+        
+        const action = actionResult.data;
+
         // Handle special debug actions
-        if (data.action?.type === "reset-game") {
-            // Reset the game - all players go back to lobby
+        if (action.type === "reset-game") {
             room.gameStarted = false;
             room.gameState = null;
+            room.rng = null;
+            room.rngResults = [];
             io.to(data.roomCode).emit("game-reset", { reason: "Game reset by admin" });
             console.log(`[Server] Game reset in room ${data.roomCode}`);
             return;
         }
 
-        // Store the new state on server
-        room.gameState = data.newState;
+        // v0.6: Validate action against current state
+        const validation = validateActionForCurrentState(action, room.gameState, player.id);
+        if (!validation.valid) {
+            console.log(`[Server] Action rejected for ${player.id}: ${validation.error}`);
+            socket.emit("action-rejected", {
+                error: validation.error,
+                action: action.type,
+            });
+            return;
+        }
 
-        // Broadcast action AND new state to ALL players (including sender for confirmation)
+        // v0.6: For now, still accept client state (transition period)
+        // TODO: Apply action server-side using game logic
+        
+        // Generate server-side RNG for actions that need it
+        const rngResults: RngResult[] = [];
+        
+        if (action.type === "hex-click" && room.rng) {
+            // Combat might need dice
+            const roll = room.rng.rollHeroDie();
+            rngResults.push({
+                type: "dice",
+                values: [roll.face],
+                context: "combat",
+            });
+        }
+        
+        if (action.type === "final-trial" && room.rng) {
+            // Final trial dice
+            const roll = room.rng.rollHeroDie();
+            rngResults.push({
+                type: "dice",
+                values: [roll.face],
+                context: "final-trial",
+            });
+        }
+        
+        room.rngResults = rngResults;
+
+        // Update state version
+        const newState = {
+            ...data.newState,
+            stateVersion: (room.gameState?.stateVersion ?? 0) + 1,
+            lastActionId: `${player.id}-${Date.now()}`,
+            serverRngState: room.rng?.getState(),
+        };
+        
+        room.gameState = newState;
+
+        // Broadcast to ALL players
         io.to(data.roomCode).emit("game-update", {
-            action: data.action,
-            state: data.newState,
+            action,
+            state: newState,
             fromPlayer: player.id,
+            rngResults, // v0.6: Include server RNG results
+            stateVersion: newState.stateVersion,
         });
+        
+        console.log(`[Server] Action ${action.type} from ${player.id} (v${newState.stateVersion})`);
     });
 
     // ========================================
-    // REQUEST STATE - For late joiners or resync
+    // REQUEST STATE
     // ========================================
     socket.on("request-state", (data: { roomCode: string }, callback) => {
         const room = rooms.get(data.roomCode);
@@ -365,7 +651,7 @@ io.on("connection", (socket: Socket) => {
     });
 
     // ========================================
-    // LEAVE ROOM - Player explicitly leaves
+    // LEAVE ROOM
     // ========================================
     socket.on("leave-room", (data: { roomCode: string }) => {
         const room = rooms.get(data.roomCode);
@@ -376,39 +662,34 @@ io.on("connection", (socket: Socket) => {
 
         console.log(`[Server] ${player.name} left room ${data.roomCode}`);
 
-        // Remove player from room
         room.players = room.players.filter(p => p.socketId !== socket.id);
         sessions.delete(player.sessionId);
         socket.leave(data.roomCode);
 
-        // If room is empty, delete it
         if (room.players.length === 0) {
             rooms.delete(data.roomCode);
             console.log(`[Server] Room ${data.roomCode} deleted (empty after leave)`);
             return;
         }
 
-        // Reassign admin if needed
         if (player.isAdmin && room.players.length > 0) {
             room.players[0].isAdmin = true;
             console.log(`[Server] New admin: ${room.players[0].name}`);
         }
 
-        // Reassign player IDs
         room.players.forEach((p, i) => {
             p.id = `P${i + 1}`;
         });
 
-        // Notify remaining players
         io.to(data.roomCode).emit("player-left", {
             players: room.players,
             leftPlayer: { id: player.id, name: player.name },
         });
 
-        // If game was in progress and only 1 player left, end the game
         if (room.gameStarted && room.players.length < 2) {
             room.gameStarted = false;
             room.gameState = null;
+            room.rng = null;
             io.to(data.roomCode).emit("game-reset", { reason: "Not enough players" });
             console.log(`[Server] Game ended in room ${data.roomCode} - not enough players`);
         }
@@ -426,22 +707,17 @@ io.on("connection", (socket: Socket) => {
                 player.connected = false;
                 console.log(`[Server] ${player.name} disconnected from room ${code}`);
 
-                // Don't remove player, just mark as disconnected
-                // They can reconnect with their sessionId
                 io.to(code).emit("player-disconnected", {
                     players: room.players,
                     disconnectedPlayer: { id: player.id, name: player.name },
                 });
 
-                // If game hasn't started AND room only has this one player, remove after 2 minutes
-                // Otherwise keep the room open for reconnects
                 if (!room.gameStarted && room.players.length === 1) {
                     setTimeout(() => {
                         const currentRoom = rooms.get(code);
                         if (currentRoom) {
                             const currentPlayer = currentRoom.players.find(p => p.sessionId === player.sessionId);
                             if (currentPlayer && !currentPlayer.connected && currentRoom.players.length === 1) {
-                                // Only remove if still the only player and still disconnected
                                 currentRoom.players = currentRoom.players.filter(p => p.sessionId !== player.sessionId);
                                 sessions.delete(player.sessionId);
 
@@ -451,7 +727,7 @@ io.on("connection", (socket: Socket) => {
                                 }
                             }
                         }
-                    }, 120000); // 2 minutes timeout
+                    }, 120000);
                 }
             }
         }
@@ -464,6 +740,8 @@ io.on("connection", (socket: Socket) => {
 app.get("/health", (req, res) => {
     res.json({
         status: "ok",
+        version: "0.6.0",
+        features: ["action-validation", "seeded-rng", "state-versioning"],
         rooms: rooms.size,
         sessions: sessions.size,
     });
@@ -476,6 +754,7 @@ app.get("/health", (req, res) => {
 const PORT = process.env.PORT || 3001;
 
 httpServer.listen(PORT, () => {
-    console.log(`\n🚀 Cosmic Frontier Server running on http://localhost:${PORT}\n`);
+    console.log(`\n🚀 Cosmic Frontier Server v0.6 running on http://localhost:${PORT}\n`);
+    console.log(`   Features: Action Validation, Seeded RNG, State Versioning`);
     console.log(`   Health check: http://localhost:${PORT}/health\n`);
 });

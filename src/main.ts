@@ -256,6 +256,10 @@ async function main() {
     function applyServerState(serverState: any, isReconnect: boolean = false): void {
         if (!game) return;
         
+        // v0.6: State versioning
+        game.state.stateVersion = serverState.stateVersion ?? game.state.stateVersion;
+        game.state.lastActionId = serverState.lastActionId ?? game.state.lastActionId;
+        
         game.state.currentPlayerIndex = serverState.currentPlayerIndex;
         game.state.round = serverState.round;
         game.state.actionPoints = serverState.actionPoints;
@@ -326,6 +330,10 @@ async function main() {
         if (!game) return null;
         
         return {
+            // v0.6: State versioning for sync
+            stateVersion: game.state.stateVersion,
+            lastActionId: game.state.lastActionId,
+            // Core state
             currentPlayerIndex: game.state.currentPlayerIndex,
             round: game.state.round,
             actionPoints: game.state.actionPoints,

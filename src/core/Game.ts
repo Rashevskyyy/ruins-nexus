@@ -60,6 +60,14 @@ export class Game {
     }
     
     /**
+     * Increment state version (call after every action that modifies game state)
+     */
+    private incrementStateVersion(actionId?: string): void {
+        this.state.stateVersion++;
+        this.state.lastActionId = actionId || `action-${this.state.stateVersion}-${Date.now()}`;
+    }
+    
+    /**
      * Set player race and option (v0.5)
      * Call this when player selects race in lobby
      */
@@ -357,6 +365,19 @@ export class Game {
                 this.addLog(`${player.id} used Void Navigator free move`);
             } else {
                 this.state.movedInCurrentSlot = true;
+                
+                // Heavy Cannon penalty: first move of the turn also uses the action slot
+                const hasHeavyCannon = player.inventory.weapons.some(
+                    w => w && w.effectId === "heavy_cannon"
+                );
+                if (hasHeavyCannon && !player.heavyCannonPenaltyApplied) {
+                    player.heavyCannonPenaltyApplied = true;
+                    this.state.actionUsedInCurrentSlot = true;
+                    this.addLog(`⚙ Heavy Cannon slows ${player.id}'s movement (-1 effective move)`);
+                    if (this.onToast) {
+                        this.onToast(`⚙ Heavy Cannon: Move costs extra!`, "warning");
+                    }
+                }
             }
         }
 
@@ -456,20 +477,29 @@ export class Game {
         const monsterTier = tile.monsterTier ?? 1;
         
         // v0.5: Underdog Bonus - +1🧩 for lowest prestige player on first Tier 3+ kill
+        // v0.6: If tied, first player by turn order gets it
         let underdogBonus = 0;
         if (monsterTier >= 3 && !player.underdogBonusUsed) {
-            // Check if this player has the LOWEST prestige (not tied)
-            const otherPlayers = this.state.players.filter(p => p.id !== player.id);
             const playerPrestige = player.prestige;
-            const isLowest = otherPlayers.every(p => p.prestige > playerPrestige);
-            const isTied = otherPlayers.some(p => p.prestige === playerPrestige);
+            const playerIndex = this.state.players.findIndex(p => p.id === player.id);
             
-            if (isLowest && !isTied) {
-                underdogBonus = 1;
-                player.underdogBonusUsed = true;
-                this.addLog(`🌟 ${player.id} Underdog Bonus! +1🧩`);
-                if (this.onToast) {
-                    this.onToast(`🌟 Underdog Bonus! +1🧩`, "success");
+            // Find minimum prestige among all players
+            const minPrestige = Math.min(...this.state.players.map(p => p.prestige));
+            
+            // Check if this player has the lowest prestige
+            if (playerPrestige === minPrestige) {
+                // If tied, check if this player has the lowest index among tied players
+                const tiedPlayers = this.state.players.filter(p => p.prestige === minPrestige);
+                const isFirstAmongTied = tiedPlayers[0].id === player.id;
+                
+                // Only give bonus if: has min prestige AND (no tie OR first among tied)
+                if (tiedPlayers.length === 1 || isFirstAmongTied) {
+                    underdogBonus = 1;
+                    player.underdogBonusUsed = true;
+                    this.addLog(`🌟 ${player.id} Underdog Bonus! +1🧩`);
+                    if (this.onToast) {
+                        this.onToast(`🌟 Underdog Bonus! +1🧩`, "success");
+                    }
                 }
             }
         }
@@ -1068,7 +1098,8 @@ export class Game {
 
         // Check if all modules can be built
         let totalMaterials = 0, totalAlloys = 0, totalBiomass = 0;
-        let totalPrestige = 0;
+        let totalPrestigeGain = 0;
+        let totalPrestigeCost = 0;
         const validModules: ModuleType[] = [];
 
         for (const type of moduleTypes) {
@@ -1079,13 +1110,23 @@ export class Game {
             totalMaterials += module.cost.materials;
             totalAlloys += module.cost.alloys;
             totalBiomass += module.cost.biomass;
-            totalPrestige += module.prestigeGain;
+            totalPrestigeGain += module.prestigeGain;
+            totalPrestigeCost += module.prestigeCost || 0; // v0.6: Track prestige cost
             validModules.push(type);
         }
 
-        // Check if can afford ALL modules
+        // Check if can afford ALL modules (resources + prestige cost)
         if (p.materials < totalMaterials || p.alloys < totalAlloys || p.biomass < totalBiomass) {
             this.addLog(`${p.id} cannot afford all selected modules`);
+            return false;
+        }
+        
+        // v0.6: Check prestige cost
+        if (totalPrestigeCost > 0 && p.prestige < totalPrestigeCost) {
+            this.addLog(`${p.id} needs ${totalPrestigeCost} Prestige to build these modules`);
+            if (this.onToast) {
+                this.onToast(`🚫 Need ${totalPrestigeCost} Prestige!`, "error");
+            }
             return false;
         }
 
@@ -1097,6 +1138,12 @@ export class Game {
         p.materials -= totalMaterials;
         p.alloys -= totalAlloys;
         p.biomass -= totalBiomass;
+        
+        // v0.6: Spend prestige cost FIRST (before gaining prestige)
+        if (totalPrestigeCost > 0) {
+            p.prestige -= totalPrestigeCost;
+            this.addLog(`${p.id} spent ${totalPrestigeCost} Prestige for advanced modules`);
+        }
 
         // Add modules
         for (const type of validModules) {
@@ -1105,11 +1152,15 @@ export class Game {
             this.addLog(`🏗 ${p.id} built ${module.description}`);
         }
 
-        // Award Prestige
-        p.prestige += totalPrestige;
-        this.addLog(`${p.id} +${totalPrestige} Prestige (${validModules.length} modules)`);
+        // Award Prestige (net gain after cost)
+        p.prestige += totalPrestigeGain;
+        const netPrestige = totalPrestigeGain - totalPrestigeCost;
+        if (netPrestige !== 0) {
+            this.addLog(`${p.id} ${netPrestige >= 0 ? "+" : ""}${netPrestige} Prestige (${validModules.length} modules)`);
+        }
         if (this.onToast) {
-            this.onToast(`🏗️ Built ${validModules.length} module(s)! +${totalPrestige} Prestige`, "success");
+            const costNote = totalPrestigeCost > 0 ? ` (cost: ${totalPrestigeCost}⭐)` : "";
+            this.onToast(`🏗️ Built ${validModules.length} module(s)! +${totalPrestigeGain} Prestige${costNote}`, "success");
         }
 
         this.state.actionUsedInCurrentSlot = true;
@@ -1754,11 +1805,15 @@ export class Game {
         currentPlayer.chronoRerollUsed = false;
         currentPlayer.nomadGatherBonusUsed = false;
         currentPlayer.forgeCraftFreeUsed = false;
+        currentPlayer.heavyCannonPenaltyApplied = false; // Reset Heavy Cannon penalty
         
         // v0.5: Reset combat retry restriction
         currentPlayer.pushedBackFromTile = null;
 
         this.state.phase = Phase.AwaitInput;
+        
+        // v0.6: Increment state version for sync
+        this.incrementStateVersion();
     }
     
     /**

@@ -240,6 +240,79 @@ Each player selects a **Race** AND an **Option (A or B)** before the game starts
 
 ---
 
+# 1.5) Turn System & Movement (v0.6 - CLARIFIED)
+
+## Turn Structure (Karak 2 Rules)
+Each player has **2 Action Slots** per turn.
+
+**Each slot:**
+1. Optional **Move** (must be BEFORE action)
+2. Optional **Action** (Gather, Trade, Explore, Craft, etc.)
+
+**Rules:**
+- Move without Action = slot consumed (wasted opportunity)
+- Action without Move = valid (stand and craft, etc.)
+- Move AFTER Action = **forbidden** (except special abilities)
+
+---
+
+## Movement Types
+
+### Voluntary Movement
+- Standard walking to adjacent hex
+- **Consumes slot** unless free move ability
+- **Free Move sources:** Void Navigator passive, Phase Step, Battle Rush
+
+### Forced Movement
+- **Pushback:** After losing combat, return to previous tile (NO slot cost)
+- **Auto-Move:** After Explore, automatically enter new tile (part of Explore action)
+- **Teleport:** Orbital Hangar (1 AP, not movement)
+
+**Important:** Forced movement does NOT consume slots or trigger Gravity Rift penalty.
+
+---
+
+## Gravity Rift (Special)
+- Leaving a Rift tile **always consumes the slot**, even with free move abilities
+- Does NOT affect forced movement (pushback)
+
+---
+
+## Heavy Cannon Penalty
+- First voluntary move each turn **also consumes action slot**
+- Effectively: -1 movement per turn
+- Does NOT affect free moves or forced movement
+
+---
+
+## Prestige Pressure (v0.6 - CLARIFIED)
+
+### At 12+ Prestige:
+- Monsters gain **+1 effective Tier** against you
+- Example: Tier 2 monster fights as Tier 3
+
+### At 15+ Prestige:
+- **ALL reroll sources blocked:**
+  - ⏳ Chrono passive reroll
+  - 📡 Tactical Scanner (Unit)
+  - 🏠 TacticalUplink (Module)
+  - 🎲 Reroll Module (Equipment)
+  - ⚔ Heavy Striker (Weapon)
+- **No exceptions!**
+
+---
+
+## Underdog Bonus (v0.6 - CLARIFIED)
+
+**Effect:** +1🧩 on first Tier 3+ kill if you have the lowest prestige.
+
+**Tie Resolution:**
+- If multiple players tied for lowest prestige
+- Player with **lower turn order** (P1 before P2, etc.) gets the bonus
+- Only ONE player can claim it per game
+
+---
+
 # 2) Combat System (v0.5 - OVERHAULED)
 
 ## Core Change
