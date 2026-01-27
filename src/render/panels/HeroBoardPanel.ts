@@ -6,6 +6,7 @@ import { HeroBoardResourcesSection } from "./heroBoard/HeroBoardResourcesSection
 import { HeroBoardEquipmentSection } from "./heroBoard/HeroBoardEquipmentSection";
 import { HeroBoardUnitsSection } from "./heroBoard/HeroBoardUnitsSection";
 import type { HeroBoardContext } from "./heroBoard/HeroBoardTypes";
+import { HeroBoardAbilitiesSection } from "./heroBoard/HeroBoardAbilitiesSection";
 
 export class HeroBoardPanel {
     private headerSection = new HeroBoardHeaderSection();
@@ -14,6 +15,7 @@ export class HeroBoardPanel {
     private equipmentSection = new HeroBoardEquipmentSection();
     private unitsSection = new HeroBoardUnitsSection();
     private modulesSection = new HeroBoardModulesSection();
+    private abilitiesSection = new HeroBoardAbilitiesSection();
 
     render({ app, game, layer, playerColors, playerIndex }: HeroBoardContext): void {
         const p = game.state.players[playerIndex];
@@ -28,8 +30,13 @@ export class HeroBoardPanel {
         const panelW = 300;
         const { moduleOrder, builtModules } = this.modulesSection.getModuleState(p.modules);
         const modulesSectionHeight = this.modulesSection.getSectionHeight(builtModules.length);
+        const abilitiesSectionHeight = this.abilitiesSection.getSectionHeight({
+            panelW,
+            raceId: p.raceId,
+            raceOption: p.raceOption,
+        });
         const headerHeight = 86;
-        const panelH = 360 + headerHeight + modulesSectionHeight;
+        const panelH = 360 + headerHeight + modulesSectionHeight + abilitiesSectionHeight;
         const panelX = app.renderer.width - panelW - 20;
         const panelY = 70;
 
@@ -52,6 +59,15 @@ export class HeroBoardPanel {
         let y = panelY + headerHeight;
         const leftX = panelX + 14;
         const rightX = panelX + panelW - 14;
+
+        y = this.abilitiesSection.render({
+            layer,
+            leftX,
+            panelW,
+            y,
+            raceId: p.raceId,
+            raceOption: p.raceOption,
+        });
 
         y = this.prestigeSection.render({
             layer,
