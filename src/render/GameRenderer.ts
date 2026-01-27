@@ -8,7 +8,16 @@ import { type EdgeIndex, getEdgeVertices } from "../board/HexEdges";
 import type { Tile } from "../board/Tile";
 import { GAME_VERSION } from "../assets/AssetLoader";
 import { BuildMenuPanel } from "./panels/BuildMenuPanel";
+import { CraftMenuPanel } from "./panels/CraftMenuPanel";
 import { HeroBoardPanel } from "./panels/HeroBoardPanel";
+import { HireUnitMenuPanel } from "./panels/HireUnitMenuPanel";
+import { OrbitalHangarMenuPanel } from "./panels/OrbitalHangarMenuPanel";
+import { FinalPhaseBanner } from "./panels/FinalPhaseBanner";
+import { EventLogPanel } from "./panels/EventLogPanel";
+import { DeckInfoPanel } from "./panels/DeckInfoPanel";
+import { DiceRollUI } from "./ui/DiceRollUI";
+import { TutorialHintsManager } from "./ui/TutorialHintsManager";
+import { ToastManager } from "./ui/ToastManager";
 
 export class GameRenderer {
     private HEX_SIZE = 50;
@@ -56,6 +65,12 @@ export class GameRenderer {
     private contextHintLayer = new PIXI.Container();
     private heroBoardPanel = new HeroBoardPanel();
     private buildMenuPanel = new BuildMenuPanel();
+    private craftMenuPanel = new CraftMenuPanel();
+    private hireUnitMenuPanel = new HireUnitMenuPanel();
+    private orbitalHangarMenuPanel = new OrbitalHangarMenuPanel();
+    private finalPhaseBanner = new FinalPhaseBanner();
+    private eventLogPanel = new EventLogPanel();
+    private deckInfoPanel = new DeckInfoPanel();
 
 
     // Rotate button (только для TILE_PLACEMENT)
@@ -99,8 +114,7 @@ export class GameRenderer {
 
     // Dice Roll UI
     private diceLayer = new PIXI.Container();
-    private diceResult: { swords: number; skulls: number } | null = null;
-    private diceCallback: (() => void) | null = null;
+    private diceRollUI: DiceRollUI;
 
     // Context Menu (actions on tile)
     private contextMenuLayer = new PIXI.Container();
@@ -109,17 +123,11 @@ export class GameRenderer {
 
     // Toast notifications
     private toastLayer = new PIXI.Container();
-    private activeToasts: { container: PIXI.Container; timer: number }[] = [];
+    private toastManager: ToastManager;
 
     // Tutorial hints (persisted in localStorage)
     private tutorialLayer = new PIXI.Container();
-    private shownHints: Set<string>;
-    private currentHint: PIXI.Container | null = null;
-    private currentHighlight: PIXI.Graphics | null = null;
-    private highlightPulseInterval: number | null = null;
-    private static HINTS_STORAGE_KEY = "cosmic_frontier_hints";
-    private static HINTS_ENABLED_STORAGE_KEY = "cosmic_frontier_hints_enabled";
-    private hintsEnabled = true;
+    private tutorialHints: TutorialHintsManager;
 
     // Settings popup
     private settingsLayer = new PIXI.Container();
@@ -158,10 +166,6 @@ export class GameRenderer {
 
     constructor(private app: PIXI.Application, private game: Game) {
         this.HEX_POINTS = this.buildHexPoints(this.HEX_SIZE); // No gap between hexes
-
-        // Load shown hints from localStorage
-        this.shownHints = this.loadShownHints();
-        this.hintsEnabled = this.loadHintsEnabled();
 
         this.app.stage.addChild(this.boardLayer);
         this.boardLayer.sortableChildren = true; // Enable zIndex sorting
@@ -219,6 +223,10 @@ export class GameRenderer {
 
         this.app.stage.addChild(this.toastLayer); // Toast notifications
         this.toastLayer.zIndex = 450;
+
+        this.diceRollUI = new DiceRollUI(this.app, this.diceLayer);
+        this.toastManager = new ToastManager(this.app, this.toastLayer);
+        this.tutorialHints = new TutorialHintsManager(this.app, this.tutorialLayer, this.showToast.bind(this));
 
         this.app.stage.addChild(this.tokenRewardLayer); // Token reward choice UI
         this.tokenRewardLayer.zIndex = 480;
@@ -1659,7 +1667,7 @@ export class GameRenderer {
         const myPlayer = this.game.state.players[this.myPlayerIndex];
         if (!myPlayer) return;
         if (!this.isMyTurn) return; // Only show hints on my turn
-        if (!this.hintsEnabled) return;
+        if (!this.tutorialHints.isEnabled()) return;
         
         const hints: string[] = [];
         
@@ -2346,8 +2354,8 @@ export class GameRenderer {
             game: this.game,
             layer: this.buildMenuLayer,
             playerColors: this.PLAYER_COLORS,
-            shownHints: this.shownHints,
-            hintsEnabled: this.hintsEnabled,
+            shownHints: this.tutorialHints.getShownHints(),
+            hintsEnabled: this.tutorialHints.isEnabled(),
             showHint: this.showHint.bind(this),
             renderAll: this.renderAll.bind(this),
         });
@@ -2357,421 +2365,27 @@ export class GameRenderer {
     // Craft Menu (v0.5)
     // --------------------
     private renderCraftMenu() {
-        this.craftMenuLayer.removeChildren();
-        
-        // Only show in CRAFT_MENU mode
-        if (this.game.state.uiMode !== "CRAFT_MENU") return;
-        
-        const p = this.game.state.players[this.game.state.currentPlayerIndex];
-        const playerIndex = this.game.state.currentPlayerIndex;
-        const playerColor = this.PLAYER_COLORS[playerIndex % this.PLAYER_COLORS.length];
-        
-        const screenW = this.app.renderer.width;
-        const screenH = this.app.renderer.height;
-        
-        // Backdrop
-        const backdrop = new PIXI.Graphics();
-        backdrop.rect(0, 0, screenW, screenH);
-        backdrop.fill({ color: 0x000000, alpha: 0.6 });
-        backdrop.eventMode = "static";
-        backdrop.cursor = "pointer";
-        backdrop.on("pointerdown", () => {
-            this.game.state.uiMode = "NONE";
-            this.renderAll();
+        this.craftMenuPanel.render({
+            app: this.app,
+            game: this.game,
+            layer: this.craftMenuLayer,
+            playerColors: this.PLAYER_COLORS,
+            canShowHint: (id) => this.tutorialHints.canShowHint(id),
+            showHint: this.showHint.bind(this),
+            renderAll: this.renderAll.bind(this),
         });
-        this.craftMenuLayer.addChild(backdrop);
-        
-        // Panel
-        const panelW = 450;
-        const panelH = 550;
-        const panelX = (screenW - panelW) / 2;
-        const panelY = (screenH - panelH) / 2;
-        
-        const panel = new PIXI.Graphics();
-        panel.roundRect(panelX, panelY, panelW, panelH, 16);
-        panel.fill({ color: 0x1a1f2e, alpha: 0.98 });
-        panel.stroke({ color: playerColor, width: 4, alpha: 1 });
-        panel.eventMode = "static";
-        this.craftMenuLayer.addChild(panel);
-
-        if (!this.shownHints.has("craft_menu") && this.hintsEnabled) {
-            this.showHint(
-                "craft_menu",
-                "🔧 Crafting",
-                "Crafting consumes Components, Alloys, Materials, or Prestige. Green prices = affordable.",
-                {
-                    anchor: "top",
-                    x: panelX + panelW / 2,
-                    y: panelY - 10,
-                    highlightRect: { x: panelX, y: panelY, width: panelW, height: panelH },
-                }
-            );
-        }
-        
-        // Title
-        const title = new PIXI.Text({
-            text: "🔧 Craft Items",
-            style: new PIXI.TextStyle({
-                fontSize: 24,
-                fill: playerColor,
-                fontWeight: "800",
-                dropShadow: { alpha: 0.8, angle: 90, blur: 4, color: 0x000000, distance: 3 },
-            }),
-        });
-        title.position.set(panelX + 20, panelY + 16);
-        this.craftMenuLayer.addChild(title);
-        
-        // Resources
-        const resourceText = new PIXI.Text({
-            text: `Your resources: 🧩${p.components}  ⚙${p.alloys}  🧱${p.materials}  ⭐${p.prestige}`,
-            style: new PIXI.TextStyle({ fontSize: 14, fill: 0xa0aec0, fontWeight: "600" }),
-        });
-        resourceText.position.set(panelX + 20, panelY + 50);
-        this.craftMenuLayer.addChild(resourceText);
-        
-        // Close button
-        const closeBtn = new PIXI.Graphics();
-        closeBtn.circle(panelX + panelW - 24, panelY + 24, 14);
-        closeBtn.fill({ color: 0xff4444, alpha: 0.9 });
-        closeBtn.stroke({ color: 0xffffff, width: 2, alpha: 0.8 });
-        closeBtn.eventMode = "static";
-        closeBtn.cursor = "pointer";
-        closeBtn.on("pointerdown", () => {
-            this.game.state.uiMode = "NONE";
-            this.renderAll();
-        });
-        this.craftMenuLayer.addChild(closeBtn);
-        
-        const closeX = new PIXI.Text({
-            text: "✕",
-            style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffffff, fontWeight: "900" }),
-        });
-        closeX.anchor.set(0.5);
-        closeX.position.set(panelX + panelW - 24, panelY + 24);
-        this.craftMenuLayer.addChild(closeX);
-        
-        let yOffset = panelY + 80;
-        
-        // Get all recipes
-        const allRecipes = this.game.getAllCraftRecipes();
-        
-        for (const recipe of allRecipes) {
-            const canCraft = p.components >= recipe.cost.components && 
-                             p.alloys >= recipe.cost.alloys &&
-                             p.materials >= recipe.cost.materials &&
-                             p.prestige >= recipe.cost.prestige;
-            
-            this.renderCraftCard(panelX + 16, yOffset, panelW - 32, {
-                name: recipe.name,
-                emoji: recipe.emoji,
-                cost: this.formatCraftCost(recipe.cost),
-                effect: recipe.description,
-                canAfford: canCraft,
-                onCraft: () => {
-                    this.game.doCraft(recipe.id);
-                    this.renderAll();
-                },
-            });
-            
-            yOffset += 62;
-        }
-    }
-    
-    private formatCraftCost(cost: { components: number; alloys: number; materials: number; prestige: number }): string {
-        const parts: string[] = [];
-        if (cost.components > 0) parts.push(`${cost.components}🧩`);
-        if (cost.alloys > 0) parts.push(`${cost.alloys}⚙`);
-        if (cost.materials > 0) parts.push(`${cost.materials}🧱`);
-        if (cost.prestige > 0) parts.push(`${cost.prestige}⭐`);
-        return parts.join(" ");
-    }
-    
-    private renderCraftCard(
-        x: number, 
-        y: number, 
-        w: number, 
-        options: {
-            name: string;
-            emoji: string;
-            cost: string;
-            effect: string;
-            canAfford: boolean;
-            onCraft: () => void;
-        }
-    ) {
-        const h = 55;
-        const cardBg = new PIXI.Graphics();
-        cardBg.roundRect(x, y, w, h, 10);
-        
-        if (options.canAfford) {
-            cardBg.fill({ color: 0x2d3748, alpha: 0.9 });
-            cardBg.stroke({ color: 0x9333ea, width: 2, alpha: 0.8 }); // Purple for crafting
-        } else {
-            cardBg.fill({ color: 0x1a202c, alpha: 0.7 });
-            cardBg.stroke({ color: 0x4a5568, width: 1, alpha: 0.5 });
-        }
-        this.craftMenuLayer.addChild(cardBg);
-        
-        // Emoji
-        const emoji = new PIXI.Text({
-            text: options.emoji,
-            style: new PIXI.TextStyle({ fontSize: 24 }),
-        });
-        emoji.position.set(x + 12, y + 14);
-        this.craftMenuLayer.addChild(emoji);
-        
-        // Name
-        const name = new PIXI.Text({
-            text: options.name,
-            style: new PIXI.TextStyle({
-                fontSize: 14,
-                fill: options.canAfford ? 0xffffff : 0x718096,
-                fontWeight: "700",
-            }),
-        });
-        name.position.set(x + 48, y + 8);
-        this.craftMenuLayer.addChild(name);
-        
-        // Effect
-        const effect = new PIXI.Text({
-            text: options.effect,
-            style: new PIXI.TextStyle({ fontSize: 10, fill: 0xa0aec0, fontWeight: "400" }),
-        });
-        effect.position.set(x + 48, y + 28);
-        this.craftMenuLayer.addChild(effect);
-        
-        // Cost
-        const cost = new PIXI.Text({
-            text: options.cost,
-            style: new PIXI.TextStyle({ 
-                fontSize: 12, 
-                fill: options.canAfford ? 0x48bb78 : 0xe53e3e, 
-                fontWeight: "600" 
-            }),
-        });
-        cost.anchor.set(1, 0);
-        cost.position.set(x + w - 80, y + 10);
-        this.craftMenuLayer.addChild(cost);
-        
-        // Craft button
-        const btnW = 60;
-        const btnH = 26;
-        const btnX = x + w - btnW - 10;
-        const btnY = y + (h - btnH) / 2;
-        
-        const btn = new PIXI.Graphics();
-        btn.roundRect(btnX, btnY, btnW, btnH, 6);
-        
-        if (options.canAfford) {
-            btn.fill({ color: 0x9333ea, alpha: 1 }); // Purple
-            btn.stroke({ color: 0xa855f7, width: 2 });
-            btn.eventMode = "static";
-            btn.cursor = "pointer";
-            btn.on("pointerdown", options.onCraft);
-        } else {
-            btn.fill({ color: 0x4a5568, alpha: 0.5 });
-        }
-        this.craftMenuLayer.addChild(btn);
-        
-        const btnText = new PIXI.Text({
-            text: "CRAFT",
-            style: new PIXI.TextStyle({
-                fontSize: 10,
-                fill: options.canAfford ? 0xffffff : 0x718096,
-                fontWeight: "800",
-            }),
-        });
-        btnText.anchor.set(0.5);
-        btnText.position.set(btnX + btnW / 2, btnY + btnH / 2);
-        this.craftMenuLayer.addChild(btnText);
     }
 
     // --------------------
     // Hire Unit Menu (v0.5)
     // --------------------
     private showHireUnitMenu(): void {
-        // Import unit definitions
-        import("../entities/Unit").then(({ UNIT_DEFINITIONS }) => {
-            this.craftMenuLayer.removeChildren(); // Reuse craft layer
-            
-            const p = this.game.state.players[this.game.state.currentPlayerIndex];
-            const playerIndex = this.game.state.currentPlayerIndex;
-            const playerColor = this.PLAYER_COLORS[playerIndex % this.PLAYER_COLORS.length];
-            
-            const screenW = this.app.renderer.width;
-            const screenH = this.app.renderer.height;
-            
-            // Backdrop
-            const backdrop = new PIXI.Graphics();
-            backdrop.rect(0, 0, screenW, screenH);
-            backdrop.fill({ color: 0x000000, alpha: 0.6 });
-            backdrop.eventMode = "static";
-            backdrop.cursor = "pointer";
-            backdrop.on("pointerdown", () => {
-                this.craftMenuLayer.removeChildren();
-                this.renderAll();
-            });
-            this.craftMenuLayer.addChild(backdrop);
-            
-            // Panel
-            const panelW = 400;
-            const panelH = 300;
-            const panelX = (screenW - panelW) / 2;
-            const panelY = (screenH - panelH) / 2;
-            
-            const panel = new PIXI.Graphics();
-            panel.roundRect(panelX, panelY, panelW, panelH, 16);
-            panel.fill({ color: 0x1a1f2e, alpha: 0.98 });
-            panel.stroke({ color: playerColor, width: 4, alpha: 1 });
-            panel.eventMode = "static";
-            this.craftMenuLayer.addChild(panel);
-            
-            // Title
-            const title = new PIXI.Text({
-                text: "🤖 Hire Units",
-                style: new PIXI.TextStyle({
-                    fontSize: 24,
-                    fill: playerColor,
-                    fontWeight: "800",
-                }),
-            });
-            title.position.set(panelX + 20, panelY + 16);
-            this.craftMenuLayer.addChild(title);
-            
-            // Resources
-            const resourceText = new PIXI.Text({
-                text: `Your resources: 🧩${p.components}  ⚙${p.alloys}  🧱${p.materials}`,
-                style: new PIXI.TextStyle({ fontSize: 14, fill: 0xa0aec0, fontWeight: "600" }),
-            });
-            resourceText.position.set(panelX + 20, panelY + 50);
-            this.craftMenuLayer.addChild(resourceText);
-            
-            // Close button
-            const closeBtn = new PIXI.Graphics();
-            closeBtn.circle(panelX + panelW - 24, panelY + 24, 14);
-            closeBtn.fill({ color: 0xff4444, alpha: 0.9 });
-            closeBtn.stroke({ color: 0xffffff, width: 2, alpha: 0.8 });
-            closeBtn.eventMode = "static";
-            closeBtn.cursor = "pointer";
-            closeBtn.on("pointerdown", () => {
-                this.craftMenuLayer.removeChildren();
-                this.renderAll();
-            });
-            this.craftMenuLayer.addChild(closeBtn);
-            
-            const closeX = new PIXI.Text({
-                text: "✕",
-                style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffffff, fontWeight: "900" }),
-            });
-            closeX.anchor.set(0.5);
-            closeX.position.set(panelX + panelW - 24, panelY + 24);
-            this.craftMenuLayer.addChild(closeX);
-            
-            let yOffset = panelY + 80;
-            
-            // Unit cards
-            const unitTypes = ["assault", "shield", "tactical"] as const;
-            for (const unitType of unitTypes) {
-                const def = UNIT_DEFINITIONS[unitType];
-                const canAfford = p.components >= def.cost.components && 
-                                  p.alloys >= def.cost.alloys &&
-                                  p.materials >= def.cost.materials;
-                const hasSlot = p.units.some(u => u === null);
-                
-                const cardH = 55;
-                const cardBg = new PIXI.Graphics();
-                cardBg.roundRect(panelX + 16, yOffset, panelW - 32, cardH, 10);
-                
-                if (canAfford && hasSlot) {
-                    cardBg.fill({ color: 0x2d3748, alpha: 0.9 });
-                    cardBg.stroke({ color: 0x3b82f6, width: 2, alpha: 0.8 });
-                } else {
-                    cardBg.fill({ color: 0x1a202c, alpha: 0.7 });
-                    cardBg.stroke({ color: 0x4a5568, width: 1, alpha: 0.5 });
-                }
-                this.craftMenuLayer.addChild(cardBg);
-                
-                // Emoji
-                const emoji = new PIXI.Text({
-                    text: def.emoji,
-                    style: new PIXI.TextStyle({ fontSize: 24 }),
-                });
-                emoji.position.set(panelX + 28, yOffset + 14);
-                this.craftMenuLayer.addChild(emoji);
-                
-                // Name
-                const name = new PIXI.Text({
-                    text: def.name,
-                    style: new PIXI.TextStyle({
-                        fontSize: 14,
-                        fill: canAfford && hasSlot ? 0xffffff : 0x718096,
-                        fontWeight: "700",
-                    }),
-                });
-                name.position.set(panelX + 64, yOffset + 8);
-                this.craftMenuLayer.addChild(name);
-                
-                // Effect
-                const effect = new PIXI.Text({
-                    text: def.description,
-                    style: new PIXI.TextStyle({ fontSize: 10, fill: 0xa0aec0 }),
-                });
-                effect.position.set(panelX + 64, yOffset + 28);
-                this.craftMenuLayer.addChild(effect);
-                
-                // Cost
-                const costParts: string[] = [];
-                if (def.cost.components > 0) costParts.push(`${def.cost.components}🧩`);
-                if (def.cost.alloys > 0) costParts.push(`${def.cost.alloys}⚙`);
-                if (def.cost.materials > 0) costParts.push(`${def.cost.materials}🧱`);
-                
-                const costText = new PIXI.Text({
-                    text: costParts.join(" "),
-                    style: new PIXI.TextStyle({ 
-                        fontSize: 12, 
-                        fill: canAfford ? 0x48bb78 : 0xe53e3e, 
-                        fontWeight: "600" 
-                    }),
-                });
-                costText.anchor.set(1, 0);
-                costText.position.set(panelX + panelW - 90, yOffset + 10);
-                this.craftMenuLayer.addChild(costText);
-                
-                // Hire button
-                if (canAfford && hasSlot) {
-                    const btnW = 60;
-                    const btnH = 26;
-                    const btnX = panelX + panelW - btnW - 26;
-                    const btnY = yOffset + (cardH - btnH) / 2;
-                    
-                    const btn = new PIXI.Graphics();
-                    btn.roundRect(btnX, btnY, btnW, btnH, 6);
-                    btn.fill({ color: 0x3b82f6, alpha: 1 });
-                    btn.stroke({ color: 0x60a5fa, width: 2 });
-                    btn.eventMode = "static";
-                    btn.cursor = "pointer";
-                    btn.on("pointerdown", () => {
-                        this.game.doHireUnit(unitType);
-                        this.craftMenuLayer.removeChildren();
-                        this.renderAll();
-                    });
-                    this.craftMenuLayer.addChild(btn);
-                    
-                    const btnText = new PIXI.Text({
-                        text: "HIRE",
-                        style: new PIXI.TextStyle({
-                            fontSize: 10,
-                            fill: 0xffffff,
-                            fontWeight: "800",
-                        }),
-                    });
-                    btnText.anchor.set(0.5);
-                    btnText.position.set(btnX + btnW / 2, btnY + btnH / 2);
-                    this.craftMenuLayer.addChild(btnText);
-                }
-                
-                yOffset += cardH + 8;
-            }
+        this.hireUnitMenuPanel.render({
+            app: this.app,
+            game: this.game,
+            layer: this.craftMenuLayer,
+            playerColors: this.PLAYER_COLORS,
+            renderAll: this.renderAll.bind(this),
         });
     }
 
@@ -2779,424 +2393,55 @@ export class GameRenderer {
     // Orbital Hangar Menu (v0.5)
     // --------------------
     private showOrbitalHangarMenu(): void {
-        this.craftMenuLayer.removeChildren(); // Reuse craft layer
-        
-        const destinations = this.game.getOrbitalHangarDestinations();
-        
-        const screenW = this.app.renderer.width;
-        const screenH = this.app.renderer.height;
-        const playerIndex = this.game.state.currentPlayerIndex;
-        const playerColor = this.PLAYER_COLORS[playerIndex % this.PLAYER_COLORS.length];
-        
-        // Backdrop
-        const backdrop = new PIXI.Graphics();
-        backdrop.rect(0, 0, screenW, screenH);
-        backdrop.fill({ color: 0x000000, alpha: 0.6 });
-        backdrop.eventMode = "static";
-        backdrop.cursor = "pointer";
-        backdrop.on("pointerdown", () => {
-            this.craftMenuLayer.removeChildren();
-            this.renderAll();
+        this.orbitalHangarMenuPanel.render({
+            app: this.app,
+            game: this.game,
+            layer: this.craftMenuLayer,
+            playerColors: this.PLAYER_COLORS,
+            renderAll: this.renderAll.bind(this),
         });
-        this.craftMenuLayer.addChild(backdrop);
-        
-        // Panel
-        const panelW = 360;
-        const panelH = Math.min(400, 120 + destinations.length * 50);
-        const panelX = (screenW - panelW) / 2;
-        const panelY = (screenH - panelH) / 2;
-        
-        const panel = new PIXI.Graphics();
-        panel.roundRect(panelX, panelY, panelW, panelH, 16);
-        panel.fill({ color: 0x1a1f2e, alpha: 0.98 });
-        panel.stroke({ color: playerColor, width: 4, alpha: 1 });
-        panel.eventMode = "static";
-        this.craftMenuLayer.addChild(panel);
-        
-        // Title
-        const title = new PIXI.Text({
-            text: "🚀 Orbital Hangar Teleport",
-            style: new PIXI.TextStyle({
-                fontSize: 20,
-                fill: playerColor,
-                fontWeight: "800",
-            }),
-        });
-        title.position.set(panelX + 20, panelY + 16);
-        this.craftMenuLayer.addChild(title);
-        
-        // Subtitle
-        const subtitle = new PIXI.Text({
-            text: "Choose destination (safe tiles only, 1 AP)",
-            style: new PIXI.TextStyle({ fontSize: 12, fill: 0xa0aec0 }),
-        });
-        subtitle.position.set(panelX + 20, panelY + 44);
-        this.craftMenuLayer.addChild(subtitle);
-        
-        // Close button
-        const closeBtn = new PIXI.Graphics();
-        closeBtn.circle(panelX + panelW - 24, panelY + 24, 14);
-        closeBtn.fill({ color: 0xff4444, alpha: 0.9 });
-        closeBtn.stroke({ color: 0xffffff, width: 2, alpha: 0.8 });
-        closeBtn.eventMode = "static";
-        closeBtn.cursor = "pointer";
-        closeBtn.on("pointerdown", () => {
-            this.craftMenuLayer.removeChildren();
-            this.renderAll();
-        });
-        this.craftMenuLayer.addChild(closeBtn);
-        
-        const closeX = new PIXI.Text({
-            text: "✕",
-            style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffffff, fontWeight: "900" }),
-        });
-        closeX.anchor.set(0.5);
-        closeX.position.set(panelX + panelW - 24, panelY + 24);
-        this.craftMenuLayer.addChild(closeX);
-        
-        if (destinations.length === 0) {
-            const noDestinations = new PIXI.Text({
-                text: "No valid destinations available",
-                style: new PIXI.TextStyle({ fontSize: 14, fill: 0xe53e3e }),
-            });
-            noDestinations.position.set(panelX + 20, panelY + 80);
-            this.craftMenuLayer.addChild(noDestinations);
-            return;
-        }
-        
-        let yOffset = panelY + 70;
-        
-        for (const dest of destinations) {
-            const tile = this.game.state.board.getTile(dest);
-            const tileType = tile?.type || "Unknown";
-            
-            const cardH = 40;
-            const cardBg = new PIXI.Graphics();
-            cardBg.roundRect(panelX + 16, yOffset, panelW - 32, cardH, 8);
-            cardBg.fill({ color: 0x2d3748, alpha: 0.9 });
-            cardBg.stroke({ color: 0x4a90d9, width: 2 });
-            cardBg.eventMode = "static";
-            cardBg.cursor = "pointer";
-            cardBg.on("pointerdown", () => {
-                this.game.doOrbitalHangarTeleport(dest);
-                this.craftMenuLayer.removeChildren();
-                this.renderAll();
-            });
-            this.craftMenuLayer.addChild(cardBg);
-            
-            const label = new PIXI.Text({
-                text: `📍 ${tileType} (${dest.q}, ${dest.r})`,
-                style: new PIXI.TextStyle({ fontSize: 14, fill: 0xffffff, fontWeight: "600" }),
-            });
-            label.position.set(panelX + 32, yOffset + 10);
-            this.craftMenuLayer.addChild(label);
-            
-            yOffset += cardH + 8;
-        }
     }
 
     // --------------------
     // Final Phase Banner (v0.5)
     // --------------------
     private renderFinalPhaseBanner() {
-        this.finalPhaseBannerLayer.removeChildren();
-        
-        // Only show during Final Preparation or Final Trial
-        if (!this.game.state.isFinalPreparation && !this.game.state.finalTrialStarted) return;
-        
-        const screenW = this.app.renderer.width;
-        const bannerH = 60;
-        const bannerY = 60; // Below the top
-        
-        // Banner background
-        const bg = new PIXI.Graphics();
-        bg.rect(0, bannerY, screenW, bannerH);
-        
-        if (this.game.state.finalTrialStarted) {
-            bg.fill({ color: 0x7c2d12, alpha: 0.95 }); // Orange for Trial
-        } else {
-            bg.fill({ color: 0x1e3a5f, alpha: 0.95 }); // Blue for Preparation
-        }
-        this.finalPhaseBannerLayer.addChild(bg);
-        
-        // Title text
-        let titleStr = "";
-        let subtitleStr = "";
-        
-        if (this.game.state.finalTrialStarted) {
-            titleStr = "🎯 FINAL TRIAL";
-            const player = this.game.state.players[this.game.state.currentPlayerIndex];
-            if (player.finalTrialScore !== null) {
-                subtitleStr = `Score: ${player.finalTrialScore} | Waiting for other players...`;
-            } else {
-                subtitleStr = "Complete your Final Trial attempt!";
-            }
-        } else if (this.game.state.isFinalPreparation) {
-            titleStr = `🚨 ORBITAL PHASE - ${this.game.state.finalPrepRoundsLeft} Rounds Left`;
-            subtitleStr = "Explore DISABLED | Move, Gather, Build, Craft only | Recall to Base available";
-        }
-        
-        const title = new PIXI.Text({
-            text: titleStr,
-            style: new PIXI.TextStyle({
-                fontSize: 22,
-                fill: 0xffffff,
-                fontWeight: "800",
-                dropShadow: { alpha: 0.8, angle: 90, blur: 3, color: 0x000000, distance: 2 },
-            }),
-        });
-        title.anchor.set(0.5, 0);
-        title.position.set(screenW / 2, bannerY + 8);
-        this.finalPhaseBannerLayer.addChild(title);
-        
-        const subtitle = new PIXI.Text({
-            text: subtitleStr,
-            style: new PIXI.TextStyle({
-                fontSize: 12,
-                fill: 0xd1d5db,
-                fontWeight: "500",
-            }),
-        });
-        subtitle.anchor.set(0.5, 0);
-        subtitle.position.set(screenW / 2, bannerY + 36);
-        this.finalPhaseBannerLayer.addChild(subtitle);
-        
-        // Recall button (if available)
-        if (this.game.canRecallToBase()) {
-            const btnW = 140;
-            const btnH = 36;
-            const btnX = screenW - btnW - 20;
-            const btnY = bannerY + (bannerH - btnH) / 2;
-            
-            const btn = new PIXI.Graphics();
-            btn.roundRect(btnX, btnY, btnW, btnH, 8);
-            btn.fill({ color: 0x10b981, alpha: 1 });
-            btn.stroke({ color: 0x34d399, width: 2 });
-            btn.eventMode = "static";
-            btn.cursor = "pointer";
-            btn.on("pointerdown", () => {
+        this.finalPhaseBanner.render({
+            app: this.app,
+            game: this.game,
+            layer: this.finalPhaseBannerLayer,
+            isMyTurn: this.isMyTurn,
+            onRecall: () => {
                 this.game.doRecallToBase();
                 this.renderAll();
-            });
-            this.finalPhaseBannerLayer.addChild(btn);
-            
-            const btnText = new PIXI.Text({
-                text: "📡 RECALL",
-                style: new PIXI.TextStyle({
-                    fontSize: 14,
-                    fill: 0xffffff,
-                    fontWeight: "800",
-                }),
-            });
-            btnText.anchor.set(0.5);
-            btnText.position.set(btnX + btnW / 2, btnY + btnH / 2);
-            this.finalPhaseBannerLayer.addChild(btnText);
-        }
-        
-        // Final Trial button (if in trial phase and hasn't done trial yet)
-        if (this.game.state.finalTrialStarted) {
-            const player = this.game.state.players[this.game.state.currentPlayerIndex];
-            if (player.finalTrialScore === null && this.isMyTurn) {
-                const btnW = 180;
-                const btnH = 36;
-                const btnX = screenW - btnW - 20;
-                const btnY = bannerY + (bannerH - btnH) / 2;
-                
-                const btn = new PIXI.Graphics();
-                btn.roundRect(btnX, btnY, btnW, btnH, 8);
-                btn.fill({ color: 0xdc2626, alpha: 1 });
-                btn.stroke({ color: 0xef4444, width: 2 });
-                btn.eventMode = "static";
-                btn.cursor = "pointer";
-                btn.on("pointerdown", () => {
-                    // For now, do trial with 0 prestige spend
-                    // TODO: Add prestige spend UI
-                    this.game.doFinalTrial(0);
-                    this.renderAll();
-                });
-                this.finalPhaseBannerLayer.addChild(btn);
-                
-                const btnText = new PIXI.Text({
-                    text: "🎯 DO FINAL TRIAL",
-                    style: new PIXI.TextStyle({
-                        fontSize: 14,
-                        fill: 0xffffff,
-                        fontWeight: "800",
-                    }),
-                });
-                btnText.anchor.set(0.5);
-                btnText.position.set(btnX + btnW / 2, btnY + btnH / 2);
-                this.finalPhaseBannerLayer.addChild(btnText);
-            }
-        }
+            },
+            onFinalTrial: () => {
+                this.game.doFinalTrial(0);
+                this.renderAll();
+            },
+        });
     }
 
     // --------------------
     // Event Log (with prominent modifier display)
     // --------------------
     private renderEventLog() {
-        this.eventLogLayer.removeChildren();
-
-        const logW = 360;
-        const logH = 200;
-        const logX = 16;
-        const logY = this.app.renderer.height - logH - 70;
-
-        // Background
-        const bg = new PIXI.Graphics();
-        bg.roundRect(logX, logY, logW, logH, 10);
-        bg.fill({ color: 0x0d1117, alpha: 0.94 });
-        bg.stroke({ color: 0x30363d, width: 2 });
-        this.eventLogLayer.addChild(bg);
-
-        // Header
-        const title = new PIXI.Text({
-            text: "📜 Event Log",
-            style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffd700, fontWeight: "700" }),
+        this.eventLogPanel.render({
+            app: this.app,
+            game: this.game,
+            layer: this.eventLogLayer,
         });
-        title.position.set(logX + 12, logY + 8);
-        this.eventLogLayer.addChild(title);
-
-        // Find and highlight modifier event
-        const modifierEvent = this.game.state.eventLog.find(e => e.includes("Modifier:"));
-        
-        if (modifierEvent) {
-            // Prominent modifier display at top
-            const modName = modifierEvent.replace("🎛️ Modifier: ", "").replace("Modifier: ", "");
-            
-            const modBg = new PIXI.Graphics();
-            modBg.roundRect(logX + 10, logY + 32, logW - 20, 40, 6);
-            modBg.fill({ color: 0x1a2535 });
-            modBg.stroke({ color: 0x9333ea, width: 2 });
-            this.eventLogLayer.addChild(modBg);
-            
-            const modLabel = new PIXI.Text({
-                text: "⚙ GAME MODIFIER",
-                style: new PIXI.TextStyle({ fontSize: 10, fill: 0x9333ea, letterSpacing: 1 }),
-            });
-            modLabel.position.set(logX + 18, logY + 36);
-            this.eventLogLayer.addChild(modLabel);
-            
-            const modText = new PIXI.Text({
-                text: modName,
-                style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffffff, fontWeight: "700" }),
-            });
-            modText.position.set(logX + 18, logY + 50);
-            this.eventLogLayer.addChild(modText);
-        }
-
-        // Recent events (exclude modifier) - show more
-        const recentEvents = this.game.state.eventLog
-            .filter(e => !e.includes("Modifier:"))
-            .slice(-7)
-            .reverse();
-        
-        let yOffset = logY + (modifierEvent ? 80 : 35);
-
-        for (const event of recentEvents) {
-            // Determine icon and color based on event type
-            let icon = "•";
-            let color = 0xaaaaaa;
-            
-            if (event.includes("vs") || event.includes("WON") || event.includes("LOST") || event.includes("defeated")) {
-                icon = "⚔";
-                color = event.includes("WON") || event.includes("defeated") ? 0x00ff88 : 0xff6b6b;
-            } else if (event.includes("Prestige") || event.includes("🧩") || event.includes("Component")) {
-                icon = "🏆";
-                color = 0xffd700;
-            } else if (event.includes("PUSHBACK") || event.includes("damage") || event.includes("💀")) {
-                icon = "⚠";
-                color = 0xffaa00;
-            } else if (event.includes("placed tile") || event.includes("explored")) {
-                icon = "🗺";
-                color = 0x60a5fa;
-            } else if (event.includes("crafted") || event.includes("built")) {
-                icon = "🔧";
-                color = 0x9333ea;
-            }
-            
-            const eventText = new PIXI.Text({
-                text: `${icon} ${event}`,
-                style: new PIXI.TextStyle({ fontSize: 12, fill: color }),
-            });
-            eventText.position.set(logX + 12, yOffset);
-            this.eventLogLayer.addChild(eventText);
-            yOffset += 17;
-        }
-
-        if (recentEvents.length === 0 && !modifierEvent) {
-            const emptyText = new PIXI.Text({
-                text: "No events yet...",
-                style: new PIXI.TextStyle({ fontSize: 11, fill: 0x666666, fontStyle: "italic" }),
-            });
-            emptyText.position.set(logX + 12, yOffset);
-            this.eventLogLayer.addChild(emptyText);
-        }
     }
 
     // --------------------
     // Deck Info (UI колоды)
     // --------------------
     private renderDeckInfo() {
-        this.deckInfoLayer.removeChildren();
-
-        const deckW = 180;
-        const deckH = 120;
-        const deckX = 16;
-        const deckY = this.app.renderer.height - 148 - 180 - 10 - deckH; // Под Event Log
-
-        // Фон панели
-        const bg = new PIXI.Graphics();
-        bg.roundRect(deckX, deckY, deckW, deckH, 8);
-        bg.fill({ color: 0x1a1f2e, alpha: 0.92 });
-        bg.stroke({ color: 0x4a5568, width: 2, alpha: 0.6 });
-        this.deckInfoLayer.addChild(bg);
-
-        // Заголовок
-        const title = new PIXI.Text({
-            text: "🃏 Tile Deck",
-            style: new PIXI.TextStyle({
-                fontSize: 16,
-                fill: 0xffd700,
-                fontWeight: "700",
-                dropShadow: {
-                    alpha: 0.6,
-                    angle: 90,
-                    blur: 2,
-                    color: 0x000000,
-                    distance: 2,
-                },
-            }),
+        this.deckInfoPanel.render({
+            app: this.app,
+            game: this.game,
+            layer: this.deckInfoLayer,
         });
-        title.position.set(deckX + 12, deckY + 10);
-        this.deckInfoLayer.addChild(title);
-
-        // Информация о колоде
-        const tier1Remaining = this.game.state.tileDeck.getTier1Remaining();
-        const tier2Remaining = this.game.state.tileDeck.getTier2Remaining();
-        const totalRemaining = this.game.state.tileDeck.getRemainingCount();
-
-        const infoLines = [
-            `Tier 1: ${tier1Remaining} tiles`,
-            `Tier 2: ${tier2Remaining} tiles`,
-            ``,
-            `Total: ${totalRemaining} / 60`,
-        ];
-
-        let yOffset = deckY + 38;
-        for (const line of infoLines) {
-            const lineText = new PIXI.Text({
-                text: line,
-                style: new PIXI.TextStyle({
-                    fontSize: 14,
-                    fill: line.startsWith("Total") ? 0xffffff : 0xdddddd,
-                    fontWeight: line.startsWith("Total") ? "700" : "400",
-                }),
-            });
-            lineText.position.set(deckX + 12, yOffset);
-            this.deckInfoLayer.addChild(lineText);
-            yOffset += 18;
-        }
     }
 
     // ========================================
@@ -3672,7 +2917,7 @@ export class GameRenderer {
         bg.position.set(menuX, menuY);
         this.contextMenuLayer.addChild(bg);
 
-        if (!this.shownHints.has("context_menu") && this.hintsEnabled) {
+        if (this.tutorialHints.canShowHint("context_menu")) {
             this.showHint(
                 "context_menu",
                 "🧭 Action Menu",
@@ -3972,7 +3217,7 @@ export class GameRenderer {
     }
 
     private showActionHint(text: string, x: number, y: number): void {
-        if (!this.hintsEnabled) return;
+        if (!this.tutorialHints.isEnabled()) return;
         this.hideActionHint();
         
         this.hintContainer = new PIXI.Container();
@@ -4013,256 +3258,7 @@ export class GameRenderer {
      * @param onComplete Callback when animation completes
      */
     public showDiceRoll(result: { swords: number; skulls: number }, onComplete?: () => void): void {
-        this.diceResult = result;
-        this.diceCallback = onComplete || null;
-        
-        this.showDiceReadyToRoll();
-    }
-
-    private showDiceReadyToRoll(): void {
-        this.diceLayer.removeChildren();
-        
-        const screenW = this.app.screen.width;
-        const screenH = this.app.screen.height;
-        
-        // Panel in bottom-right corner (moved up and left)
-        const panelW = 200;
-        const panelH = 220;
-        const panelX = screenW - panelW - 400;
-        const panelY = screenH - panelH - 90;
-        
-        // Semi-transparent panel background
-        const panel = new PIXI.Graphics();
-        panel.roundRect(panelX, panelY, panelW, panelH, 12);
-        panel.fill({ color: 0x1a1a2e, alpha: 0.95 });
-        panel.stroke({ color: 0x00ffff, width: 2 });
-        this.diceLayer.addChild(panel);
-        
-        // Combat title
-        const titleText = new PIXI.Text({
-            text: "⚔️ COMBAT!",
-            style: new PIXI.TextStyle({
-                fontSize: 18,
-                fill: 0xff6b6b,
-                fontWeight: "bold",
-            }),
-        });
-        titleText.anchor.set(0.5);
-        titleText.position.set(panelX + panelW/2, panelY + 25);
-        this.diceLayer.addChild(titleText);
-        
-        // Dice container
-        const diceSize = 80;
-        const diceX = panelX + panelW/2;
-        const diceY = panelY + 90;
-        
-        // Static dice with "🎲"
-        const dice = new PIXI.Graphics();
-        dice.roundRect(diceX - diceSize/2, diceY - diceSize/2, diceSize, diceSize, 12);
-        dice.fill({ color: 0x2a2a4e });
-        dice.stroke({ color: 0x00ffff, width: 3 });
-        dice.eventMode = "static";
-        dice.cursor = "pointer";
-        this.diceLayer.addChild(dice);
-        
-        // Question mark
-        const diceText = new PIXI.Text({
-            text: "🎲",
-            style: new PIXI.TextStyle({
-                fontSize: 36,
-            }),
-        });
-        diceText.anchor.set(0.5);
-        diceText.position.set(diceX, diceY);
-        this.diceLayer.addChild(diceText);
-        
-        // "Click to Roll" text
-        const rollText = new PIXI.Text({
-            text: "🎯 Click to Roll!",
-            style: new PIXI.TextStyle({
-                fontSize: 14,
-                fill: 0x00ffff,
-                fontWeight: "bold",
-            }),
-        });
-        rollText.anchor.set(0.5);
-        rollText.position.set(diceX, panelY + panelH - 30);
-        this.diceLayer.addChild(rollText);
-        
-        // Hover effect on dice
-        dice.on("pointerover", () => {
-            dice.clear();
-            dice.roundRect(diceX - diceSize/2, diceY - diceSize/2, diceSize, diceSize, 12);
-            dice.fill({ color: 0x3a3a5e });
-            dice.stroke({ color: 0xffd700, width: 4 });
-        });
-        
-        dice.on("pointerout", () => {
-            dice.clear();
-            dice.roundRect(diceX - diceSize/2, diceY - diceSize/2, diceSize, diceSize, 12);
-            dice.fill({ color: 0x2a2a4e });
-            dice.stroke({ color: 0x00ffff, width: 3 });
-        });
-        
-        // Click to start rolling
-        dice.on("pointerdown", () => {
-            this.animateDiceRoll();
-        });
-    }
-
-    private animateDiceRoll(): void {
-        this.diceLayer.removeChildren();
-        
-        const screenW = this.app.screen.width;
-        const screenH = this.app.screen.height;
-        
-        // Panel in bottom-right corner (moved up and left)
-        const panelW = 200;
-        const panelH = 220;
-        const panelX = screenW - panelW - 40;
-        const panelY = screenH - panelH - 60;
-        
-        // Semi-transparent panel background
-        const panel = new PIXI.Graphics();
-        panel.roundRect(panelX, panelY, panelW, panelH, 12);
-        panel.fill({ color: 0x1a1a2e, alpha: 0.95 });
-        panel.stroke({ color: 0xffd700, width: 2 });
-        panel.eventMode = "static"; // Make panel interactive
-        this.diceLayer.addChild(panel);
-        
-        // Dice container
-        const diceSize = 80;
-        const diceX = panelX + panelW/2;
-        const diceY = panelY + 90;
-        
-        // Animation: show random faces quickly, then settle on result
-        const DICE_FACES = [
-            { emoji: "🗡️🗡️🗡️", color: 0x00ff00 }, // 3 swords
-            { emoji: "🗡️🗡️", color: 0x00dd00 },   // 2 swords
-            { emoji: "🗡️", color: 0x00bb00 },     // 1 sword
-            { emoji: "🗡️💀", color: 0xffaa00 },   // 1 sword + 1 skull
-            { emoji: "💀", color: 0xff4444 },     // 1 skull
-            { emoji: "💀💀", color: 0xff0000 },   // 2 skulls
-        ];
-        
-        // Get the final face based on result
-        let finalFaceIdx = 0;
-        if (this.diceResult!.swords === 3) finalFaceIdx = 0;
-        else if (this.diceResult!.swords === 2 && this.diceResult!.skulls === 0) finalFaceIdx = 1;
-        else if (this.diceResult!.swords === 1 && this.diceResult!.skulls === 0) finalFaceIdx = 2;
-        else if (this.diceResult!.swords === 1 && this.diceResult!.skulls === 1) finalFaceIdx = 3;
-        else if (this.diceResult!.swords === 0 && this.diceResult!.skulls === 1) finalFaceIdx = 4;
-        else if (this.diceResult!.swords === 0 && this.diceResult!.skulls === 2) finalFaceIdx = 5;
-        
-        const finalFace = DICE_FACES[finalFaceIdx];
-        
-        // Rolling text
-        const rollingText = new PIXI.Text({
-            text: "🎲 Rolling...",
-            style: new PIXI.TextStyle({
-                fontSize: 16,
-                fill: 0xffd700,
-                fontWeight: "bold",
-            }),
-        });
-        rollingText.anchor.set(0.5);
-        rollingText.position.set(diceX, panelY + 25);
-        this.diceLayer.addChild(rollingText);
-        
-        // Animate rolling
-        let frame = 0;
-        const totalFrames = 20;
-        const rollInterval = setInterval(() => {
-            frame++;
-            
-            // Remove old dice elements (keep panel and rolling text)
-            for (let i = this.diceLayer.children.length - 1; i > 1; i--) {
-                this.diceLayer.removeChildAt(i);
-            }
-            
-            // Random face during animation
-            const randomFace = DICE_FACES[Math.floor(Math.random() * 6)];
-            const currentFace = frame >= totalFrames ? finalFace : randomFace;
-            
-            // Draw dice
-            const dice = new PIXI.Graphics();
-            const wobble = frame < totalFrames ? Math.sin(frame * 0.8) * 5 : 0;
-            const scale = frame < totalFrames ? 1 + Math.sin(frame * 0.5) * 0.03 : 1;
-            
-            const actualSize = diceSize * scale;
-            dice.roundRect(diceX - actualSize/2 + wobble, diceY - actualSize/2, actualSize, actualSize, 12);
-            dice.fill({ color: 0x2a2a4e });
-            dice.stroke({ color: currentFace.color, width: 3 });
-            this.diceLayer.addChild(dice);
-            
-            // Dice emoji
-            const diceText = new PIXI.Text({
-                text: currentFace.emoji,
-                style: new PIXI.TextStyle({
-                    fontSize: 28 * scale,
-                    fill: 0xffffff,
-                }),
-            });
-            diceText.anchor.set(0.5);
-            diceText.position.set(diceX + wobble, diceY);
-            this.diceLayer.addChild(diceText);
-            
-            // Result text (show after settling)
-            if (frame >= totalFrames) {
-                clearInterval(rollInterval);
-                
-                // Update rolling text to result
-                rollingText.text = this.diceResult!.swords > 0 ? "⚔️ HIT!" : "💀 MISS!";
-                rollingText.style.fill = this.diceResult!.swords > 0 ? 0x00ff00 : 0xff4444;
-                
-                // Result summary
-                const resultText = new PIXI.Text({
-                    text: `🗡️${this.diceResult!.swords}  💀${this.diceResult!.skulls}`,
-                    style: new PIXI.TextStyle({
-                        fontSize: 18,
-                        fill: 0xffffff,
-                        fontWeight: "700",
-                    }),
-                });
-                resultText.anchor.set(0.5);
-                resultText.position.set(diceX, panelY + panelH - 55);
-                this.diceLayer.addChild(resultText);
-                
-                // "Click to continue" text
-                const continueText = new PIXI.Text({
-                    text: "Click to continue...",
-                    style: new PIXI.TextStyle({
-                        fontSize: 11,
-                        fill: 0x888888,
-                        fontStyle: "italic",
-                    }),
-                });
-                continueText.anchor.set(0.5);
-                continueText.position.set(diceX, panelY + panelH - 25);
-                this.diceLayer.addChild(continueText);
-                
-                // Make dice and panel clickable to dismiss
-                dice.eventMode = "static";
-                dice.cursor = "pointer";
-                panel.cursor = "pointer";
-                
-                const dismissDice = () => {
-                    // Save callback BEFORE hideDiceRoll clears it!
-                    const cb = this.diceCallback;
-                    this.hideDiceRoll();
-                    if (cb) cb();
-                };
-                
-                panel.on("pointerdown", dismissDice);
-                dice.on("pointerdown", dismissDice);
-            }
-        }, 70); // 70ms per frame = ~1.4s total animation
-    }
-
-    private hideDiceRoll(): void {
-        this.diceLayer.removeChildren();
-        this.diceResult = null;
-        this.diceCallback = null;
+        this.diceRollUI.showDiceRoll(result, onComplete);
     }
 
     // ========================================
@@ -4270,382 +3266,38 @@ export class GameRenderer {
     // ========================================
 
     public showToast(message: string, type: "info" | "success" | "warning" | "error" = "info", duration = 3000): void {
-        const colors = {
-            info: { bg: 0x2196f3, text: 0xffffff },
-            success: { bg: 0x4caf50, text: 0xffffff },
-            warning: { bg: 0xff9800, text: 0x000000 },
-            error: { bg: 0xf44336, text: 0xffffff },
-        };
-        const color = colors[type];
-
-        const container = new PIXI.Container();
-        const padding = 16;
-        const maxWidth = 300;
-
-        // Text
-        const text = new PIXI.Text({
-            text: message,
-            style: new PIXI.TextStyle({
-                fontSize: 14,
-                fill: color.text,
-                fontWeight: "600",
-                wordWrap: true,
-                wordWrapWidth: maxWidth - padding * 2,
-            }),
-        });
-
-        // Background
-        const bg = new PIXI.Graphics();
-        const width = Math.min(text.width + padding * 2, maxWidth + padding * 2);
-        const height = text.height + padding * 2;
-        bg.roundRect(0, 0, width, height, 8);
-        bg.fill({ color: color.bg, alpha: 0.95 });
-        bg.stroke({ color: 0x000000, width: 1, alpha: 0.2 });
-
-        text.position.set(padding, padding);
-
-        container.addChild(bg);
-        container.addChild(text);
-
-        // Position: stack from top-center (above the map, clearly visible)
-        const offsetY = this.activeToasts.reduce((sum, t) => sum + (t.container.height || 60) + 10, 60);
-        container.position.set((this.app.screen.width - width) / 2, offsetY);
-
-        // Fade in animation
-        container.alpha = 0;
-        
-        this.toastLayer.addChild(container);
-        this.activeToasts.push({ container, timer: duration });
-
-        // Animate in
-        let fadeIn = 0;
-        const fadeInInterval = setInterval(() => {
-            fadeIn += 0.1;
-            container.alpha = Math.min(1, fadeIn);
-            if (fadeIn >= 1) clearInterval(fadeInInterval);
-        }, 30);
-
-        // Auto dismiss
-        setTimeout(() => this.dismissToast(container), duration);
-    }
-
-    private dismissToast(container: PIXI.Container): void {
-        // Fade out
-        let fadeOut = 1;
-        const fadeOutInterval = setInterval(() => {
-            fadeOut -= 0.1;
-            container.alpha = Math.max(0, fadeOut);
-            if (fadeOut <= 0) {
-                clearInterval(fadeOutInterval);
-                this.toastLayer.removeChild(container);
-                this.activeToasts = this.activeToasts.filter(t => t.container !== container);
-                this.repositionToasts();
-            }
-        }, 30);
-    }
-
-    private repositionToasts(): void {
-        let offsetY = 60;
-        for (const toast of this.activeToasts) {
-            // Center horizontally
-            toast.container.x = (this.app.screen.width - toast.container.width) / 2;
-            toast.container.y = offsetY;
-            offsetY += toast.container.height + 10;
-        }
+        this.toastManager.showToast(message, type, duration);
     }
 
     // ========================================
     // TUTORIAL HINTS
     // ========================================
 
-    private loadShownHints(): Set<string> {
-        try {
-            const stored = localStorage.getItem(GameRenderer.HINTS_STORAGE_KEY);
-            if (stored) {
-                return new Set(JSON.parse(stored));
-            }
-        } catch (e) {
-            console.warn("Failed to load hints from localStorage:", e);
-        }
-        return new Set();
-    }
-
-    private saveShownHints(): void {
-        try {
-            localStorage.setItem(GameRenderer.HINTS_STORAGE_KEY, JSON.stringify([...this.shownHints]));
-        } catch (e) {
-            console.warn("Failed to save hints to localStorage:", e);
-        }
-    }
-
-    private loadHintsEnabled(): boolean {
-        try {
-            const stored = localStorage.getItem(GameRenderer.HINTS_ENABLED_STORAGE_KEY);
-            if (stored === null) return true;
-            return stored === "true";
-        } catch (e) {
-            console.warn("Failed to load hints toggle from localStorage:", e);
-            return true;
-        }
-    }
-
-    private saveHintsEnabled(): void {
-        try {
-            localStorage.setItem(GameRenderer.HINTS_ENABLED_STORAGE_KEY, String(this.hintsEnabled));
-        } catch (e) {
-            console.warn("Failed to save hints toggle to localStorage:", e);
-        }
-    }
-
     private setHintsEnabled(enabled: boolean): void {
-        this.hintsEnabled = enabled;
-        this.saveHintsEnabled();
+        this.tutorialHints.setEnabled(enabled);
         if (!enabled) {
-            this.hideHint();
             this.hideActionHint();
         }
         this.renderAll();
     }
 
-    public showHint(id: string, title: string, message: string, options?: { 
-        x?: number; 
-        y?: number; 
+    public showHint(id: string, title: string, message: string, options?: {
+        x?: number;
+        y?: number;
         anchor?: "center" | "top" | "bottom";
         showOnce?: boolean;
         highlightRect?: { x: number; y: number; width: number; height: number };
     }): void {
-        if (!this.hintsEnabled) return;
-        // Skip if already shown (for showOnce hints)
-        if (options?.showOnce !== false && this.shownHints.has(id)) return;
-        this.shownHints.add(id);
-        this.saveShownHints(); // Persist to localStorage
-
-        // Remove current hint if any
-        if (this.currentHint) {
-            this.tutorialLayer.removeChild(this.currentHint);
-        }
-        if (this.currentHighlight) {
-            this.tutorialLayer.removeChild(this.currentHighlight);
-            this.currentHighlight = null;
-        }
-        if (this.highlightPulseInterval !== null) {
-            clearInterval(this.highlightPulseInterval);
-            this.highlightPulseInterval = null;
-        }
-
-        if (options?.highlightRect) {
-            const highlight = new PIXI.Graphics();
-            highlight.roundRect(
-                options.highlightRect.x - 6,
-                options.highlightRect.y - 6,
-                options.highlightRect.width + 12,
-                options.highlightRect.height + 12,
-                12
-            );
-            highlight.fill({ color: 0x00d4ff, alpha: 0.08 });
-            highlight.stroke({ color: 0xffd700, width: 3, alpha: 0.9 });
-            this.tutorialLayer.addChild(highlight);
-            this.currentHighlight = highlight;
-
-            let pulse = 0;
-            this.highlightPulseInterval = window.setInterval(() => {
-                pulse += 0.08;
-                const alpha = 0.5 + Math.sin(pulse) * 0.25;
-                highlight.alpha = Math.max(0.2, Math.min(0.9, alpha));
-            }, 30);
-        }
-
-        const container = new PIXI.Container();
-        const padding = 20;
-        const maxWidth = 320;
-
-        // Title
-        const titleText = new PIXI.Text({
-            text: title,
-            style: new PIXI.TextStyle({
-                fontSize: 18,
-                fill: 0x4fc3f7,
-                fontWeight: "700",
-            }),
-        });
-
-        // Message
-        const messageText = new PIXI.Text({
-            text: message,
-            style: new PIXI.TextStyle({
-                fontSize: 14,
-                fill: 0xdddddd,
-                wordWrap: true,
-                wordWrapWidth: maxWidth - padding * 2,
-                lineHeight: 20,
-            }),
-        });
-
-        // Dismiss button
-        const dismissBtn = new PIXI.Container();
-        const btnBg = new PIXI.Graphics();
-        btnBg.roundRect(0, 0, 60, 28, 4);
-        btnBg.fill({ color: 0x4fc3f7 });
-        
-        const btnText = new PIXI.Text({
-            text: "OK",
-            style: new PIXI.TextStyle({
-                fontSize: 13,
-                fill: 0x000000,
-                fontWeight: "700",
-            }),
-        });
-        btnText.position.set(30 - btnText.width / 2, 14 - btnText.height / 2);
-        
-        dismissBtn.addChild(btnBg);
-        dismissBtn.addChild(btnText);
-        dismissBtn.eventMode = "static";
-        dismissBtn.cursor = "pointer";
-        dismissBtn.on("pointerdown", () => this.hideHint());
-
-        // Layout
-        titleText.position.set(padding, padding);
-        messageText.position.set(padding, padding + titleText.height + 10);
-        dismissBtn.position.set(padding, padding + titleText.height + 10 + messageText.height + 15);
-
-        const width = Math.min(Math.max(titleText.width, messageText.width) + padding * 2, maxWidth + padding * 2);
-        const height = padding * 2 + titleText.height + 10 + messageText.height + 15 + 28;
-
-        // Background with border
-        const bg = new PIXI.Graphics();
-        bg.roundRect(0, 0, width, height, 12);
-        bg.fill({ color: 0x1a1a2e, alpha: 0.98 });
-        bg.stroke({ color: 0x4fc3f7, width: 2 });
-
-        // Arrow indicator (pointing to target)
-        const arrow = new PIXI.Graphics();
-        arrow.moveTo(width / 2 - 10, height);
-        arrow.lineTo(width / 2, height + 15);
-        arrow.lineTo(width / 2 + 10, height);
-        arrow.fill({ color: 0x1a1a2e });
-
-        container.addChild(bg);
-        container.addChild(arrow);
-        container.addChild(titleText);
-        container.addChild(messageText);
-        container.addChild(dismissBtn);
-
-        // Position
-        const x = options?.x ?? this.app.screen.width / 2;
-        const y = options?.y ?? this.app.screen.height / 2;
-        
-        if (options?.anchor === "top") {
-            container.position.set(x - width / 2, y);
-        } else if (options?.anchor === "bottom") {
-            container.position.set(x - width / 2, y - height - 20);
-        } else {
-            container.position.set(x - width / 2, y - height / 2);
-        }
-
-        // Clamp to screen
-        container.x = Math.max(10, Math.min(this.app.screen.width - width - 10, container.x));
-        container.y = Math.max(10, Math.min(this.app.screen.height - height - 10, container.y));
-
-        // Fade in
-        container.alpha = 0;
-        this.tutorialLayer.addChild(container);
-        this.currentHint = container;
-
-        let fade = 0;
-        const fadeInterval = setInterval(() => {
-            fade += 0.15;
-            container.alpha = Math.min(1, fade);
-            if (fade >= 1) clearInterval(fadeInterval);
-        }, 20);
+        this.tutorialHints.showHint(id, title, message, options);
     }
 
     public hideHint(): void {
-        if (!this.currentHint) return;
-
-        const hint = this.currentHint;
-        let fade = 1;
-        const fadeInterval = setInterval(() => {
-            fade -= 0.15;
-            hint.alpha = Math.max(0, fade);
-            if (fade <= 0) {
-                clearInterval(fadeInterval);
-                this.tutorialLayer.removeChild(hint);
-                if (this.currentHint === hint) {
-                    this.currentHint = null;
-                }
-                if (this.currentHighlight) {
-                    this.tutorialLayer.removeChild(this.currentHighlight);
-                    this.currentHighlight = null;
-                }
-                if (this.highlightPulseInterval !== null) {
-                    clearInterval(this.highlightPulseInterval);
-                    this.highlightPulseInterval = null;
-                }
-            }
-        }, 20);
+        this.tutorialHints.hideHint();
     }
 
     // Check and show tutorial hints based on game state
     public checkTutorialHints(): void {
-        if (!this.hintsEnabled) return;
-        const state = this.game.state;
-        const player = state.players[this.myPlayerIndex];
-
-        // First turn hint
-        if (state.round === 1 && state.actionPoints === 2 && !this.shownHints.has("welcome")) {
-            this.showHint(
-                "welcome",
-                "🚀 Welcome, Explorer!",
-                "Click on adjacent tiles to move. Each turn you have 2 action slots.\n\n" +
-                "• Move is FREE but commits a slot\n" +
-                "• Click explored tiles to see available actions\n" +
-                "• Gray tiles with ❓ are unexplored",
-                { anchor: "center" }
-            );
-        }
-
-        // Explore hint (first time seeing fog)
-        if (state.round >= 2 && !this.shownHints.has("explore")) {
-            this.showHint(
-                "explore",
-                "🔍 Exploration",
-                "Click on a gray ❓ tile to explore it. You'll place a new tile and fight any threat present.\n\n" +
-                "Combat ends your turn immediately!",
-                { anchor: "center" }
-            );
-        }
-
-        // Low HP warning
-        if (player.hp <= 2 && player.hp > 0 && !this.shownHints.has("low_hp")) {
-            this.showHintToast("⚠️ Low HP! Return to Landing Hub to heal.", "warning", 5000);
-            this.shownHints.add("low_hp");
-            this.saveShownHints();
-        }
-
-        // First resource gathered
-        if ((player.biomass > 0 || player.materials > 0 || player.alloys > 0) && !this.shownHints.has("resources")) {
-            this.showHint(
-                "resources",
-                "📦 Resources Collected!",
-                "Use resources to build:\n\n" +
-                "• 🏠 Base (2 Materials) - your outpost\n" +
-                "• 🏗️ Modules - upgrades in your base\n\n" +
-                "Build your Base on any cleared tile!",
-                { anchor: "center" }
-            );
-        }
-
-        // Can build base hint
-        if (player.materials >= 2 && !player.basePosition && !this.shownHints.has("can_build_base")) {
-            this.showHintToast("💡 You have enough Materials to build a Base!", "info", 4000);
-            this.shownHints.add("can_build_base");
-            this.saveShownHints();
-        }
-    }
-
-    private showHintToast(message: string, type: "info" | "success" | "warning" | "error" = "info", duration = 3000): void {
-        if (!this.hintsEnabled) return;
-        this.showToast(message, type, duration);
+        this.tutorialHints.checkTutorialHints(this.game, this.myPlayerIndex);
     }
 
     private renderSettingsMenu(): void {
@@ -4706,11 +3358,12 @@ export class GameRenderer {
         const toggle = new PIXI.Container();
         const toggleBg = new PIXI.Graphics();
         toggleBg.roundRect(0, 0, 80, 32, 16);
-        toggleBg.fill({ color: this.hintsEnabled ? 0x22c55e : 0x374151, alpha: 0.95 });
-        toggleBg.stroke({ color: this.hintsEnabled ? 0x4ade80 : 0x4b5563, width: 2 });
+        const hintsEnabled = this.tutorialHints.isEnabled();
+        toggleBg.fill({ color: hintsEnabled ? 0x22c55e : 0x374151, alpha: 0.95 });
+        toggleBg.stroke({ color: hintsEnabled ? 0x4ade80 : 0x4b5563, width: 2 });
 
         const toggleText = new PIXI.Text({
-            text: this.hintsEnabled ? "ON" : "OFF",
+            text: hintsEnabled ? "ON" : "OFF",
             style: new PIXI.TextStyle({ fontSize: 12, fill: 0xffffff, fontWeight: "700" }),
         });
         toggleText.anchor.set(0.5);
@@ -4723,7 +3376,7 @@ export class GameRenderer {
         toggle.eventMode = "static";
         toggle.cursor = "pointer";
         toggle.on("pointerdown", () => {
-            this.setHintsEnabled(!this.hintsEnabled);
+            this.setHintsEnabled(!hintsEnabled);
         });
 
         this.settingsLayer.addChild(toggle);
