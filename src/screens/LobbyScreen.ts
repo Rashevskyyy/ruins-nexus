@@ -18,7 +18,7 @@ import {
     isAuthConfigured,
     type UserProfile 
 } from "../auth/supabase";
-import { GAME_VERSION } from "../assets/AssetLoader";
+import { AssetLoader, GAME_VERSION } from "../assets/AssetLoader";
 import { RACE_LIST, RACES, type RaceId, type RaceOption } from "../entities/Race";
 
 type LobbyState = "menu" | "creating" | "joining" | "in-lobby";
@@ -38,6 +38,7 @@ export class LobbyScreen {
     // Race selection (v0.5 - now with option)
     private selectedRace: RaceId | null = null;
     private selectedOption: RaceOption = "A"; // Default to option A
+    private heroCarouselIndex = 0;
 
     // Callbacks - now includes initialState for server-authoritative
     public onGameStart: ((playerCount: number, myPlayerId: string, initialState?: any) => void) | null = null;
@@ -812,12 +813,12 @@ export class LobbyScreen {
     // RACE SELECTION (v0.4)
     // ========================================
 
-    private renderRaceSelection(_w: number, _h: number): void {
-        // Race selection panel - IMPROVED UI
+    private renderRaceSelection(_w: number, h: number): void {
         const panelX = 30;
-        const panelY = 180;
-        const panelW = 380; // Wider cards
-        
+        const panelY = 170;
+        const panelW = 520;
+        const panelH = Math.max(260, Math.min(360, h - panelY - 260));
+
         const raceTitle = new PIXI.Text({
             text: "🧬 Select Race",
             style: new PIXI.TextStyle({ 
@@ -829,98 +830,101 @@ export class LobbyScreen {
         raceTitle.position.set(panelX, panelY);
         this.container.addChild(raceTitle);
 
-        RACE_LIST.forEach((race, i) => {
-            const y = panelY + 40 + i * 75; // More spacing
-            const isSelected = this.selectedRace === race.id;
-            
-            // Race card
-            const card = new PIXI.Container();
-            card.position.set(panelX, y);
-            card.eventMode = "static";
-            card.cursor = "pointer";
-            card.hitArea = new PIXI.Rectangle(0, 0, panelW, 65); // Taller cards
-            
-            const cardBg = new PIXI.Graphics();
-            cardBg.roundRect(0, 0, panelW, 65, 8);
-            cardBg.fill({ color: isSelected ? 0x1e3a5f : 0x1a1a2e });
-            cardBg.stroke({ color: isSelected ? 0x00ffff : 0x3a3a5a, width: isSelected ? 3 : 1 });
-            card.addChild(cardBg);
-            
-            // Race emoji (larger)
-            const emoji = new PIXI.Text({
-                text: race.emoji,
-                style: new PIXI.TextStyle({ fontSize: 32 }), // Much larger
+        const raceIndex = this.getRaceCarouselIndex();
+        const race = RACE_LIST[raceIndex];
+
+        const frameY = panelY + 40;
+        const frame = new PIXI.Graphics();
+        frame.roundRect(panelX, frameY, panelW, panelH, 12);
+        frame.fill({ color: 0x0f172a });
+        frame.stroke({ color: 0x3b82f6, width: 2, alpha: 0.8 });
+        frame.eventMode = "static";
+        frame.cursor = "pointer";
+        this.container.addChild(frame);
+
+        const texture = AssetLoader.getTexture(`hero-${race.id}`);
+        if (texture) {
+            const sprite = new PIXI.Sprite(texture);
+            const scale = Math.max(panelW / texture.width, panelH / texture.height);
+            sprite.scale.set(scale);
+            sprite.anchor.set(0.5);
+            sprite.position.set(panelX + panelW / 2, frameY + panelH / 2);
+
+            const mask = new PIXI.Graphics();
+            mask.roundRect(panelX, frameY, panelW, panelH, 12);
+            this.container.addChild(mask);
+            sprite.mask = mask;
+            this.container.addChild(sprite);
+        } else {
+            const placeholder = new PIXI.Text({
+                text: "Hero art loading...",
+                style: new PIXI.TextStyle({ fontSize: 16, fill: 0x94a3b8 }),
             });
-            emoji.position.set(15, 16);
-            card.addChild(emoji);
-            
-            // Race name (larger)
-            const name = new PIXI.Text({
-                text: race.name,
-                style: new PIXI.TextStyle({ 
-                    fontSize: 16, // Larger
-                    fill: isSelected ? 0x00ffff : 0xffffff,
-                    fontWeight: isSelected ? "700" : "600"
-                }),
-            });
-            name.position.set(60, 10);
-            card.addChild(name);
-            
-            // Description (smaller subtitle)
-            const subtitle = new PIXI.Text({
-                text: race.description,
-                style: new PIXI.TextStyle({ 
-                    fontSize: 11, 
-                    fill: 0x999999,
-                    fontStyle: "italic"
-                }),
-            });
-            subtitle.position.set(60, 30);
-            card.addChild(subtitle);
-            
-            // Passive description (full text, larger font)
-            const passiveDesc = new PIXI.Text({
-                text: `Passive: ${race.passiveDescription}`,
-                style: new PIXI.TextStyle({ 
-                    fontSize: 12, // Larger
-                    fill: isSelected ? 0xaaffaa : 0x888888,
-                    wordWrap: true,
-                    wordWrapWidth: panelW - 70
-                }),
-            });
-            passiveDesc.position.set(60, 48);
-            card.addChild(passiveDesc);
-            
-            // Click handler
-            card.on("pointerdown", () => {
-                this.selectedRace = race.id;
-                socketClient.updatePlayerData({ raceId: race.id, raceOption: this.selectedOption });
-                this.render();
-            });
-            
-            // Hover effect
-            card.on("pointerover", () => {
-                if (!isSelected) {
-                    cardBg.clear();
-                    cardBg.roundRect(0, 0, panelW, 65, 8);
-                    cardBg.fill({ color: 0x252540 });
-                    cardBg.stroke({ color: 0x5a5a7a, width: 2 });
-                }
-            });
-            card.on("pointerout", () => {
-                if (!isSelected) {
-                    cardBg.clear();
-                    cardBg.roundRect(0, 0, panelW, 65, 8);
-                    cardBg.fill({ color: 0x1a1a2e });
-                    cardBg.stroke({ color: 0x3a3a5a, width: 1 });
-                }
-            });
-            
-            this.container.addChild(card);
+            placeholder.anchor.set(0.5);
+            placeholder.position.set(panelX + panelW / 2, frameY + panelH / 2);
+            this.container.addChild(placeholder);
+        }
+
+        frame.on("pointerdown", () => {
+            this.setSelectedRace(race.id);
         });
-        
+
+        this.createSmallButton(
+            "◀",
+            panelX + 30,
+            frameY + panelH / 2,
+            38,
+            32,
+            0x1e293b,
+            () => this.shiftRaceCarousel(-1)
+        );
+
+        this.createSmallButton(
+            "▶",
+            panelX + panelW - 30,
+            frameY + panelH / 2,
+            38,
+            32,
+            0x1e293b,
+            () => this.shiftRaceCarousel(1)
+        );
+
+        const nameTag = new PIXI.Text({
+            text: `${race.emoji} ${race.name}`,
+            style: new PIXI.TextStyle({ fontSize: 20, fill: 0xffffff, fontWeight: "700" }),
+        });
+        nameTag.anchor.set(0.5);
+        nameTag.position.set(panelX + panelW / 2, frameY + panelH - 30);
+        this.container.addChild(nameTag);
+
+        const descText = new PIXI.Text({
+            text: race.description,
+            style: new PIXI.TextStyle({ fontSize: 13, fill: 0x9ca3af }),
+        });
+        descText.anchor.set(0.5);
+        descText.position.set(panelX + panelW / 2, frameY + panelH + 18);
+        this.container.addChild(descText);
+
+        const passiveText = new PIXI.Text({
+            text: `Passive: ${race.passiveDescription}`,
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0xa7f3d0 }),
+        });
+        passiveText.anchor.set(0.5);
+        passiveText.position.set(panelX + panelW / 2, frameY + panelH + 38);
+        this.container.addChild(passiveText);
+
+        if (!this.selectedRace) {
+            const selectHint = new PIXI.Text({
+                text: "Click the art to lock in your hero",
+                style: new PIXI.TextStyle({ fontSize: 12, fill: 0xfacc15, fontWeight: "700" }),
+            });
+            selectHint.anchor.set(0.5);
+            selectHint.position.set(panelX + panelW / 2, frameY + panelH - 55);
+            this.container.addChild(selectHint);
+        }
+
         // Random button (larger)
-        const randomY = panelY + 40 + RACE_LIST.length * 75 + 10;
+        const randomY = frameY + panelH + 75;
         this.createButton(
             "🎲 Random Race",
             panelX + panelW / 2,
@@ -931,6 +935,7 @@ export class LobbyScreen {
             () => {
                 const randomRace = RACE_LIST[Math.floor(Math.random() * RACE_LIST.length)];
                 this.selectedRace = randomRace.id;
+                this.heroCarouselIndex = RACE_LIST.findIndex(r => r.id === randomRace.id);
                 this.selectedOption = Math.random() < 0.5 ? "A" : "B";
                 socketClient.updatePlayerData({ raceId: randomRace.id, raceOption: this.selectedOption });
                 this.render();
@@ -1104,6 +1109,29 @@ export class LobbyScreen {
             
             this.container.addChild(btnB);
         }
+    }
+
+    private getRaceCarouselIndex(): number {
+        if (this.selectedRace) {
+            const selectedIndex = RACE_LIST.findIndex(race => race.id === this.selectedRace);
+            if (selectedIndex >= 0) {
+                this.heroCarouselIndex = selectedIndex;
+                return selectedIndex;
+            }
+        }
+        return Math.max(0, Math.min(this.heroCarouselIndex, RACE_LIST.length - 1));
+    }
+
+    private shiftRaceCarousel(direction: number): void {
+        const nextIndex = (this.getRaceCarouselIndex() + direction + RACE_LIST.length) % RACE_LIST.length;
+        this.heroCarouselIndex = nextIndex;
+        this.setSelectedRace(RACE_LIST[nextIndex].id);
+    }
+
+    private setSelectedRace(raceId: RaceId): void {
+        this.selectedRace = raceId;
+        socketClient.updatePlayerData({ raceId, raceOption: this.selectedOption });
+        this.render();
     }
 
     // ========================================

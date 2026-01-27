@@ -59,6 +59,7 @@ export class HeroBoardPanel {
             headerHeight,
             playerColor,
             playerId: p.id,
+            raceId: p.raceId,
         });
 
         let y = panelY + headerHeight;

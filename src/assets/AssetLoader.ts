@@ -22,6 +22,13 @@ export const ASSET_MANIFEST: AssetManifest = {
     textures: {
         // Example: "hero": "/assets/hero.png",
         // Example: "monster": "/assets/monster.png",
+        "heroCard": "/assets/heroCard.png",
+        "hero-bioform": "/assets/bioform.png",
+        "hero-chrono": "/assets/chrono.png",
+        "hero-forge": "/assets/forge.png",
+        "hero-nomad": "/assets/nomad.png",
+        "hero-void": "/assets/void.png",
+        "hero-warbound": "/assets/warbound.png",
     } as Record<string, string>,
     
     // Spritesheets

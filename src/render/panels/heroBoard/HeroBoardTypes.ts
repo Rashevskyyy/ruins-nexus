@@ -24,6 +24,7 @@ export type HeroBoardHeaderContext = {
 export type HeroBoardHeaderData = {
     playerColor: number;
     playerId: string;
+    raceId: RaceId | null;
 };
 
 export type HeroBoardPrestigeContext = {

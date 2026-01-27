@@ -1,23 +1,42 @@
 import * as PIXI from "pixi.js";
+import { AssetLoader } from "../../../assets/AssetLoader";
 import type { HeroBoardHeaderContext, HeroBoardHeaderData } from "./HeroBoardTypes";
 
 type HeaderContext = HeroBoardHeaderContext & HeroBoardHeaderData;
 
 export class HeroBoardHeaderSection {
-    render({ layer, panelX, panelY, panelW, headerHeight, playerColor, playerId }: HeaderContext): void {
+    render({ layer, panelX, panelY, panelW, headerHeight, playerColor, playerId, raceId }: HeaderContext): void {
+        const portraitX = panelX + 22;
+        const portraitY = panelY + 26;
+        const portraitSize = 60;
         const portraitBox = new PIXI.Graphics();
-        portraitBox.roundRect(panelX + 22, panelY + 26, 60, 60, 12);
+        portraitBox.roundRect(portraitX, portraitY, portraitSize, portraitSize, 12);
         portraitBox.fill({ color: 0x0b1220 });
         portraitBox.stroke({ color: playerColor, width: 2, alpha: 0.6 });
         layer.addChild(portraitBox);
 
-        const portraitHint = new PIXI.Text({
-            text: "HERO",
-            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x8b949e, fontWeight: "700", letterSpacing: 1 }),
-        });
-        portraitHint.anchor.set(0.5);
-        portraitHint.position.set(panelX + 52, panelY + 56);
-        layer.addChild(portraitHint);
+        const portraitTexture = raceId ? AssetLoader.getTexture(`hero-${raceId}`) : null;
+        if (portraitTexture) {
+            const portraitSprite = new PIXI.Sprite(portraitTexture);
+            const scale = Math.max(portraitSize / portraitTexture.width, portraitSize / portraitTexture.height);
+            portraitSprite.scale.set(scale);
+            portraitSprite.anchor.set(0.5);
+            portraitSprite.position.set(portraitX + portraitSize / 2, portraitY + portraitSize / 2);
+
+            const mask = new PIXI.Graphics();
+            mask.roundRect(portraitX, portraitY, portraitSize, portraitSize, 12);
+            layer.addChild(mask);
+            portraitSprite.mask = mask;
+            layer.addChild(portraitSprite);
+        } else {
+            const portraitHint = new PIXI.Text({
+                text: "HERO",
+                style: new PIXI.TextStyle({ fontSize: 11, fill: 0x8b949e, fontWeight: "700", letterSpacing: 1 }),
+            });
+            portraitHint.anchor.set(0.5);
+            portraitHint.position.set(portraitX + portraitSize / 2, portraitY + portraitSize / 2);
+            layer.addChild(portraitHint);
+        }
 
         const title = new PIXI.Text({
             text: playerId,
