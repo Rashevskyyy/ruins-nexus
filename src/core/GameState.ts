@@ -3,7 +3,7 @@ import { Phase } from "./Phase";
 import type { Player } from "../entities/Player";
 import { TileDeck } from "../board/TileDeck";
 import type { HexCoord } from "../board/Hex";
-import { type ModifierId, type GameModifier, GAME_MODIFIERS, getRandomModifier, ASYMMETRIC_BONUSES, getRiskyTilesCount } from "./GameModifiers";
+import { type ModifierId, GAME_MODIFIERS, getRandomModifier, ASYMMETRIC_BONUSES, getRiskyTilesCount } from "./GameModifiers";
 
 export type UIMode = "NONE" | "EXPLORE_TARGETING" | "TILE_PLACEMENT" | "BUILD_MENU" | "CRAFT_MENU";
 

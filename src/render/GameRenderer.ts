@@ -111,7 +111,15 @@ export class GameRenderer {
     private tutorialLayer = new PIXI.Container();
     private shownHints: Set<string>;
     private currentHint: PIXI.Container | null = null;
+    private currentHighlight: PIXI.Graphics | null = null;
+    private highlightPulseInterval: number | null = null;
     private static HINTS_STORAGE_KEY = "cosmic_frontier_hints";
+    private static HINTS_ENABLED_STORAGE_KEY = "cosmic_frontier_hints_enabled";
+    private hintsEnabled = true;
+
+    // Settings popup
+    private settingsLayer = new PIXI.Container();
+    private settingsVisible = false;
 
     // Token reward UI (choose item after combat)
     private tokenRewardLayer = new PIXI.Container();
@@ -149,6 +157,7 @@ export class GameRenderer {
 
         // Load shown hints from localStorage
         this.shownHints = this.loadShownHints();
+        this.hintsEnabled = this.loadHintsEnabled();
 
         this.app.stage.addChild(this.boardLayer);
         this.boardLayer.sortableChildren = true; // Enable zIndex sorting
@@ -212,6 +221,9 @@ export class GameRenderer {
 
         this.app.stage.addChild(this.tutorialLayer); // Tutorial hints
         this.tutorialLayer.zIndex = 500;
+
+        this.app.stage.addChild(this.settingsLayer); // Settings popup
+        this.settingsLayer.zIndex = 470;
 
         // Remove old action buttons - now using context menu on tiles
         // this.createActionButtons();
@@ -358,6 +370,7 @@ export class GameRenderer {
         this.renderFinalPhaseBanner(); // v0.5: Final Phase banner
         this.renderDebugPanel(); // Debug Panel
         this.checkPendingTokenRewards(); // Token reward UI
+        this.renderSettingsMenu(); // Settings popup
         
         // Check and show tutorial hints
         this.checkTutorialHints();
@@ -1376,8 +1389,48 @@ export class GameRenderer {
             }),
         });
         playerLabel.anchor.set(1, 0.5);
-        playerLabel.position.set(w - 20, h / 2);
+        playerLabel.position.set(w - 70, h / 2);
         this.topStatusLayer.addChild(playerLabel);
+
+        // Settings button
+        const settingsBtn = new PIXI.Container();
+        const settingsBg = new PIXI.Graphics();
+        settingsBg.roundRect(0, 0, 32, 32, 8);
+        settingsBg.fill({ color: 0x21262d, alpha: 0.95 });
+        settingsBg.stroke({ color: 0x4a90d9, width: 2, alpha: 0.8 });
+        
+        const settingsIcon = new PIXI.Text({
+            text: "⚙️",
+            style: new PIXI.TextStyle({ fontSize: 16 }),
+        });
+        settingsIcon.anchor.set(0.5);
+        settingsIcon.position.set(16, 16);
+        settingsIcon.eventMode = "none";
+        
+        settingsBtn.addChild(settingsBg);
+        settingsBtn.addChild(settingsIcon);
+        settingsBtn.position.set(w - 50, 12);
+        settingsBtn.eventMode = "static";
+        settingsBtn.cursor = "pointer";
+        settingsBtn.on("pointerdown", () => {
+            this.settingsVisible = !this.settingsVisible;
+            this.renderAll();
+        });
+        
+        settingsBtn.on("pointerover", () => {
+            settingsBg.clear();
+            settingsBg.roundRect(0, 0, 32, 32, 8);
+            settingsBg.fill({ color: 0x30363d, alpha: 0.95 });
+            settingsBg.stroke({ color: 0x6cb2ff, width: 2 });
+        });
+        settingsBtn.on("pointerout", () => {
+            settingsBg.clear();
+            settingsBg.roundRect(0, 0, 32, 32, 8);
+            settingsBg.fill({ color: 0x21262d, alpha: 0.95 });
+            settingsBg.stroke({ color: 0x4a90d9, width: 2, alpha: 0.8 });
+        });
+        
+        this.topStatusLayer.addChild(settingsBtn);
     }
 
     // --------------------
@@ -1518,7 +1571,7 @@ export class GameRenderer {
         }
     }
     
-    private addCombatLine(label: string, value: string, color: number, panelX: number, y: number) {
+    public addCombatLine(label: string, value: string, color: number, panelX: number, y: number) {
         const labelText = new PIXI.Text({
             text: label,
             style: new PIXI.TextStyle({ fontSize: 12, fill: 0x8b949e }),
@@ -1602,6 +1655,7 @@ export class GameRenderer {
         const myPlayer = this.game.state.players[this.myPlayerIndex];
         if (!myPlayer) return;
         if (!this.isMyTurn) return; // Only show hints on my turn
+        if (!this.hintsEnabled) return;
         
         const hints: string[] = [];
         
@@ -1989,7 +2043,7 @@ export class GameRenderer {
     /**
      * v0.6: Ultra compact equipment summary - single row (improved)
      */
-    private renderEquipmentSummaryCompact(p: import("../entities/Player").Player, x: number, y: number, width: number) {
+    public renderEquipmentSummaryCompact(p: import("../entities/Player").Player, x: number, y: number, width: number) {
         const weaponsCount = p.inventory.weapons.filter(w => w !== null).length;
         const modulesCount = p.inventory.spells.filter(s => s !== null).length;
         const unitsCount = p.units.filter(u => u !== null).length;
@@ -2047,7 +2101,7 @@ export class GameRenderer {
     /**
      * v0.6: Simplified equipment summary - just icons with counts
      */
-    private renderEquipmentSummary(p: import("../entities/Player").Player, x: number, y: number, width: number) {
+    public renderEquipmentSummary(p: import("../entities/Player").Player, x: number, y: number, _width: number) {
         const slotSize = 42;
         const gap = 10;
         
@@ -2140,7 +2194,7 @@ export class GameRenderer {
         this.heroBoardLayer.addChild(slot);
     }
     
-    private renderSectionHeader(text: string, x: number, y: number, color: number) {
+    public renderSectionHeader(text: string, x: number, y: number, color: number) {
         const label = new PIXI.Text({
             text: text,
             style: new PIXI.TextStyle({
@@ -2154,7 +2208,7 @@ export class GameRenderer {
         this.heroBoardLayer.addChild(label);
     }
     
-    private renderLifeTokensCompact(p: { hp: number; maxHp: number }, x: number, y: number) {
+    public renderLifeTokensCompact(p: { hp: number; maxHp: number }, x: number, y: number) {
         const heartSize = 16;
         const gap = 4;
 
@@ -2191,7 +2245,7 @@ export class GameRenderer {
     /**
      * v0.6: Modern Prestige Bar with large display
      */
-    private renderPrestigeBarModern(p: { prestige: number }, x: number, y: number, width: number) {
+    public renderPrestigeBarModern(p: { prestige: number }, x: number, y: number, width: number) {
         const barH = 32; // Tall bar
         const pressureThreshold = 12;
         const noRerollThreshold = 15;
@@ -2288,7 +2342,7 @@ export class GameRenderer {
     /**
      * v0.6: Prestige as a progress bar with pressure warnings (LARGER VERSION)
      */
-    private renderPrestigeBar(p: { prestige: number }, x: number, y: number, width: number) {
+    public renderPrestigeBar(p: { prestige: number }, x: number, y: number, width: number) {
         const barH = 24; // Increased from 16
         const pressureThreshold = 12;
         const noRerollThreshold = 15;
@@ -2381,7 +2435,7 @@ export class GameRenderer {
         this.heroBoardLayer.addChild(warning);
     }
     
-    private renderModuleTokensCompact(p: { modules: string[] }, x: number, y: number, _width: number) {
+    public renderModuleTokensCompact(p: { modules: string[] }, x: number, y: number, _width: number) {
         if (p.modules.length === 0) {
             const none = new PIXI.Text({
                 text: "No modules built yet",
@@ -2411,7 +2465,7 @@ export class GameRenderer {
         }
     }
     
-    private renderUnitsCompact(p: import("../entities/Player").Player, x: number, y: number, _width: number) {
+    public renderUnitsCompact(p: import("../entities/Player").Player, x: number, y: number, _width: number) {
         const slotSize = 36;
         const gap = 8;
         
@@ -2470,7 +2524,7 @@ export class GameRenderer {
         }
     }
     
-    private renderEquipmentCompact(p: import("../entities/Player").Player, x: number, y: number, _width: number) {
+    public renderEquipmentCompact(p: import("../entities/Player").Player, x: number, y: number, _width: number) {
         const slotSize = 36;
         const gap = 6;
         const isAtBase = this.game.isInOwnBase();
@@ -2562,7 +2616,7 @@ export class GameRenderer {
         this.heroBoardLayer.addChild(slot);
     }
     
-    private renderDivider(x: number, y: number, width: number) {
+    public renderDivider(x: number, y: number, width: number) {
         const divider = new PIXI.Graphics();
         divider.moveTo(x, y);
         divider.lineTo(x + width, y);
@@ -2586,6 +2640,7 @@ export class GameRenderer {
         
         const screenW = this.app.renderer.width;
         const screenH = this.app.renderer.height;
+        const isBase = this.game.canBuildBase();
         
         // Затемнение фона (backdrop)
         const backdrop = new PIXI.Graphics();
@@ -2611,9 +2666,25 @@ export class GameRenderer {
         panel.stroke({ color: playerColor, width: 4, alpha: 1 });
         panel.eventMode = "static"; // Блокируем клики на backdrop
         this.buildMenuLayer.addChild(panel);
+
+        if (!this.shownHints.has("build_menu") && this.hintsEnabled) {
+            const hintMessage = isBase
+                ? "Build your first Base here. It costs 2 🧱 Materials and unlocks Modules + Crafting."
+                : "Each module card shows its cost. Green prices mean you can afford it right now.";
+            this.showHint(
+                "build_menu",
+                "🏗️ Build Menu",
+                hintMessage,
+                {
+                    anchor: "top",
+                    x: panelX + panelW / 2,
+                    y: panelY - 10,
+                    highlightRect: { x: panelX, y: panelY, width: panelW, height: panelH },
+                }
+            );
+        }
         
         // Заголовок
-        const isBase = this.game.canBuildBase();
         const titleText = isBase ? "🏠 Build Base" : "🏗 Build Modules";
         
         const title = new PIXI.Text({
@@ -2860,6 +2931,20 @@ export class GameRenderer {
         panel.stroke({ color: playerColor, width: 4, alpha: 1 });
         panel.eventMode = "static";
         this.craftMenuLayer.addChild(panel);
+
+        if (!this.shownHints.has("craft_menu") && this.hintsEnabled) {
+            this.showHint(
+                "craft_menu",
+                "🔧 Crafting",
+                "Crafting consumes Components, Alloys, Materials, or Prestige. Green prices = affordable.",
+                {
+                    anchor: "top",
+                    x: panelX + panelW / 2,
+                    y: panelY - 10,
+                    highlightRect: { x: panelX, y: panelY, width: panelW, height: panelH },
+                }
+            );
+        }
         
         // Title
         const title = new PIXI.Text({
@@ -4124,6 +4209,20 @@ export class GameRenderer {
         bg.stroke({ color: 0x4a90d9, width: 2 });
         bg.position.set(menuX, menuY);
         this.contextMenuLayer.addChild(bg);
+
+        if (!this.shownHints.has("context_menu") && this.hintsEnabled) {
+            this.showHint(
+                "context_menu",
+                "🧭 Action Menu",
+                "Click an action to spend 1 AP. Hover actions to see what they do and their costs.",
+                {
+                    anchor: "top",
+                    x: menuX + menuWidth / 2,
+                    y: menuY - 20,
+                    highlightRect: { x: menuX, y: menuY, width: menuWidth, height: menuHeight },
+                }
+            );
+        }
         
         // Arrow pointing to tile
         const arrow = new PIXI.Graphics();
@@ -4411,6 +4510,7 @@ export class GameRenderer {
     }
 
     private showActionHint(text: string, x: number, y: number): void {
+        if (!this.hintsEnabled) return;
         this.hideActionHint();
         
         this.hintContainer = new PIXI.Container();
@@ -4816,12 +4916,43 @@ export class GameRenderer {
         }
     }
 
+    private loadHintsEnabled(): boolean {
+        try {
+            const stored = localStorage.getItem(GameRenderer.HINTS_ENABLED_STORAGE_KEY);
+            if (stored === null) return true;
+            return stored === "true";
+        } catch (e) {
+            console.warn("Failed to load hints toggle from localStorage:", e);
+            return true;
+        }
+    }
+
+    private saveHintsEnabled(): void {
+        try {
+            localStorage.setItem(GameRenderer.HINTS_ENABLED_STORAGE_KEY, String(this.hintsEnabled));
+        } catch (e) {
+            console.warn("Failed to save hints toggle to localStorage:", e);
+        }
+    }
+
+    private setHintsEnabled(enabled: boolean): void {
+        this.hintsEnabled = enabled;
+        this.saveHintsEnabled();
+        if (!enabled) {
+            this.hideHint();
+            this.hideActionHint();
+        }
+        this.renderAll();
+    }
+
     public showHint(id: string, title: string, message: string, options?: { 
         x?: number; 
         y?: number; 
         anchor?: "center" | "top" | "bottom";
         showOnce?: boolean;
+        highlightRect?: { x: number; y: number; width: number; height: number };
     }): void {
+        if (!this.hintsEnabled) return;
         // Skip if already shown (for showOnce hints)
         if (options?.showOnce !== false && this.shownHints.has(id)) return;
         this.shownHints.add(id);
@@ -4830,6 +4961,36 @@ export class GameRenderer {
         // Remove current hint if any
         if (this.currentHint) {
             this.tutorialLayer.removeChild(this.currentHint);
+        }
+        if (this.currentHighlight) {
+            this.tutorialLayer.removeChild(this.currentHighlight);
+            this.currentHighlight = null;
+        }
+        if (this.highlightPulseInterval !== null) {
+            clearInterval(this.highlightPulseInterval);
+            this.highlightPulseInterval = null;
+        }
+
+        if (options?.highlightRect) {
+            const highlight = new PIXI.Graphics();
+            highlight.roundRect(
+                options.highlightRect.x - 6,
+                options.highlightRect.y - 6,
+                options.highlightRect.width + 12,
+                options.highlightRect.height + 12,
+                12
+            );
+            highlight.fill({ color: 0x00d4ff, alpha: 0.08 });
+            highlight.stroke({ color: 0xffd700, width: 3, alpha: 0.9 });
+            this.tutorialLayer.addChild(highlight);
+            this.currentHighlight = highlight;
+
+            let pulse = 0;
+            this.highlightPulseInterval = window.setInterval(() => {
+                pulse += 0.08;
+                const alpha = 0.5 + Math.sin(pulse) * 0.25;
+                highlight.alpha = Math.max(0.2, Math.min(0.9, alpha));
+            }, 30);
         }
 
         const container = new PIXI.Container();
@@ -4950,12 +5111,21 @@ export class GameRenderer {
                 if (this.currentHint === hint) {
                     this.currentHint = null;
                 }
+                if (this.currentHighlight) {
+                    this.tutorialLayer.removeChild(this.currentHighlight);
+                    this.currentHighlight = null;
+                }
+                if (this.highlightPulseInterval !== null) {
+                    clearInterval(this.highlightPulseInterval);
+                    this.highlightPulseInterval = null;
+                }
             }
         }, 20);
     }
 
     // Check and show tutorial hints based on game state
     public checkTutorialHints(): void {
+        if (!this.hintsEnabled) return;
         const state = this.game.state;
         const player = state.players[this.myPlayerIndex];
 
@@ -4985,7 +5155,7 @@ export class GameRenderer {
 
         // Low HP warning
         if (player.hp <= 2 && player.hp > 0 && !this.shownHints.has("low_hp")) {
-            this.showToast("⚠️ Low HP! Return to Landing Hub to heal.", "warning", 5000);
+            this.showHintToast("⚠️ Low HP! Return to Landing Hub to heal.", "warning", 5000);
             this.shownHints.add("low_hp");
             this.saveShownHints();
         }
@@ -5005,10 +5175,116 @@ export class GameRenderer {
 
         // Can build base hint
         if (player.materials >= 2 && !player.basePosition && !this.shownHints.has("can_build_base")) {
-            this.showToast("💡 You have enough Materials to build a Base!", "info", 4000);
+            this.showHintToast("💡 You have enough Materials to build a Base!", "info", 4000);
             this.shownHints.add("can_build_base");
             this.saveShownHints();
         }
+    }
+
+    private showHintToast(message: string, type: "info" | "success" | "warning" | "error" = "info", duration = 3000): void {
+        if (!this.hintsEnabled) return;
+        this.showToast(message, type, duration);
+    }
+
+    private renderSettingsMenu(): void {
+        this.settingsLayer.removeChildren();
+        if (!this.settingsVisible) return;
+
+        const screenW = this.app.renderer.width;
+        const screenH = this.app.renderer.height;
+
+        const backdrop = new PIXI.Graphics();
+        backdrop.rect(0, 0, screenW, screenH);
+        backdrop.fill({ color: 0x000000, alpha: 0.6 });
+        backdrop.eventMode = "static";
+        backdrop.cursor = "pointer";
+        backdrop.on("pointerdown", () => {
+            this.settingsVisible = false;
+            this.renderAll();
+        });
+        this.settingsLayer.addChild(backdrop);
+
+        const panelW = 420;
+        const panelH = 260;
+        const panelX = (screenW - panelW) / 2;
+        const panelY = (screenH - panelH) / 2;
+
+        const panel = new PIXI.Graphics();
+        panel.roundRect(panelX, panelY, panelW, panelH, 16);
+        panel.fill({ color: 0x1a1f2e, alpha: 0.98 });
+        panel.stroke({ color: 0x4a90d9, width: 3 });
+        panel.eventMode = "static";
+        this.settingsLayer.addChild(panel);
+
+        const title = new PIXI.Text({
+            text: "⚙️ Settings",
+            style: new PIXI.TextStyle({
+                fontSize: 22,
+                fill: 0xffffff,
+                fontWeight: "800",
+            }),
+        });
+        title.position.set(panelX + 20, panelY + 18);
+        this.settingsLayer.addChild(title);
+
+        const hintLabel = new PIXI.Text({
+            text: "Tutorial & helper hints",
+            style: new PIXI.TextStyle({ fontSize: 14, fill: 0xa0aec0 }),
+        });
+        hintLabel.position.set(panelX + 20, panelY + 80);
+        this.settingsLayer.addChild(hintLabel);
+
+        const hintDescription = new PIXI.Text({
+            text: "Highlights menus and explains costs for actions.",
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0x6b7280 }),
+        });
+        hintDescription.position.set(panelX + 20, panelY + 104);
+        this.settingsLayer.addChild(hintDescription);
+
+        const toggle = new PIXI.Container();
+        const toggleBg = new PIXI.Graphics();
+        toggleBg.roundRect(0, 0, 80, 32, 16);
+        toggleBg.fill({ color: this.hintsEnabled ? 0x22c55e : 0x374151, alpha: 0.95 });
+        toggleBg.stroke({ color: this.hintsEnabled ? 0x4ade80 : 0x4b5563, width: 2 });
+
+        const toggleText = new PIXI.Text({
+            text: this.hintsEnabled ? "ON" : "OFF",
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0xffffff, fontWeight: "700" }),
+        });
+        toggleText.anchor.set(0.5);
+        toggleText.position.set(40, 16);
+        toggleText.eventMode = "none";
+
+        toggle.addChild(toggleBg);
+        toggle.addChild(toggleText);
+        toggle.position.set(panelX + panelW - 110, panelY + 78);
+        toggle.eventMode = "static";
+        toggle.cursor = "pointer";
+        toggle.on("pointerdown", () => {
+            this.setHintsEnabled(!this.hintsEnabled);
+        });
+
+        this.settingsLayer.addChild(toggle);
+
+        const closeBtn = new PIXI.Graphics();
+        closeBtn.circle(panelX + panelW - 24, panelY + 24, 14);
+        closeBtn.fill({ color: 0xff4444, alpha: 0.9 });
+        closeBtn.stroke({ color: 0xffffff, width: 2, alpha: 0.8 });
+        closeBtn.eventMode = "static";
+        closeBtn.cursor = "pointer";
+        closeBtn.on("pointerdown", () => {
+            this.settingsVisible = false;
+            this.renderAll();
+        });
+        this.settingsLayer.addChild(closeBtn);
+
+        const closeX = new PIXI.Text({
+            text: "✕",
+            style: new PIXI.TextStyle({ fontSize: 16, fill: 0xffffff, fontWeight: "900" }),
+        });
+        closeX.anchor.set(0.5);
+        closeX.position.set(panelX + panelW - 24, panelY + 24);
+        this.settingsLayer.addChild(closeX);
     }
 
     // ========================================
