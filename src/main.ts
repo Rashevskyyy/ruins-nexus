@@ -1,12 +1,14 @@
 import * as PIXI from "pixi.js";
 import { createInitialState } from "./core/GameState";
-import { Game } from "./core/Game";
+import { Game, applyRaceBonusesToPlayer } from "./core/Game";
 import { Phase } from "./core/Phase";
 import { GameRenderer } from "./render/GameRenderer";
 import { LobbyScreen } from "./screens/LobbyScreen";
 import { LoadingScreen } from "./screens/LoadingScreen";
 import { socketClient } from "./network/SocketClient";
 import { AssetLoader, GAME_VERSION } from "./assets/AssetLoader";
+import type { RaceId, RaceOption } from "./entities/Race";
+import type { GameState } from "./core/GameState";
 
 // ========================================
 // MAIN FUNCTION (async wrapper)
@@ -83,11 +85,24 @@ async function main() {
         }
     };
 
+    function applyLobbySelectionsToState(state: GameState): void {
+        if (!socketClient.players.length) return;
+        
+        state.players.forEach((player) => {
+            const lobbyPlayer = socketClient.players.find(p => p.id === player.id);
+            if (!lobbyPlayer?.raceId || !lobbyPlayer.raceOption) return;
+            player.raceId = lobbyPlayer.raceId as RaceId;
+            player.raceOption = lobbyPlayer.raceOption as RaceOption;
+            applyRaceBonusesToPlayer(player);
+        });
+    }
+
     lobbyScreen.onRequestStart = async () => {
         console.log("[Main] Admin requesting game start");
         
         const state = createInitialState();
         state.players = state.players.slice(0, socketClient.players.length);
+        applyLobbySelectionsToState(state);
         
         const serializedState = {
             currentPlayerIndex: state.currentPlayerIndex,
@@ -99,6 +114,8 @@ async function main() {
             pendingTileRotation: state.pendingTileRotation,
             selectedPlacementPosition: state.selectedPlacementPosition,
             eventLog: state.eventLog,
+            modifierId: state.modifierId,
+            componentMultiplier: state.componentMultiplier,
             isFinalPhase: state.isFinalPhase,
             isFinalPreparation: state.isFinalPreparation,
             finalPrepRoundsLeft: state.finalPrepRoundsLeft,
@@ -111,6 +128,7 @@ async function main() {
             missionFailed: state.missionFailed,
             players: state.players,
             tiles: state.board.getAllTiles(),
+            tileDeck: state.tileDeck.serialize(),
         };
         
         const result = await socketClient.startGame(serializedState);
@@ -194,6 +212,7 @@ async function main() {
     function startGame(playerCount: number) {
         const state = createInitialState();
         state.players = state.players.slice(0, playerCount);
+        applyLobbySelectionsToState(state);
         
         game = new Game(state);
         renderer = new GameRenderer(app, game);
@@ -265,6 +284,8 @@ async function main() {
         }
         
         game.state.eventLog = serverState.eventLog || [];
+        game.state.modifierId = serverState.modifierId ?? game.state.modifierId;
+        game.state.componentMultiplier = serverState.componentMultiplier ?? game.state.componentMultiplier;
         game.state.isFinalPhase = serverState.isFinalPhase;
         game.state.finalRoundsLeft = serverState.finalRoundsLeft;
         game.state.finalThreatHp = serverState.finalThreatHp;
@@ -314,6 +335,8 @@ async function main() {
             pendingTileRotation: game.state.pendingTileRotation,
             selectedPlacementPosition: game.state.selectedPlacementPosition,
             eventLog: game.state.eventLog,
+            modifierId: game.state.modifierId,
+            componentMultiplier: game.state.componentMultiplier,
             // Final Phase (v0.5)
             isFinalPhase: game.state.isFinalPhase,
             isFinalPreparation: game.state.isFinalPreparation,

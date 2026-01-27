@@ -14,6 +14,21 @@ import { CraftingSystem, CRAFT_RECIPES, canSpendPrestige, spendPrestige } from "
 import { UNIT_DEFINITIONS, createUnit, canAffordUnit, type UnitType } from "../entities/Unit";
 import type { RaceId, RaceOption } from "../entities/Race";
 
+export function applyRaceBonusesToPlayer(player: Player): void {
+    if (!player.raceId || !player.raceOption) return;
+    
+    // 🧬 Bioform Option A: +1 max HP
+    if (player.raceId === "bioform" && player.raceOption === "A") {
+        player.maxHp += 1;
+        player.hp += 1; // Also heal the extra HP
+    }
+    
+    // 🌀 Void Option B: 2 recalls per game
+    if (player.raceId === "void" && player.raceOption === "B") {
+        player.voidRecallsRemaining = 2;
+    }
+}
+
 /**
  * Game - Cosmic Frontier
  * 
@@ -63,18 +78,7 @@ export class Game {
      * Apply race bonuses to player (called once at game start)
      */
     private applyRaceBonuses(player: Player): void {
-        if (!player.raceId || !player.raceOption) return;
-        
-        // 🧬 Bioform Option A: +1 max HP
-        if (player.raceId === "bioform" && player.raceOption === "A") {
-            player.maxHp += 1;
-            player.hp += 1; // Also heal the extra HP
-        }
-        
-        // 🌀 Void Option B: 2 recalls per game
-        if (player.raceId === "void" && player.raceOption === "B") {
-            player.voidRecallsRemaining = 2;
-        }
+        applyRaceBonusesToPlayer(player);
     }
     
     /**
