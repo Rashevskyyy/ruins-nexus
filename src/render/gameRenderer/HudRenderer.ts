@@ -292,16 +292,27 @@ export class HudRenderer {
         const panelY = 70;
 
         const bonuses = this.calculateStaticCombatBonuses(myPlayer);
-        const total = 1 + bonuses.units + bonuses.modules + bonuses.weapons + bonuses.race;
+        const bonusTotal = bonuses.units + bonuses.modules + bonuses.weapons + bonuses.race;
+        const baseMin = 0;
+        const baseMax = 3;
+        const totalMin = baseMin + bonusTotal;
+        const totalMax = baseMax + bonusTotal;
 
         const myTile = this.options.game.state.board.getTile(myPlayer.position);
         const monsterTier = myTile?.monsterTier && myTile.encounterActive ? myTile.monsterTier : 0;
-        const canBeat = monsterTier > 0 && total >= monsterTier;
+        const canBeat = monsterTier > 0 && totalMin >= monsterTier;
+        const canMaybeBeat = monsterTier > 0 && totalMax >= monsterTier;
         const nearMonster = monsterTier > 0;
 
         let borderColor = 0xffd700;
         if (nearMonster) {
-            borderColor = canBeat ? 0x00ff88 : 0xff4444;
+            if (canBeat) {
+                borderColor = 0x00ff88;
+            } else if (canMaybeBeat) {
+                borderColor = 0xffd700;
+            } else {
+                borderColor = 0xff4444;
+            }
         }
 
         const bg = new PIXI.Graphics();
@@ -323,9 +334,11 @@ export class HudRenderer {
         header.position.set(panelX + panelW / 2, panelY + 10);
         this.options.combatSummaryLayer.addChild(header);
 
-        const totalColor = nearMonster ? (canBeat ? 0x00ff88 : 0xff4444) : 0x00ff88;
+        const totalColor = nearMonster
+            ? (canBeat ? 0x00ff88 : (canMaybeBeat ? 0xffd700 : 0xff4444))
+            : 0x00ff88;
         const totalLabel = new PIXI.Text({
-            text: `${total}`,
+            text: totalMin === totalMax ? `${totalMax}` : `${totalMin}-${totalMax}`,
             style: new PIXI.TextStyle({
                 fontSize: 48,
                 fill: totalColor,
@@ -346,8 +359,8 @@ export class HudRenderer {
         divider.fill({ color: 0x30363d });
         this.options.combatSummaryLayer.addChild(divider);
 
-        const breakdownItems: Array<{ label: string; value: number; color: number }> = [
-            { label: "Base", value: 1, color: 0x8b949e },
+        const breakdownItems: Array<{ label: string; value: number | string; color: number }> = [
+            { label: "Hero Die", value: `${baseMin}-${baseMax}`, color: 0x8b949e },
         ];
         if (bonuses.units > 0) breakdownItems.push({ label: "Units", value: bonuses.units, color: 0x3b82f6 });
         if (bonuses.weapons > 0) breakdownItems.push({ label: "Gear", value: bonuses.weapons, color: 0xffd700 });
@@ -363,7 +376,7 @@ export class HudRenderer {
             this.options.combatSummaryLayer.addChild(labelText);
 
             const valueText = new PIXI.Text({
-                text: item.value === 1 && item.label === "Base" ? "1" : `+${item.value}`,
+                text: typeof item.value === "string" ? item.value : `+${item.value}`,
                 style: new PIXI.TextStyle({ fontSize: 11, fill: item.color, fontWeight: "700" }),
             });
             valueText.anchor.set(1, 0);
@@ -389,12 +402,17 @@ export class HudRenderer {
         }
 
         if (nearMonster) {
-            const hintText = canBeat ? `✓ Can beat T${monsterTier}` : `✗ Need ${monsterTier - total} more`;
+            let hintText = `✗ Need ${monsterTier - totalMax} more`;
+            if (canBeat) {
+                hintText = `✓ Guaranteed vs T${monsterTier}`;
+            } else if (canMaybeBeat) {
+                hintText = `⚠️ Possible vs T${monsterTier}`;
+            }
             const hint = new PIXI.Text({
                 text: hintText,
                 style: new PIXI.TextStyle({
                     fontSize: 10,
-                    fill: canBeat ? 0x00ff88 : 0xff6b6b,
+                    fill: canBeat ? 0x00ff88 : (canMaybeBeat ? 0xffd700 : 0xff6b6b),
                     fontWeight: "600",
                 }),
             });

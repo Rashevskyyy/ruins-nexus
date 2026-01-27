@@ -19,7 +19,7 @@ export class HeroBoardHeaderSection {
 
         const portraitHint = new PIXI.Text({
             text: "HERO",
-            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x8b949e, fontWeight: "700", letterSpacing: 1 }),
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x8b949e, fontWeight: "700", letterSpacing: 1 }),
         });
         portraitHint.anchor.set(0.5);
         portraitHint.position.set(panelX + 52, panelY + 50);
@@ -27,14 +27,14 @@ export class HeroBoardHeaderSection {
 
         const title = new PIXI.Text({
             text: playerId,
-            style: new PIXI.TextStyle({ fontSize: 22, fill: playerColor, fontWeight: "900" }),
+            style: new PIXI.TextStyle({ fontSize: 24, fill: playerColor, fontWeight: "900" }),
         });
         title.position.set(panelX + 92, panelY + 24);
         layer.addChild(title);
 
         const subtitle = new PIXI.Text({
             text: "Commander",
-            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x8b949e, fontWeight: "600", letterSpacing: 1 }),
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0x8b949e, fontWeight: "600", letterSpacing: 1 }),
         });
         subtitle.position.set(panelX + 92, panelY + 48);
         layer.addChild(subtitle);
