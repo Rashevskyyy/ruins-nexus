@@ -1,206 +1,500 @@
-# Cosmic Frontier - Current Implementation State
-## Version 0.2
+# Cosmic Frontier — текущее состояние реализации
+## Статус кода: v0.5 (функциональность), package.json: 0.2.0
+
+> Документ описывает **реально реализованное поведение** по коду в `src/` и `server/`.
+> Если правило указано в дизайне, но не реализовано в коде — оно помечено отдельно.
 
 ---
 
-## ✅ Fully Implemented
+## 1) Краткий обзор проекта
 
-### Core Systems
+**Cosmic Frontier** — кооперативно-соревновательная настольная стратегия, реализованная как сетевой браузерный прототип (PixiJS + Socket.IO). Игроки исследуют планету на гексах, сражаются с монстрами, добывают ресурсы, строят базу, крафтят снаряжение и готовятся к финальному испытанию.
 
-#### Map & Tiles
-- **Hexagonal map** with axial coordinates
-- **Tile placement** (Carcassonne-style) during EXPLORE action
-- **Tile rotation** (6 orientations, 60° each)
-- **Blocked edges** ("mountains") that prevent movement
-- **Fog tiles** (undiscovered placeholders around Landing Hub)
-- **Tile deck**: 40 Tier 1 → 20 Tier 2 → 1 Final Tile (sequential)
-- **2 pre-opened tiles** with Materials at game start
-
-#### Tile Types
-| Tier | Count | Resources | Monster HP | Blocked Edges |
-|------|-------|-----------|------------|---------------|
-| Tier 1 | 40 | 1 resource | 2 HP | 0-2 |
-| Tier 2 | 20 | 2-3 resources | 4 HP | 1-3 |
-| Final | 1 | - | Triggers Final Threat | 0 |
-
-#### Resources
-| Icon | Name | Use |
-|------|------|-----|
-| 🧬 | Biomass | Healing, support |
-| 🧱 | Materials | Base, modules |
-| ⚙ | Alloys | Advanced modules |
-
-### Turn System (Karak 2 Rules)
-- **2 action slots per turn**
-- **Slot = optional Move + optional Action**
-- Move is always BEFORE action
-- Move without action = slot consumed
-- **Combat ends turn immediately**
-
-### Actions
-- **GATHER** - collect resources (1 per tile per player per round cooldown)
-- **TRADE** - exchange resources at Landing Hub
-- **EXPLORE** - place new tile from deck
-- **BUILD** - build Base or Modules
-
-### Combat
-- **Hero Die** (6 faces): 3⚔, 2⚔, 1⚔, 1⚔+1💀, 1💀, 2💀
-- **Dice roll animation** with visual feedback
-- ⚔ reduces monster HP
-- 💀 reduces player HP
-- Victory = monster HP ≤ 0, gain Prestige
-- Defeat = pushed back to previous tile
-- **KO System**: If HP reaches 0, player skips next turn and heals 3 HP
-
-### Base & Modules
-- **Base** (2🧱): +2 Prestige, 1 per player, on any cleared tile
-- **Modules** (build any amount in 1 action when in own Base):
-  - Assault Bay (2🧱 1⚙): +1 damage
-  - Shield Array (2🧱 1⚙): ignore 1💀
-  - Tactical Uplink (1🧱 2⚙): 1 reroll
-  - Supply Depot (3🧱): +1 resource on gather
-  - Relic Vault (2🧱 2⚙): activates relics
-  - Beacon Spire (3🧱 3⚙): ultimate power
-
-### Prestige
-| Action | Prestige |
-|--------|----------|
-| Kill Tier 1 monster | +1 |
-| Kill Tier 2 monster | +2 |
-| Explore Tier 2 tile | +1 |
-| Build Base | +2 |
-| Build Module | +1 to +3 |
-
-### Multiplayer
-- **Socket.IO** real-time sync
-- **Lobby system** - create/join rooms by code
-- **Reconnect** - page refresh returns to game
-- **Turn enforcement** - only active player can act
-- **Server on Railway**, client on Vercel
-
-### Authentication
-- **Supabase** integration
-- **Google OAuth** login
-- Player name shown in lobby
-
-### UI/HUD
-- **Hero Board** - HP, resources, prestige, modules, inventory slots
-- **Tile Deck** - remaining T1/T2 tiles
-- **Event Log** - last 10 game events
-- **Context Menu** - click tile to see available actions
-- **Zoom/Pan** - scroll to zoom, right-drag to pan
-- **Debug Panel** - add resources, heal, skip turn, reset game
-- **Toast Notifications** - success/error/warning messages with animations
-- **Tutorial Hints** - onboarding popups for new players (shown once per session)
+**Ключевые характеристики:**
+- **PvE** (нет PvP-атаки/кражи/блокировки других игроков напрямую).
+- **Гекс-сетка** с вращаемыми тайлами и заблокированными гранями.
+- **Пошаговая система Karak 2**: 2 слота действий, движение всегда до действия.
+- **Мультиплеер**: лобби, комнаты, ре-синк после перезагрузки страницы.
 
 ---
 
-## 🔄 Partially Implemented
+## 2) Технологический стек
 
-### Final Phase
-- ✅ Final Tile spawns Final Threat (40 HP)
-- ✅ 6 round countdown starts
-- ❌ Fighting Final Threat (not connected to combat)
-- ❌ Game Over screen
-
-### Module Effects
-- ✅ UI and build system
-- ❌ Actual combat bonuses not applied
-
-### Items/Loot
-- ✅ Inventory slots in Hero Board (Weapons, Spells, Amulet)
-- ❌ No items drop from monsters
-- ❌ No equip/use system
+| Компонент | Технология |
+|---|---|
+| Клиент | TypeScript, PixiJS 8, Vite |
+| Сервер | Node.js, Express, Socket.IO |
+| БД / Auth | Supabase (опционально) |
+| Деплой | Vercel (frontend), Railway (backend) |
 
 ---
 
-## ❌ Not Implemented
+## 3) Скрипты и локальный запуск
 
-- Sound effects
-- Animations (movement, attack)
-- Different monster types
-- Relics system
-- Events (Tier 3)
-- Tutorial
-- Mobile UI optimization
-- Leaderboard / statistics
-- Matchmaking
-
----
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|------------|
-| Frontend | TypeScript, PixiJS 8, Vite |
-| Backend | Node.js, Express, Socket.IO |
-| Database | Supabase (PostgreSQL) |
-| Auth | Supabase + Google OAuth |
-| Hosting | Vercel (frontend), Railway (backend) |
+```bash
+npm install
+npm run dev        # клиент
+npm run server     # сервер
+npm run dev:all    # клиент + сервер
+npm run build
+npm run preview
+```
 
 ---
 
-## File Structure
+## 4) Игровой цикл (high-level)
+
+1. **Лобби** — создание/вход в комнату по коду, выбор расы и опции A/B.
+2. **Старт игры** — сервер отправляет начальное состояние (карта + колоды + модификатор).
+3. **Раунд** — игроки по очереди делают ходы по 2 слота действий.
+4. **Исследование** — игроки кладут новые тайлы, двигаются, дерутся, строят.
+5. **Orbital Phase** — после нахождения финального тайла.
+6. **Final Trial** — каждый игрок делает финальную попытку, определяется победитель.
+
+---
+
+## 5) Сетевой слой (Socket.IO)
+
+### Сервер (server/index.ts)
+- **Состояние игры хранится на сервере** (server-authoritative).
+- Поддержка **reconnect** по `sessionId`.
+
+**События:**
+- `check-session` — восстановление сессии.
+- `create-room` — создание комнаты.
+- `join-room` — вход по коду.
+- `player-ready` — готовность игрока.
+- `update-player-data` — выбор расы и опции.
+- `start-game` — запуск с initialState.
+- `game-action` — отправка действия + нового состояния.
+- `request-state` — запрос актуального состояния.
+- `leave-room` — выход игрока.
+- `disconnect` — разрыв соединения.
+
+**Серверная очистка:** комнаты удаляются через 2 часа неактивности.
+
+---
+
+## 6) Лобби и старт игры
+
+- **Код комнаты** из 4 символов (A–Z, 2–9 без «I» и «O»).
+- **Максимум игроков** определяется при создании комнаты (1–4).
+- **Игрок P1** становится администратором (может стартовать матч).
+- **Race + Option** выбираются в лобби.
+- После старта игра **не сбрасывается** при перезагрузке страницы — работает reconnect.
+
+---
+
+## 7) Игровая карта
+
+### 7.1. Координаты
+- Используются **axial координаты** (`q`, `r`).
+
+### 7.2. Стартовая раскладка
+- **Landing Hub** в центре (0,0).
+- **Starting Sector** для каждого игрока вокруг хаба.
+- Сектора **распределяются по случайным граням** (edge 0–5) при старте.
+- **Туман (fog) отсутствует** при старте — появляется только после Explore.
+
+### 7.3. Starting Sector
+- Доступен с начала.
+- Не содержит монстров.
+- Дает **1 случайный ресурс** (🧬/🧱/⚙).
+- **Это не база** — базу нужно построить отдельно.
+
+---
+
+## 8) Колода тайлов
+
+### 8.1. Общие правила
+- **Порядок:** все Tier 1 → затем Tier 2 (с финальным тайлом внутри Tier 2).
+- **Финальный тайл** вставляется в случайную позицию внутри набора Tier 2.
+
+### 8.2. Количество
+| Тип | Кол-во |
+|---|---|
+| Tier 1 | 20 |
+| Tier 2 | 10 |
+| Final Tile | 1 |
+| **Итого** | **31** |
+
+### 8.3. Состав Tier 1
+- 12 тайлов: Tier 1 монстр (HP=1).
+- 8 тайлов: Tier 2 монстр (HP=2).
+- **Каждый тайл** Tier 1 содержит **1 ресурс**.
+
+### 8.4. Состав Tier 2
+- 6 тайлов: Tier 3 монстр (HP=3).
+- 4 тайла: Tier 4 монстр (HP=4).
+- Каждый тайл имеет **2–3 ресурса** (фиксированные комбинации).
+
+### 8.5. Blocked Edges (препятствия)
+- На тайле случайно выбираются **заблокированные грани** (0–5).
+- **Tier 1:** 0–2 заблокированные грани.
+- **Tier 2:** 1–3 заблокированные грани.
+- При размещении тайл можно вращать (0–5 шагов по 60°).
+
+---
+
+## 9) Risky Tiles (опасные тайлы)
+
+**Список эффектов:**
+- **☣ Toxic Zone**: +1 💀 к урону в каждом бою на тайле.
+- **⚡ Unstable Ground**: -1 HP при каждом Gather.
+- **🌪 Gravity Rift**: выход с тайла всегда расходует слот движения.
+
+**Количество Risky Tiles** зависит от модификатора:
+- Базово: **3** (2 T1 + 1 T2).
+- High Risk: **5** (3 T1 + 2 T2).
+- Extreme Risk: **6** (4 T1 + 2 T2).
+
+---
+
+## 10) Модификаторы игры (Game Modifiers)
+
+**Выбираются в лобби или случайно:**
+
+| ID | Название | Эффект |
+|---|---|---|
+| none | Standard | Без изменений |
+| asymmetric_start | Asymmetric Start | разные стартовые бонусы |
+| high_risk | High Risk Planet | 5 Risky Tiles |
+| extreme_risk | Extreme Risk | 6 Risky Tiles |
+| scarce_components | Scarce Components | ×0.83 компоненты |
+| harsh_components | Harsh Economy | ×0.72 компоненты |
+
+**Asymmetric Start:**
+- P1: +1 🧬
+- P2: +1 🧱
+- P3: +1 ⚙
+- P4: +1 HP
+
+---
+
+## 11) Ресурсы и экономика
+
+| Иконка | Название | Назначение |
+|---|---|---|
+| 🧬 Biomass | лечение/строительство | Build/Modules/Units |
+| 🧱 Materials | строительство | Build/Modules/Units |
+| ⚙ Alloys | продвинутые модули | Modules/Units/Crafting |
+| 🧩 Components | крафт | Crafting/Units |
+| ⭐ Prestige | очки + валюта | Победа, финальная фаза, spend |
+
+---
+
+## 12) Система ходов (Karak 2)
+
+- **2 слота действий за ход.**
+- Каждый слот = **Move (опционально) + Action (опционально)**.
+- **Move всегда до действия**, после действия обычный Move запрещен.
+- **Move без действия** расходует слот.
+- Если в слоте уже был Move/Action → слот закрывается.
+
+**Исключения (free move):**
+- 🌀 Void пассив: **1 бесплатный Move за ход**.
+- 🌀 Option A: после Explore можно сделать бесплатный Move.
+- ⚔ Option B (Warbound): бесплатный Move после убийства.
+- 🌪 Gravity Rift **отменяет** бесплатный Move.
+
+---
+
+## 13) Действия игрока
+
+### 13.1. EXPLORE
+- Доступно, если **есть слот** и игрок не в Final Preparation.
+- Игрок выбирает соседнюю пустую клетку с открытым соседом.
+- Тайл берется из колоды, можно вращать (0–5).
+- После размещения **персонаж автоматически перемещается** на тайл.
+- Если на тайле есть монстр — **бой начинается сразу**.
+
+### 13.2. MOVE
+- Разрешен только на соседний гекс.
+- Проверяются **blocked edges** между тайлами.
+- Если тайл еще не открыт — он раскрывается и активирует бой при наличии монстра.
+
+### 13.3. GATHER
+- Можно собирать с **Resource** и **Starting Sector** тайлов.
+- Нельзя, если на тайле активный монстр.
+- **Cooldown:** 1 раз на игрока с тайла за раунд.
+- **Supply Depot:** +1 ко всем типам ресурсов.
+- **Nomad пассив:** +1 к первому Gather в ход.
+- **Unstable Ground:** -1 HP при Gather (если нет Nomad Option A).
+
+### 13.4. TRADE (Landing Hub)
+- Выполняется только на Hub.
+- **Обмены по приоритету:**
+  1) 2 🧬 → 1 ⚙
+  2) 2 🧱 → 1 🧬
+- Если не хватает ресурсов — ничего не происходит.
+
+### 13.5. HEAL
+- Стоит 1 слот.
+- Восстанавливает до **+2 HP** (если не полный HP).
+
+### 13.6. BUILD BASE
+- Стоимость: **2 🧱** (Forge — 1 🧱 один раз).
+- Только на открытом, безопасном тайле (не Hub, без монстра).
+- Только 1 база на игрока.
+- Нельзя строить, если другой игрок стоит на тайле.
+- Дает **+2 Prestige**.
+
+### 13.7. BUILD MODULES
+- Только в собственной базе.
+- В одном действии можно построить **несколько модулей сразу**.
+- Стоимость суммируется, Prestige начисляется сразу.
+
+### 13.8. CRAFT
+- Только в собственной базе.
+- Стоит 1 слот (Forge Option A: **первый крафт за ход — бесплатно**).
+- Требуются **Components + ресурсы + Prestige**.
+- Нельзя крафтить, если нет свободного слота.
+
+### 13.9. HIRE UNIT
+- Только в собственной базе.
+- Стоит 1 слот.
+- Макс. **2 юнита** у игрока.
+
+### 13.10. Recall to Base (Final Preparation)
+- Бесплатное действие.
+- Доступно только во время Orbital Phase.
+- Void Option B: **2 использования за игру**, остальные — 1 раз за фазу.
+
+### 13.11. Orbital Hangar Teleport
+- Требует модуль **Orbital Hangar**.
+- Стоит 1 слот.
+- Телепортирует из базы на безопасный открытый тайл.
+- Нельзя телепортироваться на Final Tile.
+
+---
+
+## 14) Бой (Combat)
+
+### 14.1. Кубик героя
+Грани (6):
+- 3⚔
+- 2⚔
+- 1⚔
+- 1⚔ + 1💀
+- 1💀
+- 2💀
+
+### 14.2. Основное правило
+- **Один бросок = один бой**.
+- Победа, если **totalSwords ≥ monsterTier**.
+- При поражении игрок **отбрасывается назад**.
+- Монстр **остается жив**.
+- **Урон по игроку применяется всегда**, даже при победе.
+
+### 14.3. Prestige Pressure
+- Prestige ≥ 12 → монстры требуют **+1 к Tier**.
+- Prestige ≥ 15 → **никаких reroll**.
+
+### 14.4. Reroll priority (если 0 ⚔)
+1. Tactical Scanner (юнит)
+2. Tactical Uplink (модуль)
+3. Reroll Module (экипировка)
+4. Heavy Striker (weapon)
+
+### 14.5. Pushback restriction
+- Если игрок был отброшен с тайла — **нельзя атаковать тот же тайл снова в этом ходу**.
+
+---
+
+## 15) Награды за бой
+
+| Tier | Prestige | Components | Тип |
+|---|---|---|---|
+| 1 | +1 | 0 | автомат | 
+| 2 | +1 | +1 | автомат |
+| 3 | +2 | +2 | выбор |
+| 4 | +3 | +3 | выбор |
+| 6 | +5 | +4 | выбор |
+
+**Выбор награды (Tier 3+):**
+- 🎖 Standard (Prestige + Components)
+- ❤️ Recover (+2 HP)
+- ⭐ Push Forward (+1 доп. Prestige, если Prestige < 10)
+
+**Underdog Bonus:**
+- Самый низкий Prestige получает **+1 🧩** за первое убийство Tier 3+.
+
+---
+
+## 16) Расы (Race System)
+
+Каждый игрок выбирает Race + Option A/B.
+
+### 🧬 Warden (bioform)
+- Пассив: игнорирует первый 💀 в бою.
+- A: +1 Max HP
+- B: +1 HP после каждой победы.
+
+### 🔨 Smith (forge)
+- Пассив: первая постройка (Base/Module) −1 🧱.
+- A: первый крафт за ход бесплатный.
+- B: +1 🧩 за первое убийство Tier 2+.
+
+### 🌀 Runner (void)
+- Пассив: 1 бесплатный Move за ход.
+- A: после Explore бесплатный Move.
+- B: Recall 2 раза за игру.
+
+### ⚔ Breaker (warbound)
+- Пассив: если выпало ≥1⚔ → +1⚔.
+- A: +1⚔ против Tier 3+.
+- B: после убийства бесплатный Move.
+
+### ⏳ Oracle (chrono)
+- Пассив: 1 бесплатный reroll/ход (если 0⚔).
+- A: первый 💀 в бою = 0.
+- B: при pushback не получает урон.
+
+### 🏕 Seeker (nomad)
+- Пассив: первый Gather в ход +1 ресурс.
+- A: игнорирует Unstable Ground.
+- B: +1 🧩 при первом входе в Tier 3+.
+
+---
+
+## 17) База и модули
+
+**База**
+- 1 база на игрока.
+- +2 Prestige.
+- Требует 2 🧱 (или 1 🧱 с Forge скидкой).
+
+**Модули**
+| Модуль | Стоимость | Эффект | Prestige |
+|---|---|---|---|
+| AssaultBay | 2🧱 1⚙ | +1 ⚔ если есть хотя бы 1 ⚔ | +1 |
+| ShieldArray | 2🧱 1⚙ | -1 💀 | +1 |
+| TacticalUplink | 1🧱 2⚙ | 1 reroll | +1 |
+| SupplyDepot | 3🧱 | +1 к каждому Gather | +1 |
+| RelicVault | 2🧱 2⚙ | будущий контент | +2 |
+| BeaconSpire | 3🧱 3⚙ | будущий контент | +3 |
+| OrbitalHangar | 2🧱 2⚙ | 1 teleport / game | +1 |
+
+> ⚠️ В коде **prestigeCost** у OrbitalHangar описан, но пока **не списывается**.
+
+---
+
+## 18) Крафт (Crafting)
+
+### Слоты инвентаря
+- **2 Weapon**, **2 Module**, **1 Amulet**.
+
+### Рецепты
+| Item | Стоимость | Эффект |
+|---|---|---|
+| Blaster Core | 2🧩 1⚙ | +1 ⚔ |
+| Plasma Edge | 3🧩 1⚙ | +2 ⚔ если есть 1 ⚔ |
+| Heavy Cannon | 4🧩 2⚙ | +3 ⚔ (описание: -1 Move) |
+| Reroll Module | 2🧩 | 1 reroll |
+| Shield Matrix | 2🧩 1🧱 | игнор 1 💀 |
+| Overdrive | 3🧩 | +2 ⚔ следующ. бой |
+| Core Relic | 4🧩 +2⭐ | +1 ⚔ и игнор 1 💀 |
+
+> ⚠️ Ограничение Heavy Cannon по Move **описано в тексте**, но в коде **не реализовано**.
+
+---
+
+## 19) Юниты
+
+| Unit | Стоимость | Эффект |
+|---|---|---|
+| Assault Drone | 2🧩 1⚙ | +1 ⚔ |
+| Shield Bot | 2🧩 1🧱 | -1 💀 |
+| Tactical Scanner | 3🧩 1⚙ | 1 reroll |
+
+---
+
+## 20) Final Phase (v0.5)
+
+### Orbital Phase (Final Preparation)
+- Запускается при нахождении Final Tile.
+- Длится **4 раунда**.
+- Explore запрещен.
+- Разрешены Move/Gather/Build/Craft.
+- Recall to Base доступен.
+
+### Final Trial
+- Каждый игрок делает **одну попытку**.
+- **Score = бонусы от оружия/модулей/амулета + потраченный Prestige**.
+- Победитель Final Trial получает **+5 Prestige**.
+- Итоговый победитель — игрок с **максимальным Prestige** (tie-breaker: Final Trial Score).
+
+### Legacy Final Threat
+- В коде все еще есть механика финального босса (40 HP), но она **не используется в v0.5**.
+
+---
+
+## 21) UI/UX
+
+- **Hero Board**: ресурсы, HP, Prestige, компоненты, слоты экипировки.
+- **Tile Deck Counter**: остаток T1/T2 и наличие финального тайла.
+- **Context Menu**: доступные действия по тайлу (Move/Explore/Gather/Build/Craft/etc).
+- **Event Log**: последние 10 событий (с защитой от удаления записи модификатора).
+- **Dice Animation**: визуальный бросок перед применением результата.
+- **Combat Summary**: подсказки шанса победы и штрафов.
+- **Toast Notifications**: успех/ошибка/предупреждение.
+- **Tutorial Hints**: системные подсказки (можно отключить в настройках).
+- **Debug Panel**: выдача ресурсов, хил, пропуск хода, сброс лобби.
+- **Управление**: колесо мыши = zoom, правый клик + drag = панорама.
+
+---
+
+## 22) Состояние реализации (кратко)
+
+### ✅ Полностью реализовано
+- Hex map + tile rotation
+- Deck Tier 1/2 + Final Tile
+- Risky tiles + эффекты
+- Karak 2 turn system
+- Боевой чек + pushback
+- Расы + опции
+- База + модули
+- Крафт + инвентарь
+- Юниты
+- Orbital Phase + Final Trial
+- Мультиплеер + reconnect
+
+### 🔄 Частично реализовано
+- Prestige cost у модулей (описан, но не списывается)
+- Некоторые эффекты айтемов (legacy токены) сохранились, но не используются
+
+### ❌ Не реализовано
+- Полная система лута из токенов (Common/Uncommon/Spell/Legendary)
+- Звуки/анимации
+- Мобильная оптимизация
+- Leaderboard/статистика
+
+---
+
+## 23) Структура проекта (основные файлы)
 
 ```
 src/
-├── main.ts              # Entry point, multiplayer setup
+├── main.ts                   # клиентская логика + socket
 ├── core/
-│   └── Game.ts          # Core game logic, actions
+│   ├── Game.ts               # ядро правил
+│   ├── GameState.ts          # состояние игры
+│   └── GameModifiers.ts      # модификаторы
 ├── board/
-│   ├── Board.ts         # Map management
-│   ├── Tile.ts          # Tile types
-│   ├── TileDeck.ts      # Tile generation
-│   └── BlockedEdges.ts  # Edge rotation
+│   ├── Board.ts              # карта + стартовые сектора
+│   ├── Tile.ts               # сущность тайла
+│   └── TileDeck.ts           # генерация колоды
+├── entities/
+│   ├── Player.ts             # сущность игрока
+│   ├── Race.ts               # расы
+│   ├── Unit.ts               # юниты
+│   ├── Item.ts               # предметы
+│   └── BuildingType.ts       # модули
 ├── systems/
-│   ├── CombatSystem.ts  # Dice combat
-│   ├── ExplorationSystem.ts
-│   └── SettlementSystem.ts
-├── render/
-│   └── GameRenderer.ts  # All PixiJS rendering
-├── screens/
-│   └── LobbyScreen.ts   # Multiplayer lobby
-├── network/
-│   └── SocketClient.ts  # Socket.IO client
-└── auth/
-    └── supabase.ts      # Auth integration
-
-server/
-└── index.ts             # Socket.IO server
-```
-
----
-
-## Quick Start
-
-```bash
-# Install dependencies
-npm install
-
-# Run development (client + server)
-npm run dev:all
-
-# Build for production
-npm run build
-
-# Deploy
-git push  # Vercel auto-deploys
-# Railway auto-deploys from main branch
-```
-
----
-
-## Environment Variables
-
-### Client (.env)
-```
-VITE_SUPABASE_URL=https://xxx.supabase.co
-VITE_SUPABASE_ANON_KEY=xxx
-VITE_SERVER_URL=https://your-railway-url
-```
-
-### Server (Railway)
-```
-PORT=3001
-CLIENT_URL=https://your-vercel-url
+│   ├── CombatSystem.ts       # бой
+│   ├── ExplorationSystem.ts  # раскрытие тайлов
+│   ├── SettlementSystem.ts   # торговля
+│   └── CraftingSystem.ts     # крафт
+├── render/                   # PixiJS UI
+└── server/index.ts           # socket server
 ```
