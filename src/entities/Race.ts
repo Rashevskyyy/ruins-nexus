@@ -33,7 +33,7 @@ export type Race = {
 export const RACES: Record<RaceId, Race> = {
     bioform: {
         id: "bioform",
-        name: "Bioform Collective",
+        name: "Warden",
         emoji: "🧬",
         description: "Survivability, stability. Best for beginners.",
         passiveDescription: "Ignore the first 💀 in every combat",
@@ -48,7 +48,7 @@ export const RACES: Record<RaceId, Race> = {
     },
     forge: {
         id: "forge",
-        name: "Forge Syndicate",
+        name: "Smith",
         emoji: "🔨",
         description: "Economy, infrastructure. For crafting builds.",
         passiveDescription: "First Base or Module build costs −1 🧱",
@@ -63,7 +63,7 @@ export const RACES: Record<RaceId, Race> = {
     },
     void: {
         id: "void",
-        name: "Void Navigators",
+        name: "Runner",
         emoji: "🌀",
         description: "Mobility, positioning. For exploration builds.",
         passiveDescription: "1 Move per turn doesn't consume a slot",
@@ -78,7 +78,7 @@ export const RACES: Record<RaceId, Race> = {
     },
     warbound: {
         id: "warbound",
-        name: "Warbound Legion",
+        name: "Breaker",
         emoji: "⚔️",
         description: "Aggression, momentum. For combat builds.",
         passiveDescription: "If rolled at least 1 ⚔ → +1 ⚔",
@@ -93,7 +93,7 @@ export const RACES: Record<RaceId, Race> = {
     },
     chrono: {
         id: "chrono",
-        name: "Chrono Ascendants",
+        name: "Oracle",
         emoji: "⏳",
         description: "Control, intelligence. For anti-RNG builds.",
         passiveDescription: "Once per turn, reroll 1 die (doesn't count as system reroll)",
@@ -108,7 +108,7 @@ export const RACES: Record<RaceId, Race> = {
     },
     nomad: {
         id: "nomad",
-        name: "Nomad Consortium",
+        name: "Seeker",
         emoji: "🏕️",
         description: "Adaptation, flexibility. For exploration builds.",
         passiveDescription: "First Gather each turn gives +1 of any resource",
