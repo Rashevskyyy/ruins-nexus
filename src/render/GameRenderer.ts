@@ -7,6 +7,7 @@ import { canMoveBetween } from "../board/BlockedEdges";
 import { type EdgeIndex, getEdgeVertices } from "../board/HexEdges";
 import type { Tile } from "../board/Tile";
 import { GAME_VERSION } from "../assets/AssetLoader";
+import { MODULES, type ModuleType } from "../entities/BuildingType";
 
 export class GameRenderer {
     private HEX_SIZE = 50;
@@ -1750,7 +1751,20 @@ export class GameRenderer {
         this.heroBoardLayer.removeChildren();
 
         const panelW = 280;
-        const panelH = 380;
+        const moduleOrder: ModuleType[] = [
+            "AssaultBay",
+            "ShieldArray",
+            "TacticalUplink",
+            "SupplyDepot",
+            "RelicVault",
+            "BeaconSpire",
+            "OrbitalHangar",
+        ];
+        const builtModules = moduleOrder.filter((type) => p.modules.includes(type));
+        const moduleRows = Math.max(1, builtModules.length);
+        const moduleRowHeight = 36;
+        const modulesSectionHeight = 22 + moduleRows * moduleRowHeight + 6;
+        const panelH = 380 + modulesSectionHeight;
         const panelX = this.app.renderer.width - panelW - 20;
         const panelY = 70;
 
@@ -2036,6 +2050,86 @@ export class GameRenderer {
                 plus.anchor.set(0.5);
                 plus.position.set(ux + unitW / 2, y + 24);
                 this.heroBoardLayer.addChild(plus);
+            }
+        }
+
+        y += 65;
+
+        // ═══════════════════════════════════════
+        // BASE MODULES (built buildings + effects)
+        // ═══════════════════════════════════════
+        const moduleIcons: Record<ModuleType, string> = {
+            AssaultBay: "⚔️",
+            ShieldArray: "🛡️",
+            TacticalUplink: "📡",
+            SupplyDepot: "📦",
+            RelicVault: "🔮",
+            BeaconSpire: "🛰️",
+            OrbitalHangar: "🚀",
+        };
+
+        const modulesLabel = new PIXI.Text({
+            text: "🏠 BASE MODULES",
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0xffaa00, letterSpacing: 1, fontWeight: "600" }),
+        });
+        modulesLabel.position.set(leftX, y);
+        this.heroBoardLayer.addChild(modulesLabel);
+
+        const modulesCountLabel = new PIXI.Text({
+            text: `${builtModules.length}/${moduleOrder.length} BUILT`,
+            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x8b949e, fontWeight: "700" }),
+        });
+        modulesCountLabel.anchor.set(1, 0);
+        modulesCountLabel.position.set(rightX, y + 1);
+        this.heroBoardLayer.addChild(modulesCountLabel);
+
+        y += 18;
+
+        if (builtModules.length === 0) {
+            const none = new PIXI.Text({
+                text: "No modules built yet. Build at your Base.",
+                style: new PIXI.TextStyle({ fontSize: 10, fill: 0x8b949e, fontWeight: "600" }),
+            });
+            none.position.set(leftX + 6, y + 6);
+            this.heroBoardLayer.addChild(none);
+        } else {
+            for (const type of builtModules) {
+                const def = MODULES[type];
+                const row = new PIXI.Graphics();
+                row.roundRect(leftX, y, panelW - 28, moduleRowHeight, 6);
+                row.fill({ color: 0x111827 });
+                row.stroke({ color: 0xffaa00, width: 1, alpha: 0.35 });
+                this.heroBoardLayer.addChild(row);
+
+                const icon = new PIXI.Text({
+                    text: moduleIcons[type] ?? "🏠",
+                    style: new PIXI.TextStyle({ fontSize: 18 }),
+                });
+                icon.anchor.set(0.5);
+                icon.position.set(leftX + 16, y + moduleRowHeight / 2);
+                this.heroBoardLayer.addChild(icon);
+
+                const name = new PIXI.Text({
+                    text: def.description,
+                    style: new PIXI.TextStyle({ fontSize: 11, fill: 0xffe8b0, fontWeight: "700" }),
+                });
+                name.position.set(leftX + 32, y + 4);
+                this.heroBoardLayer.addChild(name);
+
+                const effect = new PIXI.Text({
+                    text: def.effect,
+                    style: new PIXI.TextStyle({
+                        fontSize: 9,
+                        fill: 0x8b949e,
+                        fontWeight: "600",
+                        wordWrap: true,
+                        wordWrapWidth: panelW - 70,
+                    }),
+                });
+                effect.position.set(leftX + 32, y + 18);
+                this.heroBoardLayer.addChild(effect);
+
+                y += moduleRowHeight + 4;
             }
         }
     }
