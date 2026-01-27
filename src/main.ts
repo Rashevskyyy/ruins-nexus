@@ -368,6 +368,14 @@ async function main() {
             return result;
         };
         
+        const originalDoHeal = game.doHeal.bind(game);
+        game.doHeal = () => {
+            if (!isMyTurn()) return false;
+            const result = originalDoHeal();
+            if (result) sendActionToServer({ type: "heal" });
+            return result;
+        };
+        
         const originalDoExplore = game.doExplore.bind(game);
         game.doExplore = () => {
             if (!isMyTurn()) return false;
