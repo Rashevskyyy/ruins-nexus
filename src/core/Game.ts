@@ -127,15 +127,17 @@ export class Game {
 
     handleHexClick(target: HexCoord): void {
         if (this.state.phase !== Phase.AwaitInput) return;
-        if (this.state.actionPoints <= 0) return;
         if (this.state.gameOver) return;
 
         const player = this.currentPlayer;
+        const hasPostActionMove = player.voidPhaseStepAvailable || player.warboundBattleRushAvailable;
+        if (this.state.actionPoints <= 0 && !hasPostActionMove) return;
         const from = player.position;
         const isSame = from.q === target.q && from.r === target.r;
 
         // Tile Placement mode: player selects where to place new tile
         if (this.state.uiMode === "TILE_PLACEMENT") {
+            if (this.state.actionPoints <= 0) return;
             const existingTile = this.state.board.getTile(target);
             if (existingTile) return; // tile already exists
 
@@ -283,7 +285,13 @@ export class Game {
                 }
             } else {
                 // No combat - just end turn
-                this.forceEndTurnAfterEncounter();
+                if (player.voidPhaseStepAvailable) {
+                    this.state.phase = Phase.AwaitInput;
+                    this.state.uiMode = "NONE";
+                    this.state.actionUsedInCurrentSlot = true;
+                } else {
+                    this.forceEndTurnAfterEncounter();
+                }
             }
             return;
         }
@@ -292,7 +300,8 @@ export class Game {
         if (!isSame && !isNeighbor(from, target)) return;
 
         // Karak 2: Movement is always BEFORE action, never after!
-        if (this.state.actionUsedInCurrentSlot) {
+        const usedPostActionMove = this.state.actionUsedInCurrentSlot && hasPostActionMove;
+        if (this.state.actionUsedInCurrentSlot && !hasPostActionMove) {
             return; // already did action in slot → move forbidden
         }
 
@@ -326,7 +335,15 @@ export class Game {
             
             // ⚙ Void Navigators: Once per turn, one Move does not consume a slot
             // (Gravity Rift overrides this!)
-            if (player.raceId === "void" && !player.voidFreeMoveUsed && !leavingRift) {
+            if (player.voidPhaseStepAvailable) {
+                player.voidPhaseStepAvailable = false;
+                // Don't set movedInCurrentSlot - this move is free!
+                this.addLog(`🌀 ${player.id} Phase Step move`);
+            } else if (player.warboundBattleRushAvailable) {
+                player.warboundBattleRushAvailable = false;
+                // Don't set movedInCurrentSlot - this move is free!
+                this.addLog(`⚔️ ${player.id} Battle Rush move`);
+            } else if (player.raceId === "void" && !player.voidFreeMoveUsed && !leavingRift) {
                 player.voidFreeMoveUsed = true;
                 // Don't set movedInCurrentSlot - this move is free!
                 this.addLog(`${player.id} used Void Navigator free move`);
@@ -411,6 +428,9 @@ export class Game {
             return;
         } else {
             this.state.phase = Phase.AwaitInput;
+            if (usedPostActionMove) {
+                this.tryFinishCurrentSlotAndStartNew();
+            }
         }
     }
 
@@ -527,6 +547,12 @@ export class Game {
             }
             
             // End turn immediately (no choice needed)
+            if (player.warboundBattleRushAvailable) {
+                this.state.phase = Phase.AwaitInput;
+                this.state.uiMode = "NONE";
+                this.state.actionUsedInCurrentSlot = true;
+                return;
+            }
             this.forceEndTurnAfterEncounter();
             return;
         }
@@ -669,6 +695,12 @@ export class Game {
         
         // v0.5: No more pending tokens (items come from crafting now)
         // End turn immediately
+        if (player.warboundBattleRushAvailable) {
+            this.state.phase = Phase.AwaitInput;
+            this.state.uiMode = "NONE";
+            this.state.actionUsedInCurrentSlot = true;
+            return;
+        }
         this.forceEndTurnAfterEncounter();
     }
     
