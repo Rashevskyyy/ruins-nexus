@@ -2,6 +2,7 @@ import type * as PIXI from "pixi.js";
 import type { Game } from "../../../core/Game";
 import type { ModuleType } from "../../../entities/BuildingType";
 import type { Player } from "../../../entities/Player";
+import type { RaceId, RaceOption } from "../../../entities/Race";
 import type { Unit } from "../../../entities/Unit";
 
 export type HeroBoardContext = {
@@ -35,6 +36,18 @@ export type HeroBoardPrestigeContext = {
 
 export type HeroBoardPrestigeData = {
     prestige: number;
+};
+
+export type HeroBoardAbilitiesContext = {
+    layer: PIXI.Container;
+    leftX: number;
+    panelW: number;
+    y: number;
+};
+
+export type HeroBoardAbilitiesData = {
+    raceId: RaceId | null;
+    raceOption: RaceOption | null;
 };
 
 export type HeroBoardResourcesContext = {
