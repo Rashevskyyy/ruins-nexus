@@ -1750,7 +1750,7 @@ export class GameRenderer {
         
         this.heroBoardLayer.removeChildren();
 
-        const panelW = 280;
+        const panelW = 300;
         const moduleOrder: ModuleType[] = [
             "AssaultBay",
             "ShieldArray",
@@ -1764,7 +1764,8 @@ export class GameRenderer {
         const moduleRows = Math.max(1, builtModules.length);
         const moduleRowHeight = 36;
         const modulesSectionHeight = 22 + moduleRows * moduleRowHeight + 6;
-        const panelH = 380 + modulesSectionHeight;
+        const headerHeight = 86;
+        const panelH = 360 + headerHeight + modulesSectionHeight;
         const panelX = this.app.renderer.width - panelW - 20;
         const panelY = 70;
 
@@ -1775,16 +1776,41 @@ export class GameRenderer {
         bg.stroke({ color: playerColor, width: 3 });
         this.heroBoardLayer.addChild(bg);
 
-        // Player name
+        const headerBg = new PIXI.Graphics();
+        headerBg.roundRect(panelX + 12, panelY + 10, panelW - 24, headerHeight - 16, 10);
+        headerBg.fill({ color: 0x111827, alpha: 0.9 });
+        headerBg.stroke({ color: playerColor, width: 1, alpha: 0.35 });
+        this.heroBoardLayer.addChild(headerBg);
+
+        const portraitBox = new PIXI.Graphics();
+        portraitBox.roundRect(panelX + 22, panelY + 20, 60, 60, 12);
+        portraitBox.fill({ color: 0x0b1220 });
+        portraitBox.stroke({ color: playerColor, width: 2, alpha: 0.6 });
+        this.heroBoardLayer.addChild(portraitBox);
+
+        const portraitHint = new PIXI.Text({
+            text: "HERO",
+            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x8b949e, fontWeight: "700", letterSpacing: 1 }),
+        });
+        portraitHint.anchor.set(0.5);
+        portraitHint.position.set(panelX + 52, panelY + 50);
+        this.heroBoardLayer.addChild(portraitHint);
+
         const title = new PIXI.Text({
             text: p.id,
-            style: new PIXI.TextStyle({ fontSize: 26, fill: playerColor, fontWeight: "900" }),
+            style: new PIXI.TextStyle({ fontSize: 22, fill: playerColor, fontWeight: "900" }),
         });
-        title.anchor.set(0.5, 0);
-        title.position.set(panelX + panelW / 2, panelY + 10);
+        title.position.set(panelX + 92, panelY + 24);
         this.heroBoardLayer.addChild(title);
 
-        let y = panelY + 45;
+        const subtitle = new PIXI.Text({
+            text: "Commander",
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x8b949e, fontWeight: "600", letterSpacing: 1 }),
+        });
+        subtitle.position.set(panelX + 92, panelY + 48);
+        this.heroBoardLayer.addChild(subtitle);
+
+        let y = panelY + headerHeight;
         const leftX = panelX + 14;
         const rightX = panelX + panelW - 14;
 
@@ -1795,7 +1821,7 @@ export class GameRenderer {
         const prestigeBorderColor = p.prestige >= 15 ? 0xff4444 : (p.prestige >= 12 ? 0xffaa00 : 0xffd700);
         
         const prestigeBox = new PIXI.Graphics();
-        prestigeBox.roundRect(leftX, y, panelW - 28, 65, 8);
+        prestigeBox.roundRect(leftX, y, panelW - 28, 56, 8);
         prestigeBox.fill({ color: prestigeBgColor });
         prestigeBox.stroke({ color: prestigeBorderColor, width: 2 });
         this.heroBoardLayer.addChild(prestigeBox);
@@ -1819,14 +1845,14 @@ export class GameRenderer {
             }),
         });
         prestigeValue.anchor.set(1, 0);
-        prestigeValue.position.set(rightX - 10, y + 18);
+        prestigeValue.position.set(rightX - 10, y + 14);
         this.heroBoardLayer.addChild(prestigeValue);
         
         // Progress bar
         const barW = panelW - 50;
-        const barH = 10;
+        const barH = 8;
         const barX = leftX + 10;
-        const barY = y + 48;
+        const barY = y + 40;
         const maxPrestige = 20;
         
         const prestigeBarBg = new PIXI.Graphics();
@@ -1867,7 +1893,7 @@ export class GameRenderer {
             this.heroBoardLayer.addChild(warn);
         }
         
-        y += 75;
+        y += 64;
 
         // ═══════════════════════════════════════
         // HP + RESOURCES
@@ -1886,9 +1912,9 @@ export class GameRenderer {
             const sx = leftX + i * (statsW + 5);
             
             const statBox = new PIXI.Graphics();
-            statBox.roundRect(sx, y, statsW, 45, 6);
-            statBox.fill({ color: 0x161b2e });
-            statBox.stroke({ color: stat.color, width: 1, alpha: 0.5 });
+            statBox.roundRect(sx, y, statsW, 44, 10);
+            statBox.fill({ color: 0x0f172a });
+            statBox.stroke({ color: stat.color, width: 1, alpha: 0.4 });
             this.heroBoardLayer.addChild(statBox);
             
             const emoji = new PIXI.Text({ text: stat.emoji, style: new PIXI.TextStyle({ fontSize: 14 }) });
@@ -1901,11 +1927,11 @@ export class GameRenderer {
                 style: new PIXI.TextStyle({ fontSize: 16, fill: stat.color, fontWeight: "800" }),
             });
             val.anchor.set(0.5);
-            val.position.set(sx + statsW / 2, y + 32);
+            val.position.set(sx + statsW / 2, y + 31);
             this.heroBoardLayer.addChild(val);
         }
         
-        y += 55;
+        y += 54;
 
         // ═══════════════════════════════════════
         // EQUIPMENT (with actionable context hints)
