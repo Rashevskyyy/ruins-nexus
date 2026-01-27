@@ -38,7 +38,7 @@ export class HeroBoardUnitsSection {
 
             const unitBox = new PIXI.Graphics();
             unitBox.roundRect(ux, y, unitW, 55, 6);
-            unitBox.fill({ color: filled ? 0x1a2a3e : 0x0d1117 });
+            unitBox.fill({ color: filled ? 0x1a2a3e : 0x0d1117, alpha: 0 });
             unitBox.stroke({ color: 0x3b82f6, width: filled ? 2 : 1, alpha: filled ? 0.8 : 0.3 });
             layer.addChild(unitBox);
 

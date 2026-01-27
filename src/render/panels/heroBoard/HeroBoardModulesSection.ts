@@ -68,7 +68,7 @@ export class HeroBoardModulesSection {
             const def = MODULES[type];
             const row = new PIXI.Graphics();
             row.roundRect(leftX, y, panelW - 28, moduleRowHeight, 6);
-            row.fill({ color: 0x111827 });
+            row.fill({ color: 0x111827, alpha: 0 });
             row.stroke({ color: 0xffaa00, width: 1, alpha: 0.35 });
             layer.addChild(row);
 

@@ -7,6 +7,7 @@ import { HeroBoardEquipmentSection } from "./heroBoard/HeroBoardEquipmentSection
 import { HeroBoardUnitsSection } from "./heroBoard/HeroBoardUnitsSection";
 import type { HeroBoardContext } from "./heroBoard/HeroBoardTypes";
 import { HeroBoardAbilitiesSection } from "./heroBoard/HeroBoardAbilitiesSection";
+import { AssetLoader } from "../../assets/AssetLoader";
 
 export class HeroBoardPanel {
     private headerSection = new HeroBoardHeaderSection();
@@ -40,11 +41,21 @@ export class HeroBoardPanel {
         const panelX = app.renderer.width - panelW - 20;
         const panelY = 70;
 
-        const bg = new PIXI.Graphics();
-        bg.roundRect(panelX, panelY, panelW, panelH, 12);
-        bg.fill({ color: 0x0d1117, alpha: 0.96 });
-        bg.stroke({ color: playerColor, width: 3 });
-        layer.addChild(bg);
+        const panelTexture = AssetLoader.getTexture("heroCard");
+        if (panelTexture) {
+            const bgSprite = new PIXI.Sprite(panelTexture);
+            bgSprite.x = panelX;
+            bgSprite.y = panelY;
+            bgSprite.width = panelW;
+            bgSprite.height = panelH;
+            layer.addChild(bgSprite);
+        } else {
+            const bg = new PIXI.Graphics();
+            bg.roundRect(panelX, panelY, panelW, panelH, 12);
+            bg.fill({ color: 0x0d1117, alpha: 0.96 });
+            bg.stroke({ color: playerColor, width: 3 });
+            layer.addChild(bg);
+        }
 
         this.headerSection.render({
             layer,

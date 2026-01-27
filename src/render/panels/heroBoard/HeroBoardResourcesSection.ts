@@ -21,7 +21,7 @@ export class HeroBoardResourcesSection {
 
             const statBox = new PIXI.Graphics();
             statBox.roundRect(sx, y, statsW, 44, 10);
-            statBox.fill({ color: 0x0f172a });
+            statBox.fill({ color: 0x0f172a, alpha: 0 });
             statBox.stroke({ color: stat.color, width: 1, alpha: 0.4 });
             layer.addChild(statBox);
 
