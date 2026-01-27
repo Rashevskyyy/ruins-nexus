@@ -175,7 +175,7 @@ export class HudRenderer {
                 text: `${tilesRemaining}`,
                 style: new PIXI.TextStyle({
                     fontSize: 14,
-                    fill: 0x00d4ff,
+                    fill: 0x0a2a1a,
                     fontWeight: "900",
                 }),
             });
