@@ -16,7 +16,7 @@ export class HeroBoardPrestigeSection {
 
         const prestigeHeader = new PIXI.Text({
             text: "⭐ PRESTIGE",
-            style: new PIXI.TextStyle({ fontSize: 12, fill: 0xffd700, fontWeight: "700", letterSpacing: 1 }),
+            style: new PIXI.TextStyle({ fontSize: 13, fill: 0xffd700, fontWeight: "700", letterSpacing: 1 }),
         });
         prestigeHeader.position.set(leftX + 10, y + 6);
         layer.addChild(prestigeHeader);
@@ -24,7 +24,7 @@ export class HeroBoardPrestigeSection {
         const prestigeValue = new PIXI.Text({
             text: `${prestige}`,
             style: new PIXI.TextStyle({
-                fontSize: 36,
+                fontSize: 38,
                 fill: 0xffd700,
                 fontWeight: "900",
                 dropShadow: { color: 0xffd700, blur: 8, alpha: 0.5, distance: 0 },
@@ -70,7 +70,7 @@ export class HeroBoardPrestigeSection {
             const warnText = prestige >= 15 ? "🚫 No Rerolls" : "⚠️ +1 Difficulty";
             const warn = new PIXI.Text({
                 text: warnText,
-                style: new PIXI.TextStyle({ fontSize: 10, fill: prestigeBorderColor, fontWeight: "600" }),
+                style: new PIXI.TextStyle({ fontSize: 11, fill: prestigeBorderColor, fontWeight: "600" }),
             });
             warn.position.set(leftX + 10, y + 22);
             layer.addChild(warn);

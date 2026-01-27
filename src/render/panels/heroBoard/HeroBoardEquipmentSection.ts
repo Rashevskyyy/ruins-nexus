@@ -13,7 +13,7 @@ export class HeroBoardEquipmentSection {
 
         const equipLabel = new PIXI.Text({
             text: "⚔ EQUIPMENT",
-            style: new PIXI.TextStyle({ fontSize: 11, fill: 0xffd700, letterSpacing: 1, fontWeight: "600" }),
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0xffd700, letterSpacing: 1, fontWeight: "600" }),
         });
         equipLabel.position.set(leftX, y);
         layer.addChild(equipLabel);
@@ -39,7 +39,7 @@ export class HeroBoardEquipmentSection {
 
         const hintText = new PIXI.Text({
             text: equipHint,
-            style: new PIXI.TextStyle({ fontSize: 10, fill: hintColor, fontWeight: "700" }),
+            style: new PIXI.TextStyle({ fontSize: 11, fill: hintColor, fontWeight: "700" }),
         });
         hintText.anchor.set(1, 0);
         hintText.position.set(rightX, y + 1);
@@ -53,11 +53,12 @@ export class HeroBoardEquipmentSection {
             { icon: "📿", count: hasAmulet ? 1 : 0, max: 1, color: 0x3498db },
         ];
 
-        const eqW = (panelW - 38 - 10) / 3;
+        const columnGap = 8;
+        const eqW = (panelW - 28 - columnGap * 2) / 3;
 
         for (let i = 0; i < 3; i++) {
             const eq = equipItems[i];
-            const ex = leftX + i * (eqW + 5);
+            const ex = leftX + i * (eqW + columnGap);
             const filled = eq.count > 0;
 
             const eqBox = new PIXI.Graphics();
@@ -66,7 +67,7 @@ export class HeroBoardEquipmentSection {
             eqBox.stroke({ color: eq.color, width: filled ? 2 : 1, alpha: filled ? 0.8 : 0.3 });
             layer.addChild(eqBox);
 
-            const icon = new PIXI.Text({ text: eq.icon, style: new PIXI.TextStyle({ fontSize: 20 }) });
+            const icon = new PIXI.Text({ text: eq.icon, style: new PIXI.TextStyle({ fontSize: 22 }) });
             icon.alpha = filled ? 1 : 0.4;
             icon.anchor.set(0.5);
             icon.position.set(ex + eqW / 2, y + 16);
@@ -74,7 +75,7 @@ export class HeroBoardEquipmentSection {
 
             const count = new PIXI.Text({
                 text: `${eq.count}/${eq.max}`,
-                style: new PIXI.TextStyle({ fontSize: 12, fill: filled ? eq.color : 0x484f58, fontWeight: "700" }),
+                style: new PIXI.TextStyle({ fontSize: 13, fill: filled ? eq.color : 0x484f58, fontWeight: "700" }),
             });
             count.anchor.set(0.5);
             count.position.set(ex + eqW / 2, y + 38);
