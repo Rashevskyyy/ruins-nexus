@@ -31,7 +31,7 @@ export class HeroBoardModulesSection {
 
     getSectionHeight(builtCount: number): number {
         const moduleRows = Math.max(1, builtCount);
-        const moduleRowHeight = 36;
+        const moduleRowHeight = 42;
         return 22 + moduleRows * moduleRowHeight + 6;
     }
 

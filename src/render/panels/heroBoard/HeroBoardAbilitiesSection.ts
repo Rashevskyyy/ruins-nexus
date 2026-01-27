@@ -54,11 +54,7 @@ export class HeroBoardAbilitiesSection {
         const contentHeight =
             titleText.height + passiveText.height + optionText.height + padding * 2 + spacing * 2;
 
-        const box = new PIXI.Graphics();
-        box.roundRect(leftX, y, sectionWidth, contentHeight, 8);
-        box.fill({ color: 0x0f172a, alpha: 0 });
-        box.stroke({ color: 0x334155, width: 1, alpha: 0.4 });
-        layer.addChild(box);
+
 
         let textY = y + padding;
         titleText.position.set(leftX + padding, textY);

@@ -5,12 +5,6 @@ type HeaderContext = HeroBoardHeaderContext & HeroBoardHeaderData;
 
 export class HeroBoardHeaderSection {
     render({ layer, panelX, panelY, panelW, headerHeight, playerColor, playerId }: HeaderContext): void {
-        const headerBg = new PIXI.Graphics();
-        headerBg.roundRect(panelX + 12, panelY + 10, panelW - 24, headerHeight - 16, 10);
-        headerBg.fill({ color: 0x111827, alpha: 0 });
-        headerBg.stroke({ color: playerColor, width: 1, alpha: 0.25 });
-        layer.addChild(headerBg);
-
         const portraitBox = new PIXI.Graphics();
         portraitBox.roundRect(panelX + 22, panelY + 26, 60, 60, 12);
         portraitBox.fill({ color: 0x0b1220 });

@@ -36,25 +36,19 @@ export class HeroBoardPanel {
             raceId: p.raceId,
             raceOption: p.raceOption,
         });
-        const headerHeight = 86;
+        const headerHeight = 120;
         const panelH = 360 + headerHeight + modulesSectionHeight + abilitiesSectionHeight;
-        const panelX = app.renderer.width - panelW - 20;
+        const panelX = app.renderer.width - panelW - 40;
         const panelY = 70;
 
         const panelTexture = AssetLoader.getTexture("heroCard");
         if (panelTexture) {
             const bgSprite = new PIXI.Sprite(panelTexture);
-            bgSprite.x = panelX;
+            bgSprite.x = panelX - 20;
             bgSprite.y = panelY;
-            bgSprite.width = panelW;
+            bgSprite.width = panelW + 40;
             bgSprite.height = panelH;
             layer.addChild(bgSprite);
-        } else {
-            const bg = new PIXI.Graphics();
-            bg.roundRect(panelX, panelY, panelW, panelH, 12);
-            bg.fill({ color: 0x0d1117, alpha: 0.96 });
-            bg.stroke({ color: playerColor, width: 3 });
-            layer.addChild(bg);
         }
 
         this.headerSection.render({
