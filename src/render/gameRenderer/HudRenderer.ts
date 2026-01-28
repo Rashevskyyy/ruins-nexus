@@ -329,9 +329,11 @@ export class HudRenderer {
         const myPlayer = this.options.game.state.players[this.options.getMyPlayerIndex()];
         if (!myPlayer) return;
 
-        const panelW = 170;
-        const panelH = 200;
-        const panelX = 16;
+        const panelW = 140;
+        const panelH = 180;
+        // v0.6: Position left of Hero Board (Hero Board is at width - 300 - 40)
+        const heroBoardX = this.options.app.renderer.width - 300 - 40;
+        const panelX = heroBoardX - panelW - 16;
         const panelY = 70;
 
         const bonuses = this.calculateStaticCombatBonuses(myPlayer);
@@ -383,17 +385,17 @@ export class HudRenderer {
         const totalLabel = new PIXI.Text({
             text: totalMin === totalMax ? `${totalMax}` : `${totalMin}-${totalMax}`,
             style: new PIXI.TextStyle({
-                fontSize: 48,
+                fontSize: 40,
                 fill: totalColor,
                 fontWeight: "900",
-                dropShadow: { color: totalColor, blur: 10, alpha: 0.5, distance: 0 },
+                dropShadow: { color: totalColor, blur: 8, alpha: 0.5, distance: 0 },
             }),
         });
         totalLabel.anchor.set(0.5);
-        totalLabel.position.set(panelX + panelW / 2, panelY + 58);
+        totalLabel.position.set(panelX + panelW / 2, panelY + 52);
         this.options.combatSummaryLayer.addChild(totalLabel);
 
-        let y = panelY + 95;
+        let y = panelY + 85;
         const leftX = panelX + 12;
         const rightX = panelX + panelW - 12;
 
@@ -426,30 +428,30 @@ export class HudRenderer {
             valueText.position.set(rightX, y);
             this.options.combatSummaryLayer.addChild(valueText);
 
-            y += 16;
+            y += 14;
         }
 
-        y = panelY + panelH - 26;
+        // v0.6: Compact layout - icons and hint at bottom
         const infoItems: string[] = [];
         if (bonuses.hasReroll) infoItems.push("🎲");
         if (bonuses.skullReduction > 0) infoItems.push(`🛡️${bonuses.skullReduction}`);
 
         if (infoItems.length > 0) {
             const infoRow = new PIXI.Text({
-                text: infoItems.join("  "),
-                style: new PIXI.TextStyle({ fontSize: 14, fill: 0x8b949e }),
+                text: infoItems.join(" "),
+                style: new PIXI.TextStyle({ fontSize: 12, fill: 0x8b949e }),
             });
             infoRow.anchor.set(0.5, 0);
-            infoRow.position.set(panelX + panelW / 2, y);
+            infoRow.position.set(panelX + panelW / 2, panelY + panelH - 36);
             this.options.combatSummaryLayer.addChild(infoRow);
         }
 
         if (nearMonster) {
-            let hintText = `✗ Need ${monsterTier - totalMax} more`;
+            let hintText = `✗ Need +${monsterTier - totalMax}`;
             if (canBeat) {
-                hintText = `✓ Guaranteed vs T${monsterTier}`;
+                hintText = `✓ vs T${monsterTier}`;
             } else if (canMaybeBeat) {
-                hintText = `⚠️ Possible vs T${monsterTier}`;
+                hintText = `⚠️ Maybe T${monsterTier}`;
             }
             const hint = new PIXI.Text({
                 text: hintText,
@@ -460,7 +462,7 @@ export class HudRenderer {
                 }),
             });
             hint.anchor.set(0.5, 0);
-            hint.position.set(panelX + panelW / 2, panelY + panelH - 12);
+            hint.position.set(panelX + panelW / 2, panelY + panelH - 18);
             this.options.combatSummaryLayer.addChild(hint);
         }
     }

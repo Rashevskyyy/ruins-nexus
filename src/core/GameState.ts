@@ -5,6 +5,7 @@ import { TileDeck } from "../board/TileDeck";
 import type { HexCoord } from "../board/Hex";
 import { type ModifierId, GAME_MODIFIERS, getRandomModifier, ASYMMETRIC_BONUSES, getRiskyTilesCount } from "./GameModifiers";
 import { type EventProgress, type GameEvent, createEventDeck } from "./GameEvents";
+import { type ObjectivePhase, type PublicObjective, createPublicObjectivesForPhase, getPublicObjectivePhase } from "./PublicObjectives";
 
 export type UIMode = "NONE" | "EXPLORE_TARGETING" | "TILE_PLACEMENT" | "BUILD_MENU" | "CRAFT_MENU";
 
@@ -45,6 +46,8 @@ export type GameState = {
     eventDeck: GameEvent[];
     eventProgress: EventProgress;
     moduleCostDiscount: number;
+    publicObjectives: PublicObjective[];
+    publicObjectivesPhase: ObjectivePhase;
 
     // Final Phase (v0.5: Variant B - Final Trial)
     isFinalPhase: boolean;
@@ -150,11 +153,21 @@ export function createInitialState(playerCount: number = 4, modifierId?: Modifie
             underdogBonusUsed: false,    // v0.5: Underdog Bonus
             heavyCannonPenaltyApplied: false, // v0.5: Heavy Cannon -1 Move
             techBreakthroughUsed: false,
+            tilesExplored: 0,
+            monstersDefeatedTier2Plus: 0,
+            monstersDefeatedTier3Plus: 0,
+            resourcesGathered: 0,
+            itemsCrafted: 0,
+            permanentGatherBonus: 0,
+            permanentCombatBonus: 0,
+            finalTrialBonus: 0,
         };
     });
     
     // Get risky tiles count from modifier
     const riskyTiles = getRiskyTilesCount(modifier);
+
+    const publicObjectivesPhase = getPublicObjectivePhase(1);
 
     return {
         board,
@@ -198,6 +211,8 @@ export function createInitialState(playerCount: number = 4, modifierId?: Modifie
             },
         },
         moduleCostDiscount: 0,
+        publicObjectives: createPublicObjectivesForPhase(publicObjectivesPhase),
+        publicObjectivesPhase,
         // Final Phase (v0.5: Variant B)
         isFinalPhase: false,
         isFinalPreparation: false,

@@ -91,4 +91,14 @@ export type Player = {
 
     // Events
     techBreakthroughUsed: boolean; // Next craft -1🧩 (once per event)
+
+    // Public Objectives tracking
+    tilesExplored: number;
+    monstersDefeatedTier2Plus: number;
+    monstersDefeatedTier3Plus: number;
+    resourcesGathered: number;
+    itemsCrafted: number;
+    permanentGatherBonus: number;
+    permanentCombatBonus: number;
+    finalTrialBonus: number;
 };

@@ -9,6 +9,7 @@ import { OrbitalHangarMenuPanel } from "./panels/OrbitalHangarMenuPanel";
 import { FinalPhaseBanner } from "./panels/FinalPhaseBanner";
 import { EventLogPanel } from "./panels/EventLogPanel";
 import { DeckInfoPanel } from "./panels/DeckInfoPanel";
+import { PublicObjectivesPanel } from "./panels/PublicObjectivesPanel";
 import { DiceRollUI } from "./ui/DiceRollUI";
 import { TutorialHintsManager } from "./ui/TutorialHintsManager";
 import { ToastManager } from "./ui/ToastManager";
@@ -32,6 +33,7 @@ export class GameRenderer {
     private finalPhaseBannerLayer = new PIXI.Container();
     private eventLogLayer = new PIXI.Container();
     private deckInfoLayer = new PIXI.Container();
+    private publicObjectivesLayer = new PIXI.Container();
     private ghostPreviewLayer = new PIXI.Container();
     private debugPanelLayer = new PIXI.Container();
     private diceLayer = new PIXI.Container();
@@ -63,6 +65,7 @@ export class GameRenderer {
     private finalPhaseBanner = new FinalPhaseBanner();
     private eventLogPanel = new EventLogPanel();
     private deckInfoPanel = new DeckInfoPanel();
+    private publicObjectivesPanel = new PublicObjectivesPanel();
 
     private rotateButton = {
         bg: new PIXI.Graphics(),
@@ -165,6 +168,9 @@ export class GameRenderer {
 
         this.app.stage.addChild(this.deckInfoLayer);
         this.deckInfoLayer.zIndex = 200;
+
+        this.app.stage.addChild(this.publicObjectivesLayer);
+        this.publicObjectivesLayer.zIndex = 190;
 
         this.app.stage.addChild(this.debugPanelLayer);
         this.debugPanelLayer.zIndex = 300;
@@ -302,6 +308,7 @@ export class GameRenderer {
         this.renderHeroBoard();
         this.renderEventLog();
         this.renderDeckInfo();
+        this.renderPublicObjectives();
         this.hudRenderer.renderHUD();
 
         this.hudRenderer.renderTopStatusBar();
@@ -457,6 +464,14 @@ export class GameRenderer {
             app: this.app,
             game: this.game,
             layer: this.deckInfoLayer,
+        });
+    }
+
+    private renderPublicObjectives(): void {
+        this.publicObjectivesPanel.render({
+            app: this.app,
+            game: this.game,
+            layer: this.publicObjectivesLayer,
         });
     }
 

@@ -221,6 +221,12 @@ export class CombatSystem {
             breakdown.labels.push("⚔️ Monster Hunter +1⚔");
         }
 
+        if (player.permanentCombatBonus > 0) {
+            bonusSwords += player.permanentCombatBonus;
+            breakdown.moduleBonus += player.permanentCombatBonus;
+            breakdown.labels.push(`🏆 Objective +${player.permanentCombatBonus}⚔`);
+        }
+
         // ========================================
         // UNIT BONUSES (v0.5)
         // ========================================
