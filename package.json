@@ -9,16 +9,23 @@
     "preview": "vite preview",
     "server": "npx tsx server/index.ts",
     "start": "npx tsx server/index.ts",
-    "dev:all": "concurrently --kill-others \"npm:server\" \"npm:dev\""
+    "dev:all": "concurrently --kill-others \"npm:server\" \"npm:dev\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "test:bot": "npx tsx tests/bot-runner.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@vitest/ui": "^4.0.18",
     "concurrently": "^9.0.1",
     "eslint": "^9.39.2",
     "prettier": "^3.8.1",
     "tsx": "^4.19.0",
     "typescript": "~5.9.3",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.91.1",

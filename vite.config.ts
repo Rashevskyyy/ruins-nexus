@@ -8,4 +8,14 @@ export default defineConfig({
   esbuild: {
     target: 'esnext',
   },
+  test: {
+    globals: true,
+    environment: 'node',
+    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+    coverage: {
+      reporter: ['text', 'html'],
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.test.ts', 'src/render/**'],
+    },
+  },
 });
