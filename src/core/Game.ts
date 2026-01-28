@@ -289,11 +289,15 @@ export class Game {
     private applyMonsterTierBonus(tile: Tile): void {
         const bonus = this.getActiveEventEffects().monsterTierBonus ?? 0;
         if (!bonus || !tile.monsterTier) return;
-        tile.monsterTier += bonus;
+        const baseTier = tile.monsterTier;
+        const maxTier = tile.isFinalTile ? baseTier : 4;
+        const boostedTier = Math.min(baseTier + bonus, maxTier);
+        if (boostedTier === baseTier) return;
+        tile.monsterTier = boostedTier;
         if (tile.enemyHp !== undefined) {
-            tile.enemyHp += bonus;
+            tile.enemyHp = boostedTier;
         }
-        this.addLog(`👾 Event: ${tile.coord.q},${tile.coord.r} monster Tier +${bonus}`);
+        this.addLog(`👾 Event: ${tile.coord.q},${tile.coord.r} monster Tier +${boostedTier - baseTier}`);
     }
 
     private getCombatEventModifiers(tile: Tile, player: Player): { extraSkulls: number; equipmentPenalty: number } {
