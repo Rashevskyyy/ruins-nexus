@@ -4,6 +4,7 @@ import type { Player } from "../entities/Player";
 import { TileDeck } from "../board/TileDeck";
 import type { HexCoord } from "../board/Hex";
 import { type ModifierId, GAME_MODIFIERS, getRandomModifier, ASYMMETRIC_BONUSES, getRiskyTilesCount } from "./GameModifiers";
+import { type EventProgress, type GameEvent, createEventDeck } from "./GameEvents";
 
 export type UIMode = "NONE" | "EXPLORE_TARGETING" | "TILE_PLACEMENT" | "BUILD_MENU" | "CRAFT_MENU";
 
@@ -40,6 +41,10 @@ export type GameState = {
 
     // Event log (last 10 events for UI)
     eventLog: string[];
+    activeEvents: GameEvent[];
+    eventDeck: GameEvent[];
+    eventProgress: EventProgress;
+    moduleCostDiscount: number;
 
     // Final Phase (v0.5: Variant B - Final Trial)
     isFinalPhase: boolean;
@@ -144,6 +149,7 @@ export function createInitialState(playerCount: number = 4, modifierId?: Modifie
             pushedBackFromTile: null,    // v0.5: Combat retry restriction
             underdogBonusUsed: false,    // v0.5: Underdog Bonus
             heavyCannonPenaltyApplied: false, // v0.5: Heavy Cannon -1 Move
+            techBreakthroughUsed: false,
         };
     });
     
@@ -170,6 +176,28 @@ export function createInitialState(playerCount: number = 4, modifierId?: Modifie
         pendingTileRotation: 0,
         selectedPlacementPosition: null,
         eventLog: [`🎛️ Modifier: ${modifier.name}`],
+        activeEvents: [],
+        eventDeck: createEventDeck(),
+        eventProgress: {
+            meteorShowerRewardClaimed: false,
+            resourceRush: {
+                totalsByPlayer: {},
+                firstWinnerId: null,
+                secondWinnerId: null,
+            },
+            monsterBounty: {
+                remainingKills: 2,
+                firstKillClaimed: false,
+            },
+            constructionRaceClaimed: false,
+            techBreakthroughUsedBy: [],
+            systemMalfunctionHealUsed: false,
+            volcanicEruption: {
+                riskyTiles: [],
+                rewardClaimed: false,
+            },
+        },
+        moduleCostDiscount: 0,
         // Final Phase (v0.5: Variant B)
         isFinalPhase: false,
         isFinalPreparation: false,

@@ -13,6 +13,7 @@ import { MODULES, type ModuleType, canAffordModule } from "../entities/BuildingT
 import { CraftingSystem, CRAFT_RECIPES, canSpendPrestige, spendPrestige } from "../systems/CraftingSystem";
 import { UNIT_DEFINITIONS, createUnit, canAffordUnit, type UnitType } from "../entities/Unit";
 import type { RaceId, RaceOption } from "../entities/Race";
+import { EVENT_TRIGGER_ROUNDS, type GameEvent, type GameEventEffects } from "./GameEvents";
 
 export function applyRaceBonusesToPlayer(player: Player): void {
     if (!player.raceId || !player.raceOption) return;
@@ -102,17 +103,178 @@ export class Game {
     public addLog(message: string) {
         this.state.eventLog.push(message);
         if (this.state.eventLog.length > 10) {
-            const modifierIndex = this.state.eventLog.findIndex((event) => event.includes("Modifier:"));
-            const oldestNonModifierIndex = this.state.eventLog.findIndex(
-                (event, index) => index !== modifierIndex,
-            );
-            if (oldestNonModifierIndex >= 0) {
-                this.state.eventLog.splice(oldestNonModifierIndex, 1);
+            const isProtected = (event: string) =>
+                event.includes("Modifier:") || event.startsWith("📣 Event:");
+            const oldestRemovableIndex = this.state.eventLog.findIndex((event) => !isProtected(event));
+            if (oldestRemovableIndex >= 0) {
+                this.state.eventLog.splice(oldestRemovableIndex, 1);
             } else {
                 this.state.eventLog.shift();
             }
         }
         console.log(message);
+    }
+
+    private getActiveEventEffects(): GameEventEffects {
+        const combined: GameEventEffects = {};
+        for (const event of this.state.activeEvents) {
+            for (const [key, value] of Object.entries(event.effects)) {
+                if (typeof value === "number") {
+                    combined[key as keyof GameEventEffects] =
+                        (combined[key as keyof GameEventEffects] as number | undefined ?? 0) + value;
+                } else if (value) {
+                    combined[key as keyof GameEventEffects] = value;
+                }
+            }
+        }
+        return combined;
+    }
+
+    private hasActiveEvent(eventId: string): boolean {
+        return this.state.activeEvents.some((event) => event.id === eventId);
+    }
+
+    private announceEvent(event: GameEvent): void {
+        this.addLog(`📣 Event: ${event.name} (Duration: ${event.duration} round${event.duration > 1 ? "s" : ""})`);
+        this.addLog(`📣 ${event.description}`);
+        if (this.onToast) {
+            this.onToast(`${event.name} active!`, "warning");
+        }
+    }
+
+    private applyImmediateEventEffects(event: GameEvent): void {
+        if (event.id === "resource_rush") {
+            this.state.eventProgress.resourceRush = {
+                totalsByPlayer: {},
+                firstWinnerId: null,
+                secondWinnerId: null,
+            };
+        }
+        if (event.id === "monster_bounty") {
+            this.state.eventProgress.monsterBounty = {
+                remainingKills: 2,
+                firstKillClaimed: false,
+            };
+        }
+        if (event.id === "construction_race") {
+            this.state.eventProgress.constructionRaceClaimed = false;
+        }
+        if (event.id === "tech_breakthrough") {
+            for (const player of this.state.players) {
+                player.techBreakthroughUsed = false;
+            }
+        }
+        if (event.id === "system_malfunction") {
+            this.state.eventProgress.systemMalfunctionHealUsed = false;
+        }
+        if (event.id === "volcanic_eruption") {
+            this.applyRiskyTiles(event.effects.addRiskyTiles ?? 0, "Volcanic Eruption");
+        }
+        if (event.id === "death_zone_expansion") {
+            this.applyRiskyTiles(event.effects.addRiskyTiles ?? 0, "Death Zone Expansion", true);
+        }
+    }
+
+    private applyRiskyTiles(count: number, sourceLabel: string, rewardPlayers: boolean = false): void {
+        if (count <= 0) return;
+        const availableTiles = this.state.board
+            .getAllTiles()
+            .filter((tile) => tile.discovered && !tile.isFinalTile && tile.riskyEffect !== "toxic");
+        const shuffled = [...availableTiles].sort(() => Math.random() - 0.5);
+        const selected = shuffled.slice(0, count);
+        for (const tile of selected) {
+            tile.riskyEffect = "toxic";
+        }
+        if (sourceLabel === "Volcanic Eruption") {
+            this.state.eventProgress.volcanicEruption.riskyTiles = selected.map((tile) => tile.coord);
+            this.state.eventProgress.volcanicEruption.rewardClaimed = false;
+        }
+        if (rewardPlayers && selected.length > 0) {
+            for (const player of this.state.players) {
+                const onRiskyTile = selected.some(
+                    (tile) => tile.coord.q === player.position.q && tile.coord.r === player.position.r,
+                );
+                if (onRiskyTile) {
+                    player.components += 2;
+                    this.addLog(`💀 ${player.id} survived toxic expansion: +2🧩`);
+                }
+            }
+        }
+        if (selected.length > 0) {
+            this.addLog(`☣️ ${sourceLabel}: ${selected.length} tiles turned Toxic.`);
+        }
+    }
+
+    private updateEventsForNewRound(): void {
+        this.state.activeEvents = this.state.activeEvents.filter(
+            (event) => event.activeUntilRound >= this.state.round,
+        );
+
+        if (!EVENT_TRIGGER_ROUNDS.includes(this.state.round)) return;
+
+        const nextEvent = this.state.eventDeck.shift();
+        if (!nextEvent) {
+            this.addLog("📣 Event Deck exhausted.");
+            return;
+        }
+        nextEvent.triggerRound = this.state.round;
+        nextEvent.activeUntilRound = this.state.round + nextEvent.duration - 1;
+        this.state.activeEvents.push(nextEvent);
+        this.applyImmediateEventEffects(nextEvent);
+        this.announceEvent(nextEvent);
+    }
+
+    private applyMonsterTierBonus(tile: Tile): void {
+        const bonus = this.getActiveEventEffects().monsterTierBonus ?? 0;
+        if (!bonus || !tile.monsterTier) return;
+        tile.monsterTier += bonus;
+        if (tile.enemyHp !== undefined) {
+            tile.enemyHp += bonus;
+        }
+        this.addLog(`👾 Event: ${tile.coord.q},${tile.coord.r} monster Tier +${bonus}`);
+    }
+
+    private getCombatEventModifiers(tile: Tile, player: Player): { extraSkulls: number; equipmentPenalty: number } {
+        let extraSkulls = 0;
+        let equipmentPenalty = 0;
+
+        if (this.hasActiveEvent("meteor_shower")) {
+            const hasOtherPlayers = this.state.players.some(
+                (p) =>
+                    p.id !== player.id &&
+                    p.position.q === tile.coord.q &&
+                    p.position.r === tile.coord.r,
+            );
+            if (!hasOtherPlayers) {
+                extraSkulls += 1;
+            }
+        }
+
+        const effects = this.getActiveEventEffects();
+        if (effects.combatSkullModifier) {
+            extraSkulls += effects.combatSkullModifier;
+        }
+        if (effects.equipmentPenalty) {
+            equipmentPenalty += effects.equipmentPenalty;
+        }
+
+        return { extraSkulls, equipmentPenalty };
+    }
+
+    private maybeGrantExploreBonus(player: Player): void {
+        const bonus = this.getActiveEventEffects().exploreBonusResource ?? 0;
+        if (!bonus) return;
+        const resources: Array<"biomass" | "materials" | "alloys"> = ["biomass", "materials", "alloys"];
+        for (let i = 0; i < bonus; i += 1) {
+            const choice = resources[Math.floor(Math.random() * resources.length)];
+            if (choice === "biomass") player.biomass += 1;
+            if (choice === "materials") player.materials += 1;
+            if (choice === "alloys") player.alloys += 1;
+            this.addLog(`🛰️ ${player.id} Explore bonus: +1 ${choice}`);
+        }
+        if (this.onToast) {
+            this.onToast(`🛰️ Explore bonus: +${bonus} resource`, "success");
+        }
     }
 
     /**
@@ -146,7 +308,8 @@ export class Game {
         if (this.state.gameOver) return;
 
         const player = this.currentPlayer;
-        const hasPostActionMove = player.voidPhaseStepAvailable || player.warboundBattleRushAvailable;
+        const forcePaidMove = (this.getActiveEventEffects().moveCost ?? 0) > 0;
+        const hasPostActionMove = !forcePaidMove && (player.voidPhaseStepAvailable || player.warboundBattleRushAvailable);
         if (this.state.actionPoints <= 0 && !hasPostActionMove) return;
         const from = player.position;
         const isSame = from.q === target.q && from.r === target.r;
@@ -184,6 +347,7 @@ export class Game {
                 this.state.phase = Phase.AwaitInput;
                 return;
             }
+            this.applyMonsterTierBonus(newTile);
 
             // Mark tile as discovered
             newTile.discovered = true;
@@ -247,8 +411,25 @@ export class Game {
                 `[Round ${this.state.round}] ${player.id} placed tile at ${target.q},${target.r} (Tier ${newTile.tier}${newTile.isFinalTile ? " - FINAL" : ""})`
             );
 
+            this.maybeGrantExploreBonus(player);
+
             // AUTO-MOVE: Player moves onto the new tile
             player.position = target;
+
+            if (this.hasActiveEvent("volcanic_eruption") && !this.state.eventProgress.volcanicEruption.rewardClaimed) {
+                const bonus = this.getActiveEventEffects().enterRiskyPrestigeBonus ?? 0;
+                const isRewardTile = this.state.eventProgress.volcanicEruption.riskyTiles.some(
+                    (coord) => coord.q === target.q && coord.r === target.r,
+                );
+                if (bonus > 0 && isRewardTile) {
+                    player.prestige += bonus;
+                    this.state.eventProgress.volcanicEruption.rewardClaimed = true;
+                    this.addLog(`🌋 ${player.id} entered a new Toxic Zone: +${bonus} Prestige`);
+                    if (this.onToast) {
+                        this.onToast(`🌋 Toxic Zone bonus! +${bonus} Prestige`, "success");
+                    }
+                }
+            }
 
             // AUTO-COMBAT: If there's a threat, show dice FIRST then apply results
             if (newTile.encounterActive === true) {
@@ -257,7 +438,8 @@ export class Game {
                 // Show dice UI FIRST - combat applied AFTER animation
                 if (this.onDiceRoll) {
                     // Simulate combat (calculate result without applying)
-                    const outcome = this.combat.simulateCombat(player, newTile, player.prestige);
+                    const combatModifiers = this.getCombatEventModifiers(newTile, player);
+                    const outcome = this.combat.simulateCombat(player, newTile, player.prestige, combatModifiers);
                     
                     this.onDiceRoll(outcome.roll, () => {
                         // AFTER dice animation: NOW apply results
@@ -291,7 +473,8 @@ export class Game {
                 }
                 
                 // Fallback without dice UI
-                const outcome = this.combat.fightOnce(player, newTile, player.prestige);
+                const combatModifiers = this.getCombatEventModifiers(newTile, player);
+                const outcome = this.combat.fightOnce(player, newTile, player.prestige, combatModifiers);
                 if (outcome.killed) {
                     this.awardCombatRewards(player, newTile);
                 } else {
@@ -349,33 +532,38 @@ export class Game {
 
             player.position = target;
             
-            // ⚙ Void Navigators: Once per turn, one Move does not consume a slot
-            // (Gravity Rift overrides this!)
-            if (player.voidPhaseStepAvailable) {
-                player.voidPhaseStepAvailable = false;
-                // Don't set movedInCurrentSlot - this move is free!
-                this.addLog(`🌀 ${player.id} Phase Step move`);
-            } else if (player.warboundBattleRushAvailable) {
-                player.warboundBattleRushAvailable = false;
-                // Don't set movedInCurrentSlot - this move is free!
-                this.addLog(`⚔️ ${player.id} Battle Rush move`);
-            } else if (player.raceId === "void" && !player.voidFreeMoveUsed && !leavingRift) {
-                player.voidFreeMoveUsed = true;
-                // Don't set movedInCurrentSlot - this move is free!
-                this.addLog(`${player.id} used Void Navigator free move`);
-            } else {
+            if (forcePaidMove) {
                 this.state.movedInCurrentSlot = true;
-                
-                // Heavy Cannon penalty: first move of the turn also uses the action slot
-                const hasHeavyCannon = player.inventory.weapons.some(
-                    w => w && w.effectId === "heavy_cannon"
-                );
-                if (hasHeavyCannon && !player.heavyCannonPenaltyApplied) {
-                    player.heavyCannonPenaltyApplied = true;
-                    this.state.actionUsedInCurrentSlot = true;
-                    this.addLog(`⚙ Heavy Cannon slows ${player.id}'s movement (-1 effective move)`);
-                    if (this.onToast) {
-                        this.onToast(`⚙ Heavy Cannon: Move costs extra!`, "warning");
+                this.addLog(`🌪️ ${player.id} struggled through event gravity.`);
+            } else {
+                // ⚙ Void Navigators: Once per turn, one Move does not consume a slot
+                // (Gravity Rift overrides this!)
+                if (player.voidPhaseStepAvailable) {
+                    player.voidPhaseStepAvailable = false;
+                    // Don't set movedInCurrentSlot - this move is free!
+                    this.addLog(`🌀 ${player.id} Phase Step move`);
+                } else if (player.warboundBattleRushAvailable) {
+                    player.warboundBattleRushAvailable = false;
+                    // Don't set movedInCurrentSlot - this move is free!
+                    this.addLog(`⚔️ ${player.id} Battle Rush move`);
+                } else if (player.raceId === "void" && !player.voidFreeMoveUsed && !leavingRift) {
+                    player.voidFreeMoveUsed = true;
+                    // Don't set movedInCurrentSlot - this move is free!
+                    this.addLog(`${player.id} used Void Navigator free move`);
+                } else {
+                    this.state.movedInCurrentSlot = true;
+
+                    // Heavy Cannon penalty: first move of the turn also uses the action slot
+                    const hasHeavyCannon = player.inventory.weapons.some(
+                        w => w && w.effectId === "heavy_cannon"
+                    );
+                    if (hasHeavyCannon && !player.heavyCannonPenaltyApplied) {
+                        player.heavyCannonPenaltyApplied = true;
+                        this.state.actionUsedInCurrentSlot = true;
+                        this.addLog(`⚙ Heavy Cannon slows ${player.id}'s movement (-1 effective move)`);
+                        if (this.onToast) {
+                            this.onToast(`⚙ Heavy Cannon: Move costs extra!`, "warning");
+                        }
                     }
                 }
             }
@@ -387,6 +575,7 @@ export class Game {
         // Enter fog: reveal (resources + threat)
         if (!tile.discovered) {
             this.exploration.reveal(tile);
+            this.applyMonsterTierBonus(tile);
         }
 
         // Local threat active → combat → turn ends
@@ -409,7 +598,8 @@ export class Game {
             // Show dice UI FIRST - combat applied AFTER animation
             if (this.onDiceRoll) {
                 // Simulate combat (calculate result without applying)
-                const outcome = this.combat.simulateCombat(player, tile, player.prestige);
+                const combatModifiers = this.getCombatEventModifiers(tile, player);
+                const outcome = this.combat.simulateCombat(player, tile, player.prestige, combatModifiers);
                 
                 this.onDiceRoll(outcome.roll, () => {
                     // AFTER dice animation: NOW apply results
@@ -443,7 +633,8 @@ export class Game {
             }
             
             // Fallback without dice UI
-            const outcome = this.combat.fightOnce(player, tile, player.prestige);
+            const combatModifiers = this.getCombatEventModifiers(tile, player);
+            const outcome = this.combat.fightOnce(player, tile, player.prestige, combatModifiers);
             this.addLog(
                 `${player.id} fought Threat ${outcome.killed ? "WON" : "PUSHBACK"}`
             );
@@ -475,7 +666,11 @@ export class Game {
      */
     private awardCombatRewards(player: Player, tile: Tile): void {
         const monsterTier = tile.monsterTier ?? 1;
-        
+        const eventEffects = this.getActiveEventEffects();
+        let eventComponentBonus = eventEffects.combatComponentBonus ?? 0;
+        let eventPrestigeBonus = eventEffects.combatPrestigeBonus ?? 0;
+        let rewardMultiplier = 1;
+
         // v0.5: Underdog Bonus - +1🧩 for lowest prestige player on first Tier 3+ kill
         // v0.6: If tied, first player by turn order gets it
         let underdogBonus = 0;
@@ -501,6 +696,22 @@ export class Game {
                         this.onToast(`🌟 Underdog Bonus! +1🧩`, "success");
                     }
                 }
+            }
+        }
+
+        if (this.hasActiveEvent("meteor_shower") && !this.state.eventProgress.meteorShowerRewardClaimed) {
+            eventComponentBonus += 2;
+            this.state.eventProgress.meteorShowerRewardClaimed = true;
+            this.addLog(`☄️ Meteor Shower bonus: ${player.id} +2🧩`);
+        }
+
+        if (this.hasActiveEvent("monster_bounty") && monsterTier >= 3 && this.state.eventProgress.monsterBounty.remainingKills > 0) {
+            rewardMultiplier = 2;
+            this.state.eventProgress.monsterBounty.remainingKills -= 1;
+            if (!this.state.eventProgress.monsterBounty.firstKillClaimed) {
+                eventComponentBonus += 2;
+                this.state.eventProgress.monsterBounty.firstKillClaimed = true;
+                this.addLog(`⚔️ Monster Bounty bonus: ${player.id} +2🧩`);
             }
         }
         
@@ -561,6 +772,14 @@ export class Game {
                 prestigeGain = 1;
                 componentGain = 0;
         }
+
+        if (rewardMultiplier > 1) {
+            prestigeGain *= rewardMultiplier;
+            componentGain *= rewardMultiplier;
+        }
+
+        prestigeGain += eventPrestigeBonus;
+        componentGain += eventComponentBonus;
         
         // v0.5: Apply component multiplier from game modifier
         const finalComponentGain = Math.round(componentGain * this.state.componentMultiplier);
@@ -790,6 +1009,7 @@ export class Game {
             let bonusBiomass = 0;
             let bonusMaterials = 0;
             let bonusAlloys = 0;
+            const eventGatherBonus = this.getActiveEventEffects().gatherBonus ?? 0;
             
             // SupplyDepot: +1 to each resource type gathered
             const hasSupplyDepot = p.modules.includes("SupplyDepot");
@@ -811,19 +1031,22 @@ export class Game {
             }
             
             if (tile.resources.biomass) {
-                p.biomass += tile.resources.biomass;
+                p.biomass += tile.resources.biomass + eventGatherBonus;
                 if (hasSupplyDepot) { p.biomass += 1; bonusBiomass = 1; }
                 if (nomadBonusType === "biomass") { p.biomass += 1; bonusBiomass += 1; }
+                if (eventGatherBonus > 0) { bonusBiomass += eventGatherBonus; }
             }
             if (tile.resources.materials) {
-                p.materials += tile.resources.materials;
+                p.materials += tile.resources.materials + eventGatherBonus;
                 if (hasSupplyDepot) { p.materials += 1; bonusMaterials = 1; }
                 if (nomadBonusType === "materials") { p.materials += 1; bonusMaterials += 1; }
+                if (eventGatherBonus > 0) { bonusMaterials += eventGatherBonus; }
             }
             if (tile.resources.alloys) {
-                p.alloys += tile.resources.alloys;
+                p.alloys += tile.resources.alloys + eventGatherBonus;
                 if (hasSupplyDepot) { p.alloys += 1; bonusAlloys = 1; }
                 if (nomadBonusType === "alloys") { p.alloys += 1; bonusAlloys += 1; }
+                if (eventGatherBonus > 0) { bonusAlloys += eventGatherBonus; }
             }
 
             // Log
@@ -843,9 +1066,34 @@ export class Game {
 
             const depotText = hasSupplyDepot ? " (🏠 SupplyDepot bonus!)" : "";
             const nomadText = nomadBonus > 0 ? " (🏕️ Nomad bonus!)" : "";
-            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}${depotText}${nomadText}`);
+            const eventText = eventGatherBonus > 0 ? " (🌪️ Event bonus!)" : "";
+            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}${depotText}${nomadText}${eventText}`);
             if (this.onToast) {
-                this.onToast(`📦 Gathered: ${parts.join(", ")}${depotText}${nomadText}`, "success");
+                this.onToast(`📦 Gathered: ${parts.join(", ")}${depotText}${nomadText}${eventText}`, "success");
+            }
+
+            if (this.hasActiveEvent("resource_rush")) {
+                const totalGathered = (tile.resources.biomass ?? 0)
+                    + (tile.resources.materials ?? 0)
+                    + (tile.resources.alloys ?? 0)
+                    + (eventGatherBonus * Object.keys(tile.resources).length);
+                const totals = this.state.eventProgress.resourceRush.totalsByPlayer;
+                totals[p.id] = (totals[p.id] ?? 0) + totalGathered;
+                const reached = totals[p.id] >= 8;
+                if (reached && !this.state.eventProgress.resourceRush.firstWinnerId) {
+                    this.state.eventProgress.resourceRush.firstWinnerId = p.id;
+                    p.prestige += 3;
+                    this.addLog(`🏆 Resource Rush: ${p.id} reached 8 resources! +3 Prestige`);
+                } else if (
+                    reached &&
+                    this.state.eventProgress.resourceRush.firstWinnerId &&
+                    !this.state.eventProgress.resourceRush.secondWinnerId &&
+                    this.state.eventProgress.resourceRush.firstWinnerId !== p.id
+                ) {
+                    this.state.eventProgress.resourceRush.secondWinnerId = p.id;
+                    p.prestige += 1;
+                    this.addLog(`🏆 Resource Rush: ${p.id} is second! +1 Prestige`);
+                }
             }
         }
 
@@ -922,12 +1170,18 @@ export class Game {
         if (this.onToast) {
             this.onToast(`❤️ +${healed} HP`, "success");
         }
-
-        this.state.actionUsedInCurrentSlot = true;
-        this.state.uiMode = "NONE";
-        this.state.phase = Phase.AwaitInput;
-
-        this.tryFinishCurrentSlotAndStartNew();
+        const freeHeal = this.hasActiveEvent("system_malfunction") && !this.state.eventProgress.systemMalfunctionHealUsed;
+        if (freeHeal) {
+            this.state.eventProgress.systemMalfunctionHealUsed = true;
+            this.addLog(`⚠️ System Malfunction: ${p.id} healed for free!`);
+            this.state.uiMode = "NONE";
+            this.state.phase = Phase.AwaitInput;
+        } else {
+            this.state.actionUsedInCurrentSlot = true;
+            this.state.uiMode = "NONE";
+            this.state.phase = Phase.AwaitInput;
+            this.tryFinishCurrentSlotAndStartNew();
+        }
         return true;
     }
 
@@ -980,6 +1234,7 @@ export class Game {
     canBuildBase(): boolean {
         const p = this.currentPlayer;
         const tile = this.state.board.getTile(p.position);
+        if (this.getActiveEventEffects().buildDisabled) return false;
 
         // Can't if already have a Base
         if (p.basePosition) return false;
@@ -1019,6 +1274,12 @@ export class Game {
         if (this.state.phase !== Phase.AwaitInput) return false;
         if (this.state.actionPoints <= 0) return false;
         if (this.state.actionUsedInCurrentSlot) return false;
+        if (this.getActiveEventEffects().buildDisabled) {
+            if (this.onToast) {
+                this.onToast(`🚫 Build disabled by event!`, "error");
+            }
+            return false;
+        }
         if (!this.canBuildBase()) return false;
 
         const p = this.currentPlayer;
@@ -1073,6 +1334,7 @@ export class Game {
 
         // Must be in own Base
         if (!this.isInOwnBase()) return [];
+        if (this.getActiveEventEffects().buildDisabled) return [];
 
         return (Object.keys(MODULES) as ModuleType[]).filter(type => {
             const module = MODULES[type];
@@ -1091,6 +1353,12 @@ export class Game {
         if (this.state.phase !== Phase.AwaitInput) return false;
         if (this.state.actionPoints <= 0) return false;
         if (this.state.actionUsedInCurrentSlot) return false;
+        if (this.getActiveEventEffects().buildDisabled) {
+            if (this.onToast) {
+                this.onToast(`🚫 Build disabled by event!`, "error");
+            }
+            return false;
+        }
         if (!this.isInOwnBase()) return false;
         if (moduleTypes.length === 0) return false;
 
@@ -1113,6 +1381,10 @@ export class Game {
             totalPrestigeGain += module.prestigeGain;
             totalPrestigeCost += module.prestigeCost || 0; // v0.6: Track prestige cost
             validModules.push(type);
+        }
+
+        if (this.state.moduleCostDiscount > 0) {
+            totalMaterials = Math.max(0, totalMaterials - this.state.moduleCostDiscount * validModules.length);
         }
 
         // Check if can afford ALL modules (resources + prestige cost)
@@ -1150,6 +1422,12 @@ export class Game {
             p.modules.push(type);
             const module = MODULES[type];
             this.addLog(`🏗 ${p.id} built ${module.description}`);
+        }
+
+        if (this.hasActiveEvent("construction_race") && !this.state.eventProgress.constructionRaceClaimed) {
+            this.state.moduleCostDiscount = 1;
+            this.state.eventProgress.constructionRaceClaimed = true;
+            this.addLog(`🏗️ Construction Race: ${p.id} secured -1 module cost forever!`);
         }
 
         // Award Prestige (net gain after cost)
@@ -1229,6 +1507,7 @@ export class Game {
         if (this.state.phase !== Phase.AwaitInput) return false;
         if (this.state.actionPoints <= 0) return false;
         if (this.state.actionUsedInCurrentSlot) return false;
+        if (this.getActiveEventEffects().craftDisabled) return false;
         return this.isInOwnBase();
     }
 
@@ -1251,6 +1530,12 @@ export class Game {
      * Toggle craft menu
      */
     toggleCraftMenu(): boolean {
+        if (this.getActiveEventEffects().craftDisabled) {
+            if (this.onToast) {
+                this.onToast(`🚫 Craft disabled by event!`, "error");
+            }
+            return false;
+        }
         if (!this.canCraft() && this.state.uiMode !== "CRAFT_MENU") {
             if (this.onToast) {
                 this.onToast(`🚫 Must be at your Base to craft!`, "error");
@@ -1273,9 +1558,16 @@ export class Game {
         if (!this.canCraft()) return false;
 
         const player = this.currentPlayer;
-        const result = this.crafting.craft(player, recipeId);
+        const techBreakthroughActive = this.hasActiveEvent("tech_breakthrough") && !player.techBreakthroughUsed;
+        const result = techBreakthroughActive
+            ? this.crafting.craftWithDiscount(player, recipeId, { components: 1 })
+            : this.crafting.craft(player, recipeId);
 
         if (result.success) {
+            if (techBreakthroughActive) {
+                player.techBreakthroughUsed = true;
+                this.addLog(`🔬 ${player.id} Tech Breakthrough: -1🧩 on craft`);
+            }
             // 🔨 Forge Option A: First craft per turn is free (0 AP)
             const isForgeFreeC = player.raceId === "forge" && player.raceOption === "A" && !player.forgeCraftFreeUsed;
             
@@ -1490,6 +1782,7 @@ export class Game {
     canUseOrbitalHangar(): boolean {
         if (this.state.phase !== Phase.AwaitInput) return false;
         if (this.state.actionPoints <= 0) return false;
+        if (this.getActiveEventEffects().orbitalHangarDisabled) return false;
         
         const player = this.currentPlayer;
         
@@ -1746,6 +2039,7 @@ export class Game {
         // New round?
         if (nextIndex === 0) {
             this.state.round += 1;
+            this.updateEventsForNewRound();
 
             // v0.5: Final Preparation countdown
             if (this.state.isFinalPreparation && this.state.finalPrepRoundsLeft > 0) {

@@ -114,6 +114,10 @@ async function main() {
             pendingTileRotation: state.pendingTileRotation,
             selectedPlacementPosition: state.selectedPlacementPosition,
             eventLog: state.eventLog,
+            activeEvents: state.activeEvents,
+            eventDeck: state.eventDeck,
+            eventProgress: state.eventProgress,
+            moduleCostDiscount: state.moduleCostDiscount,
             modifierId: state.modifierId,
             componentMultiplier: state.componentMultiplier,
             isFinalPhase: state.isFinalPhase,
@@ -288,6 +292,10 @@ async function main() {
         }
         
         game.state.eventLog = serverState.eventLog || [];
+        game.state.activeEvents = serverState.activeEvents || [];
+        game.state.eventDeck = serverState.eventDeck || game.state.eventDeck;
+        game.state.eventProgress = serverState.eventProgress || game.state.eventProgress;
+        game.state.moduleCostDiscount = serverState.moduleCostDiscount ?? game.state.moduleCostDiscount;
         game.state.modifierId = serverState.modifierId ?? game.state.modifierId;
         game.state.componentMultiplier = serverState.componentMultiplier ?? game.state.componentMultiplier;
         game.state.isFinalPhase = serverState.isFinalPhase;
@@ -343,6 +351,10 @@ async function main() {
             pendingTileRotation: game.state.pendingTileRotation,
             selectedPlacementPosition: game.state.selectedPlacementPosition,
             eventLog: game.state.eventLog,
+            activeEvents: game.state.activeEvents,
+            eventDeck: game.state.eventDeck,
+            eventProgress: game.state.eventProgress,
+            moduleCostDiscount: game.state.moduleCostDiscount,
             modifierId: game.state.modifierId,
             componentMultiplier: game.state.componentMultiplier,
             // Final Phase (v0.5)

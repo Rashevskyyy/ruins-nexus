@@ -65,7 +65,12 @@ export class CombatSystem {
      * 
      * Player still takes skull damage regardless of outcome
      */
-    simulateCombat(player: Player, tile: Tile, prestige: number = 0): CombatResult {
+    simulateCombat(
+        player: Player,
+        tile: Tile,
+        prestige: number = 0,
+        modifiers: { extraSkulls?: number; equipmentPenalty?: number } = {},
+    ): CombatResult {
         const monsterTier = tile.monsterTier ?? 1;
         
         // Prestige Pressure: +1 tier at 12+ prestige
@@ -113,6 +118,12 @@ export class CombatSystem {
             extraSkulls += 1;
             breakdown.skullsFromTile += 1;
             breakdown.labels.push("☣️ Toxic +1💀");
+        }
+
+        if (modifiers.extraSkulls) {
+            extraSkulls += modifiers.extraSkulls;
+            breakdown.skullsFromTile += modifiers.extraSkulls;
+            breakdown.labels.push("🌠 Event +💀");
         }
 
         // ========================================
@@ -363,6 +374,11 @@ export class CombatSystem {
         // ========================================
         // CALCULATE RESULTS
         // ========================================
+        const equipmentPenalty = modifiers.equipmentPenalty ?? 0;
+        if (equipmentPenalty > 0) {
+            bonusSwords = Math.max(0, bonusSwords - equipmentPenalty);
+            breakdown.labels.push(`⚠️ Equipment -${equipmentPenalty}⚔`);
+        }
 
         const totalSwords = roll.swords + bonusSwords;
         const damageToPlayer = Math.max(0, roll.skulls + extraSkulls - reducedSkulls);
@@ -429,8 +445,13 @@ export class CombatSystem {
     /**
      * Legacy method - wraps new system for compatibility
      */
-    fightOnce(player: Player, tile: Tile, prestige: number = 0): { killed: boolean; roll: DiceResult; bonusSwords: number; reducedSkulls: number } {
-        const result = this.simulateCombat(player, tile, prestige);
+    fightOnce(
+        player: Player,
+        tile: Tile,
+        prestige: number = 0,
+        modifiers: { extraSkulls?: number; equipmentPenalty?: number } = {},
+    ): { killed: boolean; roll: DiceResult; bonusSwords: number; reducedSkulls: number } {
+        const result = this.simulateCombat(player, tile, prestige, modifiers);
         this.applyCombatResult(player, tile, result);
         
         return {
