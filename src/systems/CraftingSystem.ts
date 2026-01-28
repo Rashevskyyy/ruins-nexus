@@ -175,6 +175,27 @@ export class CraftingSystem {
     }
 
     /**
+     * Check if player can afford a recipe with discounts.
+     */
+    canCraftWithDiscount(
+        player: Player,
+        recipe: CraftRecipe,
+        discount: { components?: number; alloys?: number; materials?: number; prestige?: number },
+    ): boolean {
+        const components = Math.max(0, recipe.cost.components - (discount.components ?? 0));
+        const alloys = Math.max(0, recipe.cost.alloys - (discount.alloys ?? 0));
+        const materials = Math.max(0, recipe.cost.materials - (discount.materials ?? 0));
+        const prestige = Math.max(0, recipe.cost.prestige - (discount.prestige ?? 0));
+        return (
+            player.components >= components &&
+            player.alloys >= alloys &&
+            player.materials >= materials &&
+            player.prestige >= prestige &&
+            this.hasSlotFor(player, recipe)
+        );
+    }
+
+    /**
      * Check if player has a slot for the crafted item
      */
     hasSlotFor(player: Player, recipe: CraftRecipe): boolean {
@@ -204,37 +225,67 @@ export class CraftingSystem {
             return { success: false, message: "Cannot afford recipe" };
         }
 
-        // Deduct resources
-        player.components -= recipe.cost.components;
-        player.alloys -= recipe.cost.alloys;
-        player.materials -= recipe.cost.materials;
-        player.prestige -= recipe.cost.prestige;
+        this.applyRecipeCost(player, recipe, {});
+        this.applyRecipeResult(player, recipe);
+        return { success: true, message: `Crafted ${recipe.name}!` };
+    }
 
-        // Add item to inventory
-        if (recipe.item) {
-            switch (recipe.result.type) {
-                case "weapon": {
-                    const slot = player.inventory.weapons.findIndex(w => w === null);
-                    if (slot >= 0) {
-                        player.inventory.weapons[slot] = { ...recipe.item };
-                    }
-                    break;
-                }
-                case "amulet": {
-                    player.inventory.amulet = { ...recipe.item };
-                    break;
-                }
-                case "module": {
-                    const slot = player.inventory.spells.findIndex(s => s === null);
-                    if (slot >= 0) {
-                        player.inventory.spells[slot] = { ...recipe.item };
-                    }
-                    break;
-                }
-            }
+    craftWithDiscount(
+        player: Player,
+        recipeId: string,
+        discount: { components?: number; alloys?: number; materials?: number; prestige?: number },
+    ): { success: boolean; message: string } {
+        const recipe = CRAFT_RECIPES.find(r => r.id === recipeId);
+        if (!recipe) {
+            return { success: false, message: "Recipe not found" };
         }
 
+        if (!this.canCraftWithDiscount(player, recipe, discount)) {
+            return { success: false, message: "Cannot afford recipe" };
+        }
+
+        this.applyRecipeCost(player, recipe, discount);
+        this.applyRecipeResult(player, recipe);
         return { success: true, message: `Crafted ${recipe.name}!` };
+    }
+
+    private applyRecipeCost(
+        player: Player,
+        recipe: CraftRecipe,
+        discount: { components?: number; alloys?: number; materials?: number; prestige?: number },
+    ): void {
+        const components = Math.max(0, recipe.cost.components - (discount.components ?? 0));
+        const alloys = Math.max(0, recipe.cost.alloys - (discount.alloys ?? 0));
+        const materials = Math.max(0, recipe.cost.materials - (discount.materials ?? 0));
+        const prestige = Math.max(0, recipe.cost.prestige - (discount.prestige ?? 0));
+        player.components -= components;
+        player.alloys -= alloys;
+        player.materials -= materials;
+        player.prestige -= prestige;
+    }
+
+    private applyRecipeResult(player: Player, recipe: CraftRecipe): void {
+        if (!recipe.item) return;
+        switch (recipe.result.type) {
+            case "weapon": {
+                const slot = player.inventory.weapons.findIndex(w => w === null);
+                if (slot >= 0) {
+                    player.inventory.weapons[slot] = { ...recipe.item };
+                }
+                break;
+            }
+            case "amulet": {
+                player.inventory.amulet = { ...recipe.item };
+                break;
+            }
+            case "module": {
+                const slot = player.inventory.spells.findIndex(s => s === null);
+                if (slot >= 0) {
+                    player.inventory.spells[slot] = { ...recipe.item };
+                }
+                break;
+            }
+        }
     }
 }
 

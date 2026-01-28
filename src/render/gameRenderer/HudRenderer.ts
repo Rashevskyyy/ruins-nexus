@@ -218,6 +218,49 @@ export class HudRenderer {
             this.options.topStatusLayer.addChild(dot);
         }
 
+        const activeEvents = this.options.game.state.activeEvents;
+        if (activeEvents.length > 0) {
+            const panelWidth = 260;
+            const rowHeight = 16;
+            const panelHeight = 24 + activeEvents.length * rowHeight;
+            const panelX = w - panelWidth - 16;
+            const panelY = 6;
+
+            const panel = new PIXI.Graphics();
+            panel.roundRect(panelX, panelY, panelWidth, panelHeight, 10);
+            panel.fill({ color: 0x111827, alpha: 0.95 });
+            panel.stroke({ color: 0x3b82f6, width: 1, alpha: 0.8 });
+            this.options.topStatusLayer.addChild(panel);
+
+            const title = new PIXI.Text({
+                text: "ACTIVE EVENTS",
+                style: new PIXI.TextStyle({
+                    fontSize: 10,
+                    fill: 0x93c5fd,
+                    fontWeight: "700",
+                    letterSpacing: 1,
+                }),
+            });
+            title.position.set(panelX + 12, panelY + 6);
+            this.options.topStatusLayer.addChild(title);
+
+            let y = panelY + 20;
+            for (const event of activeEvents) {
+                const roundsLeft = Math.max(0, event.activeUntilRound - this.options.game.state.round + 1);
+                const eventText = new PIXI.Text({
+                    text: `${event.name} • ${roundsLeft}r`,
+                    style: new PIXI.TextStyle({
+                        fontSize: 11,
+                        fill: 0xe2e8f0,
+                        fontWeight: "600",
+                    }),
+                });
+                eventText.position.set(panelX + 10, y);
+                this.options.topStatusLayer.addChild(eventText);
+                y += rowHeight;
+            }
+        }
+
         const apLabel = new PIXI.Text({
             text: "AP",
             style: new PIXI.TextStyle({ fontSize: 11, fill: 0x8b949e }),

@@ -88,4 +88,7 @@ export type Player = {
     
     // v0.5: Heavy Cannon penalty
     heavyCannonPenaltyApplied: boolean; // First move costs extra this turn
+
+    // Events
+    techBreakthroughUsed: boolean; // Next craft -1🧩 (once per event)
 };
