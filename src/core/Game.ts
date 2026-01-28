@@ -1009,6 +1009,7 @@ export class Game {
             let bonusBiomass = 0;
             let bonusMaterials = 0;
             let bonusAlloys = 0;
+            let componentBonus = 0;
             const eventGatherBonus = this.getActiveEventEffects().gatherBonus ?? 0;
             
             // SupplyDepot: +1 to each resource type gathered
@@ -1049,6 +1050,11 @@ export class Game {
                 if (eventGatherBonus > 0) { bonusAlloys += eventGatherBonus; }
             }
 
+            if (tile.componentBonus) {
+                p.components += tile.componentBonus;
+                componentBonus = tile.componentBonus;
+            }
+
             // Log
             const parts: string[] = [];
             if (tile.resources.biomass) {
@@ -1062,6 +1068,9 @@ export class Game {
             if (tile.resources.alloys) {
                 const bonus = bonusAlloys ? `+${bonusAlloys}` : "";
                 parts.push(`${tile.resources.alloys}${bonus} ⚙`);
+            }
+            if (componentBonus > 0) {
+                parts.push(`+${componentBonus} 🧩`);
             }
 
             const depotText = hasSupplyDepot ? " (🏠 SupplyDepot bonus!)" : "";
