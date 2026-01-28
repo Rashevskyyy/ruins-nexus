@@ -14,6 +14,7 @@ export type Tile = {
 
     // Resources (Cosmic Frontier)
     resources?: ResourceMap; // { biomass: 1, materials: 1 } etc.
+    componentBonus?: number; // 🧩 Components granted on Gather (e.g. Mystery Sector)
 
     // Blocked edges (mountains/cliffs) - 0-5, after rotation
     blockedEdges?: number[];

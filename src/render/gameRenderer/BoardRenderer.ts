@@ -698,13 +698,29 @@ export class BoardRenderer {
 
         if (tile.type === TileType.StartingSector) {
             const playerId = tile.sectorPlayerId || "?";
-            let resourceEmoji = "";
+            const resourceEmojis: string[] = [];
             if (tile.resources) {
-                if (tile.resources.biomass) resourceEmoji = "🧬";
-                else if (tile.resources.materials) resourceEmoji = "🧱";
-                else if (tile.resources.alloys) resourceEmoji = "⚙";
+                if (tile.resources.biomass) resourceEmojis.push("🧬".repeat(tile.resources.biomass));
+                if (tile.resources.materials) resourceEmojis.push("🧱".repeat(tile.resources.materials));
+                if (tile.resources.alloys) resourceEmojis.push("⚙".repeat(tile.resources.alloys));
             }
-            return `🏠${playerId}\n${resourceEmoji}`;
+            if (tile.componentBonus) {
+                resourceEmojis.push(`+${tile.componentBonus}🧩`);
+            }
+            if (tile.encounterActive) {
+                const tier = tile.monsterTier ?? 1;
+                const player = this.options.game.state.players[this.options.game.state.currentPlayerIndex];
+                const hasPrestigePenalty = player.prestige >= 12;
+                const required = hasPrestigePenalty ? tier + 1 : tier;
+
+                if (hasPrestigePenalty) {
+                    resourceEmojis.push(`👹T${tier}+1=${required}⚔`);
+                } else {
+                    resourceEmojis.push(`👹T${tier}=${required}⚔`);
+                }
+            }
+            const resourceLabel = resourceEmojis.join(" ");
+            return resourceLabel ? `🏠${playerId}\n${resourceLabel}` : `🏠${playerId}`;
         }
 
         if (tile.type === TileType.Base && tile.ownerId) {
@@ -728,6 +744,9 @@ export class BoardRenderer {
             if (res.biomass && res.biomass > 0) emojis.push("🧬".repeat(res.biomass));
             if (res.materials && res.materials > 0) emojis.push("🧱".repeat(res.materials));
             if (res.alloys && res.alloys > 0) emojis.push("⚙".repeat(res.alloys));
+        }
+        if (tile.componentBonus) {
+            emojis.push(`+${tile.componentBonus}🧩`);
         }
 
         if (tile.encounterActive) {

@@ -3,11 +3,12 @@ import { hexKey, addHex } from "./Hex";
 import { EDGE_DIRECTIONS } from "./HexEdges";
 import type { Tile } from "./Tile";
 import { TileType } from "./TileTypes";
+import type { ResourceMap } from "./TileDeck";
 
 /**
  * Random resource for starting sectors
  */
-function getRandomStartingResource(): { biomass?: number; materials?: number; alloys?: number } {
+function getRandomStartingResource(): ResourceMap {
     const roll = Math.random();
     if (roll < 0.4) {
         return { biomass: 1 };
@@ -16,6 +17,44 @@ function getRandomStartingResource(): { biomass?: number; materials?: number; al
     } else {
         return { alloys: 1 };
     }
+}
+
+type StartingSectorConfig = {
+    resources: ResourceMap;
+    encounterActive?: boolean;
+    monsterTier?: number;
+    enemyHp?: number;
+    componentBonus?: number;
+};
+
+function getStartingSectorConfig(): StartingSectorConfig {
+    const roll = Math.random();
+    const resources = getRandomStartingResource();
+
+    if (roll < 0.25) {
+        const richResourceKey = Object.keys(resources)[0] as keyof ResourceMap;
+        const richResources: ResourceMap = {};
+        richResources[richResourceKey] = 2;
+        return { resources: richResources };
+    }
+
+    if (roll < 0.4) {
+        return {
+            resources: { biomass: 1, materials: 1, alloys: 1 },
+            encounterActive: true,
+            monsterTier: 2,
+            enemyHp: 2,
+        };
+    }
+
+    if (roll < 0.5) {
+        return {
+            resources,
+            componentBonus: 1,
+        };
+    }
+
+    return { resources };
 }
 
 /**
@@ -100,15 +139,18 @@ export class Board {
             const edgeIndex = sectorEdges[i];
             const direction = EDGE_DIRECTIONS[edgeIndex];
             const sectorCoord = addHex(center, direction);
+            const startingSector = getStartingSectorConfig();
 
             board.setTile({
                 coord: sectorCoord,
                 discovered: true,
                 type: TileType.StartingSector,
                 sectorPlayerId: `P${i + 1}`, // Home zone for this player (NOT a base!)
-                resources: getRandomStartingResource(),
-                // No monster, no encounter
-                encounterActive: false,
+                resources: startingSector.resources,
+                componentBonus: startingSector.componentBonus,
+                encounterActive: startingSector.encounterActive ?? false,
+                monsterTier: startingSector.monsterTier,
+                enemyHp: startingSector.enemyHp,
             });
         }
 
