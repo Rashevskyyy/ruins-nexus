@@ -14,6 +14,7 @@ import { Phase } from "../core/Phase";
 import { Logger } from "../core/Logger";
 import type { Tile } from "../board/Tile";
 import { TileType } from "../board/TileTypes";
+import { canMoveBetween } from "../board/BlockedEdges";
 
 export type BotDifficulty = "random" | "easy" | "normal" | "aggressive";
 
@@ -182,20 +183,42 @@ export class BotPlayer {
     }
 
     private evaluateExplore(game: Game, player: Player, state: GameState): BotDecision {
+        if (state.isFinalPreparation) {
+            return { action: { type: "explore" }, reason: "Final preparation", score: 0 };
+        }
+
         // Find unexplored neighbors
         const pos = player.position;
         const unexplored = neighbors(pos).filter(n => !state.board.getTile(n));
         
-        if (unexplored.length === 0 || state.isFinalPreparation) {
+        if (unexplored.length === 0) {
             return { action: { type: "explore" }, reason: "No unexplored neighbors", score: 0 };
         }
 
-        // Score based on how many unexplored tiles nearby
-        const score = unexplored.length * 10 + (this.difficulty === "aggressive" ? 20 : 10);
+        // Check if we're stuck (no valid movements)
+        const currentTile = state.board.getTile(pos);
+        let canMoveAnywhere = false;
+        if (currentTile) {
+            for (const neighbor of neighbors(pos)) {
+                const neighborTile = state.board.getTile(neighbor);
+                if (neighborTile && canMoveBetween(currentTile, neighbor, neighborTile)) {
+                    canMoveAnywhere = true;
+                    break;
+                }
+            }
+        }
+
+        // BOOST explore priority significantly if stuck
+        let score = unexplored.length * 10 + (this.difficulty === "aggressive" ? 20 : 10);
+        
+        if (!canMoveAnywhere) {
+            score += 50; // High priority when stuck - explore to open new paths!
+            Logger.ai.debug(`Bot ${this.playerId} is stuck, boosting explore priority`);
+        }
 
         return {
             action: { type: "explore" },
-            reason: `${unexplored.length} unexplored neighbors`,
+            reason: canMoveAnywhere ? `${unexplored.length} unexplored neighbors` : `STUCK! Explore to open paths`,
             score,
         };
     }
@@ -361,11 +384,19 @@ export class BotPlayer {
     private evaluateMovements(game: Game, player: Player, state: GameState): BotDecision[] {
         const decisions: BotDecision[] = [];
         const pos = player.position;
+        const currentTile = state.board.getTile(pos);
         const adjacentTiles = neighbors(pos);
+
+        if (!currentTile) return decisions;
 
         for (const target of adjacentTiles) {
             const tile = state.board.getTile(target);
             if (!tile) continue;
+
+            // CHECK IF MOVEMENT IS ACTUALLY POSSIBLE (blocked edges / mountains)
+            if (!canMoveBetween(currentTile, target, tile)) {
+                continue; // Skip blocked paths - don't even consider them
+            }
 
             let score = 5;
             let reason = "Move to tile";
