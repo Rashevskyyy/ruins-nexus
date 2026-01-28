@@ -5,7 +5,7 @@ import type { HeroBoardHeaderContext, HeroBoardHeaderData } from "./HeroBoardTyp
 type HeaderContext = HeroBoardHeaderContext & HeroBoardHeaderData;
 
 export class HeroBoardHeaderSection {
-    render({ layer, panelX, panelY, panelW, headerHeight, playerColor, playerId, raceId }: HeaderContext): void {
+    render({ layer, panelX, panelY, playerColor, playerId, raceId }: HeaderContext): void {
         const portraitX = panelX + 22;
         const portraitY = panelY + 26;
         const portraitSize = 60;
@@ -25,7 +25,8 @@ export class HeroBoardHeaderSection {
                 "void":     { scale: 1.0, anchorY: 0.30 },
                 "warbound": { scale: 1.5, anchorY: 0.25 },
             };
-            const settings = heroSettings[raceId] || { scale: 1.0, anchorY: 0.35 };
+            const raceKey = raceId ?? "default";
+            const settings = heroSettings[raceKey] || { scale: 1.0, anchorY: 0.35 };
             
             const portraitSprite = new PIXI.Sprite(portraitTexture);
             const baseScale = Math.max(portraitSize / portraitTexture.width, portraitSize / portraitTexture.height);

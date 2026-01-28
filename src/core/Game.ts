@@ -116,18 +116,20 @@ export class Game {
     }
 
     private getActiveEventEffects(): GameEventEffects {
-        const combined: GameEventEffects = {};
+        const combined: Partial<Record<keyof GameEventEffects, number | boolean>> = {};
         for (const event of this.state.activeEvents) {
             for (const [key, value] of Object.entries(event.effects)) {
+                const typedKey = key as keyof GameEventEffects;
                 if (typeof value === "number") {
-                    combined[key as keyof GameEventEffects] =
-                        (combined[key as keyof GameEventEffects] as number | undefined ?? 0) + value;
-                } else if (value) {
-                    combined[key as keyof GameEventEffects] = value;
+                    const current = combined[typedKey];
+                    const nextValue = (typeof current === "number" ? current : 0) + value;
+                    combined[typedKey] = nextValue;
+                } else if (value === true) {
+                    combined[typedKey] = true;
                 }
             }
         }
-        return combined;
+        return combined as GameEventEffects;
     }
 
     private hasActiveEvent(eventId: string): boolean {
@@ -676,8 +678,6 @@ export class Game {
         let underdogBonus = 0;
         if (monsterTier >= 3 && !player.underdogBonusUsed) {
             const playerPrestige = player.prestige;
-            const playerIndex = this.state.players.findIndex(p => p.id === player.id);
-            
             // Find minimum prestige among all players
             const minPrestige = Math.min(...this.state.players.map(p => p.prestige));
             
