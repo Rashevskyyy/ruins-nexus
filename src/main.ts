@@ -118,6 +118,8 @@ async function main() {
             eventDeck: state.eventDeck,
             eventProgress: state.eventProgress,
             moduleCostDiscount: state.moduleCostDiscount,
+            publicObjectives: state.publicObjectives,
+            publicObjectivesPhase: state.publicObjectivesPhase,
             modifierId: state.modifierId,
             componentMultiplier: state.componentMultiplier,
             isFinalPhase: state.isFinalPhase,
@@ -296,6 +298,8 @@ async function main() {
         game.state.eventDeck = serverState.eventDeck || game.state.eventDeck;
         game.state.eventProgress = serverState.eventProgress || game.state.eventProgress;
         game.state.moduleCostDiscount = serverState.moduleCostDiscount ?? game.state.moduleCostDiscount;
+        game.state.publicObjectives = serverState.publicObjectives ?? game.state.publicObjectives;
+        game.state.publicObjectivesPhase = serverState.publicObjectivesPhase ?? game.state.publicObjectivesPhase;
         game.state.modifierId = serverState.modifierId ?? game.state.modifierId;
         game.state.componentMultiplier = serverState.componentMultiplier ?? game.state.componentMultiplier;
         game.state.isFinalPhase = serverState.isFinalPhase;
@@ -314,6 +318,16 @@ async function main() {
             game.state.phase = serverState.phase;
         }
         game.state.players = serverState.players;
+        for (const player of game.state.players) {
+            player.tilesExplored ??= 0;
+            player.monstersDefeatedTier2Plus ??= 0;
+            player.monstersDefeatedTier3Plus ??= 0;
+            player.resourcesGathered ??= 0;
+            player.itemsCrafted ??= 0;
+            player.permanentGatherBonus ??= 0;
+            player.permanentCombatBonus ??= 0;
+            player.finalTrialBonus ??= 0;
+        }
         
         // Sync tile deck from server (CRITICAL for consistent tile order!)
         if (serverState.tileDeck) {
@@ -355,6 +369,8 @@ async function main() {
             eventDeck: game.state.eventDeck,
             eventProgress: game.state.eventProgress,
             moduleCostDiscount: game.state.moduleCostDiscount,
+            publicObjectives: game.state.publicObjectives,
+            publicObjectivesPhase: game.state.publicObjectivesPhase,
             modifierId: game.state.modifierId,
             componentMultiplier: game.state.componentMultiplier,
             // Final Phase (v0.5)

@@ -14,6 +14,11 @@ import { CraftingSystem, CRAFT_RECIPES, canSpendPrestige, spendPrestige } from "
 import { UNIT_DEFINITIONS, createUnit, canAffordUnit, type UnitType } from "../entities/Unit";
 import type { RaceId, RaceOption } from "../entities/Race";
 import { EVENT_TRIGGER_ROUNDS, type GameEvent, type GameEventEffects } from "./GameEvents";
+import {
+    PUBLIC_OBJECTIVE_DEFINITION_MAP,
+    createPublicObjectivesForPhase,
+    getPublicObjectivePhase,
+} from "./PublicObjectives";
 
 export function applyRaceBonusesToPlayer(player: Player): void {
     if (!player.raceId || !player.raceOption) return;
@@ -66,6 +71,61 @@ export class Game {
     private incrementStateVersion(actionId?: string): void {
         this.state.stateVersion++;
         this.state.lastActionId = actionId || `action-${this.state.stateVersion}-${Date.now()}`;
+    }
+
+    private updatePublicObjectivesForRound(): void {
+        const phase = getPublicObjectivePhase(this.state.round);
+        if (phase === this.state.publicObjectivesPhase) return;
+
+        this.state.publicObjectivesPhase = phase;
+        this.state.publicObjectives = createPublicObjectivesForPhase(phase);
+        this.addLog(`🎯 New ${phase.toUpperCase()} public objectives are active.`);
+        if (this.onToast) {
+            this.onToast(`🎯 ${phase.toUpperCase()} objectives revealed!`, "info");
+        }
+    }
+
+    private applyPublicObjectiveReward(player: Player, objectiveId: string): void {
+        const definition = PUBLIC_OBJECTIVE_DEFINITION_MAP.get(objectiveId);
+        if (!definition) return;
+        const reward = definition.reward;
+
+        if (reward.prestige) {
+            player.prestige += reward.prestige;
+        }
+        if (reward.components) {
+            player.components += reward.components;
+        }
+        if (reward.permanent?.gatherBonus) {
+            player.permanentGatherBonus += reward.permanent.gatherBonus;
+        }
+        if (reward.permanent?.combatBonus) {
+            player.permanentCombatBonus += reward.permanent.combatBonus;
+        }
+        if (reward.permanent?.finalTrialBonus) {
+            player.finalTrialBonus += reward.permanent.finalTrialBonus;
+        }
+    }
+
+    private checkPublicObjectivesForPlayer(player: Player): void {
+        for (const objective of this.state.publicObjectives) {
+            if (objective.completed) continue;
+            const definition = PUBLIC_OBJECTIVE_DEFINITION_MAP.get(objective.id);
+            if (!definition) continue;
+            if (!definition.condition(player, this.state)) continue;
+
+            objective.completed = true;
+            objective.completedBy = player.id;
+            objective.completedAt = Date.now();
+            objective.completedAtRound = this.state.round;
+
+            this.applyPublicObjectiveReward(player, objective.id);
+
+            this.addLog(`🏆 Objective completed: ${objective.name} (${player.id})`);
+            if (this.onToast) {
+                this.onToast(`🏆 ${player.id} completed ${objective.name}!`, "success");
+            }
+        }
     }
     
     /**
@@ -353,6 +413,7 @@ export class Game {
 
             // Mark tile as discovered
             newTile.discovered = true;
+            player.tilesExplored += 1;
 
             // Apply rotation to blockedEdges
             if (newTile.blockedEdges && this.state.pendingTileRotation > 0) {
@@ -414,6 +475,7 @@ export class Game {
             );
 
             this.maybeGrantExploreBonus(player);
+            this.checkPublicObjectivesForPlayer(player);
 
             // AUTO-MOVE: Player moves onto the new tile
             player.position = target;
@@ -668,6 +730,12 @@ export class Game {
      */
     private awardCombatRewards(player: Player, tile: Tile): void {
         const monsterTier = tile.monsterTier ?? 1;
+        if (monsterTier >= 2) {
+            player.monstersDefeatedTier2Plus += 1;
+        }
+        if (monsterTier >= 3) {
+            player.monstersDefeatedTier3Plus += 1;
+        }
         const eventEffects = this.getActiveEventEffects();
         let eventComponentBonus = eventEffects.combatComponentBonus ?? 0;
         let eventPrestigeBonus = eventEffects.combatPrestigeBonus ?? 0;
@@ -802,6 +870,8 @@ export class Game {
             if (this.onToast) {
                 this.onToast(`⚔️ Threat defeated: ${parts.join(", ")}`, "success");
             }
+
+            this.checkPublicObjectivesForPlayer(player);
             
             // End turn immediately (no choice needed)
             if (player.warboundBattleRushAvailable) {
@@ -830,6 +900,7 @@ export class Game {
         
         this.addLog(`${player.id} defeated Tier ${monsterTier} threat! Choose reward...`);
         // Toast shown after dice animation
+        this.checkPublicObjectivesForPlayer(player);
     }
     
     /**
@@ -1011,6 +1082,8 @@ export class Game {
             let bonusAlloys = 0;
             let componentBonus = 0;
             const eventGatherBonus = this.getActiveEventEffects().gatherBonus ?? 0;
+            const objectiveGatherBonus = p.permanentGatherBonus;
+            const totalGatherBonus = eventGatherBonus + objectiveGatherBonus;
             
             // SupplyDepot: +1 to each resource type gathered
             const hasSupplyDepot = p.modules.includes("SupplyDepot");
@@ -1032,22 +1105,22 @@ export class Game {
             }
             
             if (tile.resources.biomass) {
-                p.biomass += tile.resources.biomass + eventGatherBonus;
+                p.biomass += tile.resources.biomass + totalGatherBonus;
                 if (hasSupplyDepot) { p.biomass += 1; bonusBiomass = 1; }
                 if (nomadBonusType === "biomass") { p.biomass += 1; bonusBiomass += 1; }
-                if (eventGatherBonus > 0) { bonusBiomass += eventGatherBonus; }
+                if (totalGatherBonus > 0) { bonusBiomass += totalGatherBonus; }
             }
             if (tile.resources.materials) {
-                p.materials += tile.resources.materials + eventGatherBonus;
+                p.materials += tile.resources.materials + totalGatherBonus;
                 if (hasSupplyDepot) { p.materials += 1; bonusMaterials = 1; }
                 if (nomadBonusType === "materials") { p.materials += 1; bonusMaterials += 1; }
-                if (eventGatherBonus > 0) { bonusMaterials += eventGatherBonus; }
+                if (totalGatherBonus > 0) { bonusMaterials += totalGatherBonus; }
             }
             if (tile.resources.alloys) {
-                p.alloys += tile.resources.alloys + eventGatherBonus;
+                p.alloys += tile.resources.alloys + totalGatherBonus;
                 if (hasSupplyDepot) { p.alloys += 1; bonusAlloys = 1; }
                 if (nomadBonusType === "alloys") { p.alloys += 1; bonusAlloys += 1; }
-                if (eventGatherBonus > 0) { bonusAlloys += eventGatherBonus; }
+                if (totalGatherBonus > 0) { bonusAlloys += totalGatherBonus; }
             }
 
             if (tile.componentBonus) {
@@ -1076,16 +1149,17 @@ export class Game {
             const depotText = hasSupplyDepot ? " (🏠 SupplyDepot bonus!)" : "";
             const nomadText = nomadBonus > 0 ? " (🏕️ Nomad bonus!)" : "";
             const eventText = eventGatherBonus > 0 ? " (🌪️ Event bonus!)" : "";
-            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}${depotText}${nomadText}${eventText}`);
+            const objectiveText = objectiveGatherBonus > 0 ? " (🎯 Objective bonus!)" : "";
+            this.addLog(`[Round ${this.state.round}] ${p.id} GATHERED ${parts.join(", ")}${depotText}${nomadText}${eventText}${objectiveText}`);
             if (this.onToast) {
-                this.onToast(`📦 Gathered: ${parts.join(", ")}${depotText}${nomadText}${eventText}`, "success");
+                this.onToast(`📦 Gathered: ${parts.join(", ")}${depotText}${nomadText}${eventText}${objectiveText}`, "success");
             }
 
             if (this.hasActiveEvent("resource_rush")) {
                 const totalGathered = (tile.resources.biomass ?? 0)
                     + (tile.resources.materials ?? 0)
                     + (tile.resources.alloys ?? 0)
-                    + (eventGatherBonus * Object.keys(tile.resources).length);
+                    + (totalGatherBonus * Object.keys(tile.resources).length);
                 const totals = this.state.eventProgress.resourceRush.totalsByPlayer;
                 totals[p.id] = (totals[p.id] ?? 0) + totalGathered;
                 const reached = totals[p.id] >= 8;
@@ -1104,6 +1178,17 @@ export class Game {
                     this.addLog(`🏆 Resource Rush: ${p.id} is second! +1 Prestige`);
                 }
             }
+
+            const resourceTypeCount = Object.keys(tile.resources).length;
+            const supplyDepotBonus = hasSupplyDepot ? resourceTypeCount : 0;
+            const totalGathered = (tile.resources.biomass ?? 0)
+                + (tile.resources.materials ?? 0)
+                + (tile.resources.alloys ?? 0)
+                + (totalGatherBonus * resourceTypeCount)
+                + supplyDepotBonus
+                + (nomadBonusType ? 1 : 0);
+            p.resourcesGathered += totalGathered;
+            this.checkPublicObjectivesForPlayer(p);
         }
 
         // ⚡ Unstable Ground: -1 HP every Gather
@@ -1323,6 +1408,7 @@ export class Game {
         this.state.actionUsedInCurrentSlot = true;
         this.state.phase = Phase.AwaitInput;
         this.tryFinishCurrentSlotAndStartNew();
+        this.checkPublicObjectivesForPlayer(p);
         return true;
     }
 
@@ -1453,6 +1539,7 @@ export class Game {
         this.state.actionUsedInCurrentSlot = true;
         this.state.phase = Phase.AwaitInput;
         this.tryFinishCurrentSlotAndStartNew();
+        this.checkPublicObjectivesForPlayer(p);
         return true;
     }
 
@@ -1597,6 +1684,8 @@ export class Game {
                 this.state.uiMode = "NONE";
                 this.tryFinishCurrentSlotAndStartNew();
             }
+            player.itemsCrafted += 1;
+            this.checkPublicObjectivesForPlayer(player);
             return true;
         } else {
             if (this.onToast) {
@@ -1930,6 +2019,9 @@ export class Game {
         
         // Prestige spend (1 Prestige = 1 score point)
         score += prestigeSpend;
+
+        // Public objective bonus
+        score += player.finalTrialBonus;
         
         return score;
     }
@@ -2049,6 +2141,7 @@ export class Game {
         if (nextIndex === 0) {
             this.state.round += 1;
             this.updateEventsForNewRound();
+            this.updatePublicObjectivesForRound();
 
             // v0.5: Final Preparation countdown
             if (this.state.isFinalPreparation && this.state.finalPrepRoundsLeft > 0) {
