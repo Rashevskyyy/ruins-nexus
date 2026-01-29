@@ -457,20 +457,27 @@ export class Game {
 
             // Final Tile - triggers Orbital Phase / Final Preparation (v0.5)
             if (newTile.isFinalTile) {
-                this.state.isFinalPhase = true;
-                this.state.isFinalPreparation = true;
-                this.state.finalPrepRoundsLeft = 4; // 4 rounds for preparation
-                
-                // Reset recall flags for all players
-                for (const p of this.state.players) {
-                    p.recallUsedThisPhase = false;
-                }
-                
-                this.addLog(`🚨 FINAL TILE REVEALED! Orbital Phase begins! 4 rounds to prepare!`);
-                this.addLog(`📡 RECALL TO BASE available for each player (1 use)`);
-                
-                if (this.onToast) {
-                    this.onToast(`🚨 ORBITAL PHASE! Explore disabled. Prepare for Final Trial!`, "warning");
+                if (!this.isFinalTrialAvailable()) {
+                    this.addLog(`🚫 Final Trial locked. Explore more tiles or advance rounds before starting.`);
+                    if (this.onToast) {
+                        this.onToast(`🚫 Final Trial locked. Explore more or progress rounds.`, "warning");
+                    }
+                } else {
+                    this.state.isFinalPhase = true;
+                    this.state.isFinalPreparation = true;
+                    this.state.finalPrepRoundsLeft = 4; // 4 rounds for preparation
+                    
+                    // Reset recall flags for all players
+                    for (const p of this.state.players) {
+                        p.recallUsedThisPhase = false;
+                    }
+                    
+                    this.addLog(`🚨 FINAL TILE REVEALED! Orbital Phase begins! 4 rounds to prepare!`);
+                    this.addLog(`📡 RECALL TO BASE available for each player (1 use)`);
+                    
+                    if (this.onToast) {
+                        this.onToast(`🚨 ORBITAL PHASE! Explore disabled. Prepare for Final Trial!`, "warning");
+                    }
                 }
             }
 
@@ -2247,5 +2254,10 @@ export class Game {
 
         this.addLog(`💀 MISSION FAILED! Final Threat survived (${this.state.finalThreatHp} HP left)`);
         this.addLog(`No winner - expedition failed.`);
+    }
+
+    private isFinalTrialAvailable(): boolean {
+        const tilesExplored = this.state.board.getAllTiles().filter(tile => tile.discovered).length;
+        return tilesExplored >= 20 || this.state.round >= 30;
     }
 }

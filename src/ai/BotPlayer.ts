@@ -94,16 +94,82 @@ export class BotPlayer {
             return { action: { type: "end_turn" }, reason: "No action points", score: 0 };
         }
 
-        // Generate all possible actions
-        const candidates: BotDecision[] = [];
-
-        // Explore
-        if (!state.isFinalPreparation && state.uiMode !== "TILE_PLACEMENT") {
-            candidates.push(this.evaluateExplore(game, player, state));
+        // Priority 1: Heal if critical HP
+        if (player.hp <= 2) {
+            return {
+                action: { type: "heal" },
+                reason: "Critical HP (<= 2)",
+                score: 1000,
+            };
         }
 
-        // Gather
-        candidates.push(this.evaluateGather(game, player, state));
+        const unexplored = this.getUnexploredNeighbors(state, player);
+        const tilesExplored = this.getTotalExploredTiles(state);
+
+        // Priority 2: Force exploration early/late game
+        if (
+            !state.isFinalPreparation &&
+            state.uiMode !== "TILE_PLACEMENT" &&
+            unexplored.length > 0 &&
+            state.actionPoints >= 2 &&
+            (tilesExplored < 15 || (state.round > 30 && tilesExplored < 20))
+        ) {
+            return {
+                action: { type: "explore" },
+                reason: "Force explore to expand map progress",
+                score: 950,
+            };
+        }
+
+        // Priority 3: Explore when possible
+        if (
+            !state.isFinalPreparation &&
+            state.uiMode !== "TILE_PLACEMENT" &&
+            unexplored.length > 0 &&
+            state.actionPoints >= 2
+        ) {
+            return {
+                action: { type: "explore" },
+                reason: `${unexplored.length} unexplored neighbors`,
+                score: 900,
+            };
+        }
+
+        const totalResources = this.getTotalResources(player);
+
+        // Priority 4: Too many resources -> avoid gather
+        if (totalResources > 30) {
+            return this.decideNonGatherAction(game, player, state, "Too many resources, avoid gather");
+        }
+
+        // Priority 5: Too many alloys -> craft/build
+        if (player.alloys > 10) {
+            const craftDecision = this.evaluateCraft(game, player);
+            if (craftDecision.score > 0) {
+                return {
+                    ...craftDecision,
+                    reason: "High alloys, prioritize crafting",
+                };
+            }
+            const buildDecision = this.evaluateBuildModules(game, player);
+            if (buildDecision.score > 0) {
+                return {
+                    ...buildDecision,
+                    reason: "High alloys, prioritize building modules",
+                };
+            }
+        }
+
+        // Priority 6: If stuck -> move towards unexplored
+        if (this.isStuck(player, state)) {
+            const moveDecision = this.decideMoveTowardsUnexplored(game, player, state);
+            if (moveDecision) {
+                return moveDecision;
+            }
+        }
+
+        // Generate remaining possible actions
+        const candidates: BotDecision[] = [];
 
         // Heal
         candidates.push(this.evaluateHeal(player));
@@ -134,6 +200,12 @@ export class BotPlayer {
 
         // If we've tried many actions this turn without progress, prefer ending turn
         const endTurnBonus = this.actionCount > 10 ? 50 : 0;
+
+        // Only then: Gather (if nothing else is promising)
+        const bestNonGatherScore = Math.max(...candidates.map(c => c.score), 0);
+        if (bestNonGatherScore <= 0) {
+            candidates.push(this.evaluateGather(game, player, state));
+        }
 
         // End turn (always an option)
         candidates.push({
@@ -184,6 +256,75 @@ export class BotPlayer {
                 // Pick best
                 return candidates[0];
         }
+    }
+
+    private getUnexploredNeighbors(state: GameState, player: Player): HexCoord[] {
+        const pos = player.position;
+        return neighbors(pos).filter(n => !state.board.getTile(n));
+    }
+
+    private getTotalExploredTiles(state: GameState): number {
+        return state.board.getAllTiles().filter(tile => tile.discovered).length;
+    }
+
+    private getTotalResources(player: Player): number {
+        return player.biomass + player.materials + player.alloys + player.components;
+    }
+
+    private isStuck(player: Player, state: GameState): boolean {
+        const pos = player.position;
+        const currentTile = state.board.getTile(pos);
+        if (!currentTile) return true;
+
+        for (const neighbor of neighbors(pos)) {
+            const neighborTile = state.board.getTile(neighbor);
+            if (neighborTile && canMoveBetween(currentTile, neighbor, neighborTile)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private decideMoveTowardsUnexplored(game: Game, player: Player, state: GameState): BotDecision | null {
+        const movementOptions = this.evaluateMovements(game, player, state);
+        if (movementOptions.length === 0) return null;
+
+        const sorted = [...movementOptions].sort((a, b) => b.score - a.score);
+        const best = sorted[0];
+        return {
+            ...best,
+            reason: "Stuck - move towards unexplored",
+            score: best.score + 100,
+        };
+    }
+
+    private decideNonGatherAction(
+        game: Game,
+        player: Player,
+        state: GameState,
+        reason: string,
+    ): BotDecision {
+        const options: BotDecision[] = [];
+
+        if (!state.isFinalPreparation && state.uiMode !== "TILE_PLACEMENT") {
+            options.push(this.evaluateExplore(game, player, state));
+        }
+        options.push(this.evaluateCraft(game, player));
+        options.push(this.evaluateBuildBase(game, player));
+        options.push(this.evaluateBuildModules(game, player));
+        options.push(this.evaluateTrade(game, player, state));
+        options.push(...this.evaluateMovements(game, player, state));
+
+        const best = options.sort((a, b) => b.score - a.score)[0];
+        if (!best || best.score <= 0) {
+            return { action: { type: "end_turn" }, reason, score: 0 };
+        }
+
+        return {
+            ...best,
+            reason,
+        };
     }
 
     private evaluateExplore(game: Game, player: Player, state: GameState): BotDecision {
