@@ -12,7 +12,6 @@ import type { HexCoord } from "../board/Hex";
 import { neighbors, hexDistance } from "../board/Hex";
 import { Phase } from "../core/Phase";
 import { Logger } from "../core/Logger";
-import type { Tile } from "../board/Tile";
 import { TileType } from "../board/TileTypes";
 import { canMoveBetween } from "../board/BlockedEdges";
 
@@ -109,7 +108,6 @@ export class BotPlayer {
         // Priority 2: Force exploration early/late game
         if (
             !state.isFinalPreparation &&
-            state.uiMode !== "TILE_PLACEMENT" &&
             unexplored.length > 0 &&
             state.actionPoints >= 2 &&
             (tilesExplored < 15 || (state.round > 30 && tilesExplored < 20))
@@ -124,7 +122,6 @@ export class BotPlayer {
         // Priority 3: Explore when possible
         if (
             !state.isFinalPreparation &&
-            state.uiMode !== "TILE_PLACEMENT" &&
             unexplored.length > 0 &&
             state.actionPoints >= 2
         ) {
@@ -327,7 +324,7 @@ export class BotPlayer {
         };
     }
 
-    private evaluateExplore(game: Game, player: Player, state: GameState): BotDecision {
+    private evaluateExplore(_game: Game, player: Player, state: GameState): BotDecision {
         if (state.isFinalPreparation) {
             return { action: { type: "explore" }, reason: "Final preparation", score: 0 };
         }
@@ -368,7 +365,7 @@ export class BotPlayer {
         };
     }
 
-    private evaluateGather(game: Game, player: Player, state: GameState): BotDecision {
+    private evaluateGather(_game: Game, player: Player, state: GameState): BotDecision {
         const tile = state.board.getTile(player.position);
         if (!tile) {
             return { action: { type: "gather" }, reason: "No tile", score: 0 };
@@ -508,11 +505,11 @@ export class BotPlayer {
             let score = 120;
 
             // Weapons if we don't have any
-            if (recipe.category === "weapon" && player.inventory.weapons.filter(w => w).length === 0) {
+            if (recipe.result.type === "weapon" && player.inventory.weapons.filter(w => w).length === 0) {
                 score += 30;
             }
             // Armor/utility if we don't have amulet
-            if (recipe.category === "amulet" && !player.inventory.amulet) {
+            if (recipe.result.type === "amulet" && !player.inventory.amulet) {
                 score += 20;
             }
 
@@ -529,7 +526,7 @@ export class BotPlayer {
         };
     }
 
-    private evaluateTrade(game: Game, player: Player, state: GameState): BotDecision {
+    private evaluateTrade(_game: Game, player: Player, state: GameState): BotDecision {
         const tile = state.board.getTile(player.position);
         if (!tile || tile.type !== TileType.LandingHub) {
             return { action: { type: "trade" }, reason: "Not at Landing Hub", score: 0 };
@@ -573,7 +570,7 @@ export class BotPlayer {
         };
     }
 
-    private evaluateMovements(game: Game, player: Player, state: GameState): BotDecision[] {
+    private evaluateMovements(_game: Game, player: Player, state: GameState): BotDecision[] {
         const decisions: BotDecision[] = [];
         const pos = player.position;
         const currentTile = state.board.getTile(pos);
@@ -640,7 +637,7 @@ export class BotPlayer {
         return decisions;
     }
 
-    private decideRewardChoice(player: Player, pending: NonNullable<GameState["pendingRewardChoice"]>): BotDecision {
+    private decideRewardChoice(player: Player, _pending: NonNullable<GameState["pendingRewardChoice"]>): BotDecision {
         const hpPercent = player.hp / player.maxHp;
 
         // Recover if low HP
@@ -669,7 +666,7 @@ export class BotPlayer {
         };
     }
 
-    private decideFinalTrial(player: Player, state: GameState): BotDecision {
+    private decideFinalTrial(player: Player, _state: GameState): BotDecision {
         // Spend some prestige if we have a lot
         const prestigeSpend = player.prestige > 5 ? Math.floor(player.prestige / 2) : 0;
 
@@ -683,7 +680,7 @@ export class BotPlayer {
     /**
      * Handle TILE_PLACEMENT mode - select position and place tile
      */
-    private decideTilePlacement(game: Game, player: Player, state: GameState): BotDecision {
+    private decideTilePlacement(_game: Game, player: Player, state: GameState): BotDecision {
         // Find valid placement positions (empty hexes adjacent to discovered tiles)
         const validPositions: HexCoord[] = [];
         

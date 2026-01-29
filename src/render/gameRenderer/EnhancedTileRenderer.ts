@@ -292,9 +292,10 @@ export class EnhancedTileRenderer {
 
   private drawResources(
     resources: { biomass?: number; materials?: number; alloys?: number },
-    hasMonster: boolean
+    _hasMonster: boolean
   ): PIXI.Container {
     const container = new PIXI.Container();
+    const scale = this.getScale();
 
     const items: { type: "biomass" | "materials" | "alloys"; count: number }[] = [];
 
@@ -310,13 +311,13 @@ export class EnhancedTileRenderer {
 
     if (items.length === 0) return container;
 
-    const circleRadius = 10;
+    const circleRadius = Math.round(10 * scale);
     const spacing = circleRadius * 2.4;
     const totalWidth = (items.length - 1) * spacing;
     let x = -totalWidth / 2;
     
-    // Если есть монстр - ресурсы ниже, иначе по центру
-    const y = hasMonster ? this.hexSize * 0.32 : 0;
+    // Ресурсы всегда внизу, даже если один
+    const y = this.hexSize * 0.32;
 
     for (const item of items) {
       const icon = this.drawResourceCircle(item.type, item.count, circleRadius);
@@ -359,7 +360,7 @@ export class EnhancedTileRenderer {
     const text = new PIXI.Text({
       text: symbols[type],
       style: {
-        fontSize: 11,
+        fontSize: Math.round(11 * this.getScale()),
         fontFamily: "Segoe UI Emoji, Apple Color Emoji, Arial",
       },
     });
@@ -369,7 +370,7 @@ export class EnhancedTileRenderer {
     // Бейдж количества
     if (count > 1) {
       const badge = new PIXI.Graphics();
-      badge.circle(radius - 2, -radius + 2, 6);
+      badge.circle(radius - 2, -radius + 2, Math.round(6 * this.getScale()));
       badge.fill({ color: 0x000000, alpha: 0.9 });
       badge.stroke({ color: 0xffffff, width: 1, alpha: 0.6 });
       container.addChild(badge);
@@ -377,7 +378,7 @@ export class EnhancedTileRenderer {
       const countText = new PIXI.Text({
         text: `${count}`,
         style: {
-          fontSize: 8,
+          fontSize: Math.round(8 * this.getScale()),
           fontFamily: "Arial",
           fill: 0xffffff,
           fontWeight: "bold",
@@ -402,6 +403,7 @@ export class EnhancedTileRenderer {
   }): PIXI.Container {
     const container = new PIXI.Container();
     const color = TileColors.monster[monster.type];
+    const scale = this.getScale();
 
     const typeIcons: Record<string, string> = {
       standard: "",
@@ -412,8 +414,8 @@ export class EnhancedTileRenderer {
     const hasIcon = typeIcon !== "";
 
     // Размеры pill badge
-    const badgeHeight = 20;
-    const badgeWidth = hasIcon ? 48 : 30;
+    const badgeHeight = Math.round(20 * scale);
+    const badgeWidth = Math.round((hasIcon ? 48 : 30) * scale);
     const borderRadius = badgeHeight / 2;
 
     // Фон (pill shape)
@@ -428,33 +430,33 @@ export class EnhancedTileRenderer {
       const iconText = new PIXI.Text({
         text: typeIcon,
         style: {
-          fontSize: 10,
+          fontSize: Math.round(10 * scale),
           fontFamily: "Segoe UI Emoji, Apple Color Emoji, Arial",
         },
       });
       iconText.anchor.set(0.5);
-      iconText.x = -10;
+      iconText.x = Math.round(-10 * scale);
       container.addChild(iconText);
 
       // Тир справа
       const tierText = new PIXI.Text({
         text: `T${monster.tier}`,
         style: {
-          fontSize: 11,
+          fontSize: Math.round(11 * scale),
           fontFamily: "Arial",
           fill: color,
           fontWeight: "bold",
         },
       });
       tierText.anchor.set(0.5);
-      tierText.x = 10;
+      tierText.x = Math.round(10 * scale);
       container.addChild(tierText);
     } else {
       // Только тир по центру
       const tierText = new PIXI.Text({
         text: `T${monster.tier}`,
         style: {
-          fontSize: 11,
+          fontSize: Math.round(11 * scale),
           fontFamily: "Arial",
           fill: color,
           fontWeight: "bold",
@@ -476,6 +478,7 @@ export class EnhancedTileRenderer {
 
   private drawBaseIndicator(): PIXI.Container {
     const container = new PIXI.Container();
+    const scale = this.getScale();
 
     const innerSize = this.hexSize * 0.4;
     const innerPoints = this.buildHexPoints(innerSize);
@@ -489,7 +492,7 @@ export class EnhancedTileRenderer {
     const houseText = new PIXI.Text({
       text: "🏠",
       style: {
-        fontSize: 18,
+        fontSize: Math.round(18 * scale),
         fontFamily: "Segoe UI Emoji, Apple Color Emoji, Arial",
       },
     });
@@ -505,11 +508,12 @@ export class EnhancedTileRenderer {
 
   private drawHubIcon(): PIXI.Container {
     const container = new PIXI.Container();
+    const scale = this.getScale();
 
     const ufoText = new PIXI.Text({
       text: "🛸",
       style: {
-        fontSize: 26,
+        fontSize: Math.round(26 * scale),
         fontFamily: "Segoe UI Emoji, Apple Color Emoji, Arial",
       },
     });
@@ -525,11 +529,12 @@ export class EnhancedTileRenderer {
 
   private drawQuestionMark(): PIXI.Container {
     const container = new PIXI.Container();
+    const scale = this.getScale();
 
     const text = new PIXI.Text({
       text: "?",
       style: {
-        fontSize: 22,
+        fontSize: Math.round(22 * scale),
         fontFamily: "Arial",
         fill: 0x555555,
         fontWeight: "bold",
@@ -565,6 +570,10 @@ export class EnhancedTileRenderer {
       default:
         return TileColors.tier[tile.tier] || TileColors.tier[1];
     }
+  }
+
+  private getScale(): number {
+    return this.hexSize / 60;
   }
 }
 

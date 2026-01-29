@@ -29,7 +29,7 @@ const formatReward = (reward: PublicObjectiveReward): string => {
 };
 
 export class PublicObjectivesPanel {
-    render({ app, game, layer }: PublicObjectivesContext): void {
+    render({ app: _app, game, layer }: PublicObjectivesContext): void {
         layer.removeChildren();
 
         const objectives = game.state.publicObjectives;

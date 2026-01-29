@@ -8,6 +8,8 @@
 import type { GameState } from "./GameState";
 import type { Player } from "../entities/Player";
 import { Logger } from "./Logger";
+import { TileType } from "../board/TileTypes";
+import { Phase } from "./Phase";
 
 export interface ValidationResult {
     valid: boolean;
@@ -104,24 +106,20 @@ function validatePlayer(player: Player, state: GameState): ValidationResult {
         }
         
         // Unit slots
-        if (player.unitSlots) {
-            const activeUnits = player.unitSlots.filter(u => u !== null).length;
-            if (activeUnits > 3) {
-                errors.push(`${pid}: More than 3 active units`);
-            }
+        const activeUnits = player.units.filter(u => u !== null).length;
+        if (activeUnits > 2) {
+            errors.push(`${pid}: More than 2 active units`);
         }
     }
 
     // Action points (during active turn)
-    if (state.currentPlayerIndex !== undefined) {
-        const currentPlayer = state.players[state.currentPlayerIndex];
-        if (currentPlayer && currentPlayer.id === pid) {
-            if (player.actionPoints < 0) {
-                errors.push(`${pid}: Negative action points (${player.actionPoints})`);
-            }
-            if (player.actionPoints > 10) {
-                warnings.push(`${pid}: Unusually high action points (${player.actionPoints})`);
-            }
+    const currentPlayer = state.players[state.currentPlayerIndex];
+    if (currentPlayer && currentPlayer.id === pid) {
+        if (state.actionPoints < 0) {
+            errors.push(`${pid}: Negative action points (${state.actionPoints})`);
+        }
+        if (state.actionPoints > 10) {
+            warnings.push(`${pid}: Unusually high action points (${state.actionPoints})`);
         }
     }
 
@@ -144,7 +142,7 @@ function validateBoard(state: GameState): ValidationResult {
     }
 
     // Check for hub
-    const hub = tiles.find(t => t.type === "Hub");
+    const hub = tiles.find(t => t.type === TileType.LandingHub);
     if (!hub) {
         warnings.push("No Hub tile found on board");
     }
@@ -157,7 +155,7 @@ function validateBoard(state: GameState): ValidationResult {
         }
 
         // Resource tiles should have resources defined
-        if (tile.type === "Resource" && !tile.resources) {
+        if (tile.type === TileType.Resource && !tile.resources) {
             warnings.push(`Tile at ${tile.coord.q},${tile.coord.r}: Resource type but no resources`);
         }
 
@@ -202,7 +200,7 @@ function validatePhase(state: GameState): ValidationResult {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    const validPhases = ["EXPLORATION", "ORBITAL", "FINAL_TRIAL", "GAME_OVER", "AwaitInput"];
+    const validPhases = Object.values(Phase);
     if (!validPhases.includes(state.phase)) {
         errors.push(`Invalid phase: ${state.phase}`);
     }
@@ -218,13 +216,8 @@ function validatePhase(state: GameState): ValidationResult {
     }
 
     // Final preparation consistency
-    if (state.isFinalPreparation) {
-        if (state.phase !== "ORBITAL" && state.phase !== "EXPLORATION") {
-            warnings.push(`isFinalPreparation=true but phase is ${state.phase}`);
-        }
-        if (state.orbitalCountdown === undefined || state.orbitalCountdown < 0) {
-            warnings.push(`isFinalPreparation=true but invalid orbitalCountdown: ${state.orbitalCountdown}`);
-        }
+    if (state.isFinalPreparation && state.finalPrepRoundsLeft < 0) {
+        warnings.push(`isFinalPreparation=true but invalid finalPrepRoundsLeft: ${state.finalPrepRoundsLeft}`);
     }
 
     // Pending reward choice validation
@@ -257,8 +250,8 @@ function validateTileDeck(state: GameState): ValidationResult {
     }
 
     // If game is not over and no final tile revealed, deck shouldn't be empty
-    if (state.phase === "EXPLORATION" && remaining === 0 && !state.isFinalPreparation) {
-        warnings.push("Deck empty during exploration but final tile not revealed");
+    if (remaining === 0 && !state.isFinalPreparation && !state.isFinalPhase) {
+        warnings.push("Deck empty while final tile not revealed");
     }
 
     return { valid: errors.length === 0, errors, warnings };
@@ -298,12 +291,12 @@ export function validateAction(state: GameState, action: string, playerId: strin
 
     // Check action points for actions that cost AP
     const apCostActions = ["move", "explore", "gather", "heal", "craft", "build"];
-    if (apCostActions.includes(action) && player.actionPoints <= 0) {
+    if (apCostActions.includes(action) && state.actionPoints <= 0) {
         errors.push(`${playerId} has no action points for ${action}`);
     }
 
     // Phase-specific validations
-    if (state.phase === "GAME_OVER") {
+    if (state.gameOver) {
         errors.push("Game is over, no actions allowed");
     }
 

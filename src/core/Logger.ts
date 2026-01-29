@@ -301,8 +301,9 @@ class GameLogger {
             const minPriority = LOG_LEVEL_PRIORITY[options.level];
             logs = logs.filter(e => LOG_LEVEL_PRIORITY[e.level] >= minPriority);
         }
-        if (options?.since) {
-            logs = logs.filter(e => e.timestamp >= options.since);
+        const since = options?.since;
+        if (since !== undefined) {
+            logs = logs.filter(e => e.timestamp >= since);
         }
         if (options?.limit) {
             logs = logs.slice(-options.limit);

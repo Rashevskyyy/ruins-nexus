@@ -310,7 +310,7 @@ export class DebugPanelRenderer {
         this.options.debugPanelLayer.addChild(countText);
     }
 
-    private renderStateTab(panelX: number, panelY: number, panelW: number, panelH: number): void {
+    private renderStateTab(panelX: number, panelY: number, _panelW: number, panelH: number): void {
         const state = this.options.game.state;
         const validation = validateGameState(state);
         const startY = panelY + 75;
@@ -320,16 +320,17 @@ export class DebugPanelRenderer {
             `Phase: ${state.phase}`,
             `Round: ${state.round}`,
             `Current Player: ${state.players[state.currentPlayerIndex]?.id || "N/A"}`,
+            `Action Points: ${state.actionPoints}`,
             `Tiles: ${state.board.getAllTiles().length}`,
             `Deck Remaining: ${state.tileDeck?.getRemainingCount() ?? "N/A"}`,
             `Final Prep: ${state.isFinalPreparation ? "Yes" : "No"}`,
-            `Orbital CD: ${state.orbitalCountdown ?? "N/A"}`,
+            `Final Prep Rounds: ${state.finalPrepRoundsLeft ?? "N/A"}`,
             "",
             `--- PLAYERS ---`,
         ];
 
         for (const player of state.players) {
-            stateLines.push(`${player.id}: HP=${player.hp}/${player.maxHp} AP=${player.actionPoints} P=${player.prestige}`);
+            stateLines.push(`${player.id}: HP=${player.hp}/${player.maxHp} P=${player.prestige}`);
         }
 
         stateLines.push("");

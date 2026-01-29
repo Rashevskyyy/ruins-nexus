@@ -685,17 +685,47 @@ export class BoardRenderer {
     private drawMountains(target: PIXI.Graphics | PIXI.Container, blockedEdges: number[]): void {
         // If target is a Container, create a new Graphics and add it
         const g = target instanceof PIXI.Graphics ? target : new PIXI.Graphics();
-        
+
         for (const edge of blockedEdges) {
             const [x1, y1, x2, y2] = getEdgeVertices(edge as EdgeIndex, this.HEX_SIZE);
 
+            // 1) Soft outer glow to pop on dark tiles
             g.moveTo(x1, y1);
             g.lineTo(x2, y2);
-            g.stroke({ color: 0x2d3748, width: 8, alpha: 1 });
+            g.stroke({ color: 0xffffff, width: 12, alpha: 0.12 });
 
+            // 2) Mid bright ridge
+            g.moveTo(x1, y1);
+            g.lineTo(x2, y2);
+            g.stroke({ color: 0x8fd4ff, width: 8, alpha: 0.6 });
+
+            // 3) Dark core ridge
             g.moveTo(x1, y1);
             g.lineTo(x2, y2);
             g.stroke({ color: 0x1a202c, width: 4, alpha: 1 });
+
+            // 4) Small mountain peaks along the edge
+            const peaks = 3;
+            for (let i = 1; i <= peaks; i++) {
+                const t = i / (peaks + 1);
+                const px = x1 + (x2 - x1) * t;
+                const py = y1 + (y2 - y1) * t;
+
+                // Perpendicular offset for the peak
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                const nx = -dy / len;
+                const ny = dx / len;
+                const height = 8;
+
+                g.moveTo(px - 6 * (dx / len), py - 6 * (dy / len));
+                g.lineTo(px + nx * height, py + ny * height);
+                g.lineTo(px + 6 * (dx / len), py + 6 * (dy / len));
+                g.closePath();
+                g.fill({ color: 0x1a202c, alpha: 0.9 });
+                g.stroke({ color: 0x8fd4ff, width: 1.5, alpha: 0.6 });
+            }
         }
 
         if (!(target instanceof PIXI.Graphics)) {
