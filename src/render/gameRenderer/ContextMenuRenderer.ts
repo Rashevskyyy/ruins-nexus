@@ -337,8 +337,8 @@ export class ContextMenuRenderer {
 
         const { x, y } = this.options.hexToPixel(coord);
         const { panX, panY, zoom } = this.options.getViewport();
-        const screenX = (x + panX) * zoom + this.options.app.screen.width / 2;
-        const screenY = (y + panY) * zoom + this.options.app.screen.height / 2;
+        const screenX = x * zoom + this.options.app.screen.width / 2 + panX;
+        const screenY = y * zoom + this.options.app.screen.height / 2 + panY;
 
         const btnW = 120;
         const btnH = 36;

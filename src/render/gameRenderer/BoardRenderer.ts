@@ -24,7 +24,7 @@ export type BoardRendererOptions = {
 };
 
 export class BoardRenderer {
-    private HEX_SIZE = 50;
+    private HEX_SIZE = 80;
     private HEX_POINTS: number[];
 
     private tileViews = new Map<string, PIXI.Graphics>();
@@ -98,8 +98,8 @@ export class BoardRenderer {
         const { x, y } = this.hexToPixel(c);
         const { panX, panY, zoom } = this.getViewport();
         return {
-            x: (x + panX) * zoom + this.options.app.screen.width / 2,
-            y: (y + panY) * zoom + this.options.app.screen.height / 2,
+            x: x * zoom + this.options.app.screen.width / 2 + panX,
+            y: y * zoom + this.options.app.screen.height / 2 + panY,
         };
     }
 
@@ -797,8 +797,8 @@ export class BoardRenderer {
 
     private renderTilePlacementControls(tileX: number, tileY: number, blocked: boolean = false): void {
         const { panX, panY, zoom } = this.getViewport();
-        const screenX = (tileX + panX) * zoom + this.options.app.screen.width / 2;
-        const screenY = (tileY + panY) * zoom + this.options.app.screen.height / 2;
+        const screenX = tileX * zoom + this.options.app.screen.width / 2 + panX;
+        const screenY = tileY * zoom + this.options.app.screen.height / 2 + panY;
 
         const controlsY = screenY + this.HEX_SIZE * zoom * 0.6;
         const btnW = 50;
