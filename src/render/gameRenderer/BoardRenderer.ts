@@ -6,6 +6,7 @@ import { TileType } from "../../board/TileTypes";
 import { canMoveBetween } from "../../board/BlockedEdges";
 import { type EdgeIndex, getEdgeVertices } from "../../board/HexEdges";
 import type { Tile } from "../../board/Tile";
+import { EnhancedTileRenderer, type TileRenderData } from "./EnhancedTileRenderer";
 
 export type BoardRendererOptions = {
     app: PIXI.Application;
@@ -27,8 +28,10 @@ export class BoardRenderer {
     private HEX_POINTS: number[];
 
     private tileViews = new Map<string, PIXI.Graphics>();
+    private tileContents = new Map<string, PIXI.Container>();
     private tileLabels = new Map<string, PIXI.Text>();
     private playerViews: PIXI.Graphics[] = [];
+    private enhancedRenderer: EnhancedTileRenderer;
 
     private hoverOverlays = new Map<string, PIXI.Graphics>();
     private hoveredKey: string | null = null;
@@ -46,6 +49,35 @@ export class BoardRenderer {
     constructor(private options: BoardRendererOptions) {
         this.HEX_POINTS = this.buildHexPoints(this.HEX_SIZE);
         this.playerColors = options.playerColors;
+        this.enhancedRenderer = new EnhancedTileRenderer(this.HEX_SIZE);
+    }
+
+    private toTileRenderData(tile: Tile): TileRenderData {
+        let type: TileRenderData["type"] = "resource";
+        if (tile.type === TileType.LandingHub) type = "hub";
+        else if (tile.type === TileType.StartingSector) type = "start";
+        else if (tile.type === TileType.Empty) type = "empty";
+
+        // Detect final tile (tier 3 with high-tier monster)
+        if (tile.monsterTier && tile.monsterTier >= 5) type = "final";
+
+        return {
+            discovered: tile.discovered,
+            type,
+            tier: (tile.tier || 1) as 1 | 2 | 3,
+            risky: (tile.riskyEffect as "toxic" | "unstable" | "rift") || null,
+            resources: tile.resources,
+            monster: tile.encounterActive
+                ? {
+                      alive: true,
+                      tier: tile.monsterTier || 1,
+                      // Monster type can be added to Tile later, default to standard for now
+                      type: "standard" as const,
+                  }
+                : undefined,
+            hasBase: !!tile.ownerId,
+            baseOwner: tile.ownerId,
+        };
     }
 
     public getHexSize(): number {
@@ -143,7 +175,11 @@ export class BoardRenderer {
         for (const view of this.tileViews.values()) {
             this.options.boardLayer.removeChild(view);
         }
+        for (const content of this.tileContents.values()) {
+            this.options.boardLayer.removeChild(content);
+        }
         this.tileViews.clear();
+        this.tileContents.clear();
         this.tileLabels.clear();
         this.options.labelsLayer.removeChildren();
         console.log("[Render] Forced rebuild of all tile views");
@@ -176,6 +212,12 @@ export class BoardRenderer {
             if (!currentTileKeys.has(key) && !fogKeys.has(key)) {
                 this.options.boardLayer.removeChild(view);
                 this.tileViews.delete(key);
+                // Also remove the content container
+                const content = this.tileContents.get(key);
+                if (content) {
+                    this.options.boardLayer.removeChild(content);
+                    this.tileContents.delete(key);
+                }
             }
         }
 
@@ -219,30 +261,44 @@ export class BoardRenderer {
             const { x, y } = this.hexToPixel(tile.coord);
             view.position.set(x, y);
 
+            // Clear the graphics view - we just need it for hit area
             view.clear();
             view.poly(this.HEX_POINTS);
-            view.fill({ color: this.tileFill(tile.discovered, tile.type), alpha: 1 });
+            view.fill({ color: 0x000000, alpha: 0.01 }); // Nearly invisible, just for hit detection
 
-            view.stroke({ color: 0x0d0d0d, width: 2, alpha: 1 });
-
-            if (tile.discovered) {
-                view.stroke({ color: 0x9fd4ff, width: 1, alpha: 0.18 });
+            // Remove old tile content
+            const oldContent = this.tileContents.get(key);
+            if (oldContent) {
+                this.options.boardLayer.removeChild(oldContent);
             }
 
+            // Create new tile content using enhanced renderer
+            const tileData = this.toTileRenderData(tile);
+            const tileGraphics = this.enhancedRenderer.createTileGraphics(tileData);
+            tileGraphics.position.set(x, y);
+            tileGraphics.eventMode = "none"; // Content doesn't need events
+            this.tileContents.set(key, tileGraphics);
+            this.options.boardLayer.addChildAt(tileGraphics, 0);
+
+            // Draw highlight strokes on the view (above the content)
             if (allowed.has(key)) {
+                view.poly(this.HEX_POINTS);
                 view.stroke({ color: 0xffffff, width: 4, alpha: 0.9 });
             }
 
             if (gatherHere && key === hexKey(current.position)) {
+                view.poly(this.HEX_POINTS);
                 view.stroke({ color: 0x00ff88, width: 4, alpha: 0.65 });
             }
 
+            // Draw mountains on the content layer
             if (tile.discovered && tile.blockedEdges && tile.blockedEdges.length > 0) {
-                this.drawMountains(view, tile.blockedEdges);
+                this.drawMountains(tileGraphics, tile.blockedEdges);
             }
 
+            // Draw base owner color border
             if (tile.ownerId) {
-                this.drawBase(view, tile.ownerId);
+                this.drawBaseOwnerBorder(view, tile.ownerId);
             }
 
             this.drawHoverOverlay(key, x, y, this.hoveredKey === key);
@@ -584,24 +640,6 @@ export class BoardRenderer {
         return pts;
     }
 
-    private tileFill(discovered: boolean, type: TileType): number {
-        if (!discovered) return 0x0f1822;
-
-        switch (type) {
-            case TileType.LandingHub:
-                return 0x9a7440;
-            case TileType.Resource:
-                return 0x4a9158;
-            case TileType.StartingSector:
-                return 0x3a6a8a;
-            case TileType.Base:
-                return 0x5a5a9a;
-            case TileType.Empty:
-            default:
-                return 0x425262;
-        }
-    }
-
     private getAllowedHexKeys(): Set<string> {
         const current = this.options.game.state.players[this.options.game.state.currentPlayerIndex];
         const allowed = [hexKey(current.position)];
@@ -636,30 +674,32 @@ export class BoardRenderer {
         return cooldown <= this.options.game.state.round;
     }
 
-    private drawBase(view: PIXI.Graphics, ownerId: string): void {
+    private drawBaseOwnerBorder(view: PIXI.Graphics, ownerId: string): void {
         const playerIndex = parseInt(ownerId.replace("P", "")) - 1;
         const color = this.playerColors[playerIndex] || 0xffffff;
 
         view.poly(this.HEX_POINTS);
         view.stroke({ color, width: 6, alpha: 0.9 });
-
-        view.circle(0, 0, 18);
-        view.fill({ color: 0x2d3748, alpha: 0.9 });
-        view.circle(0, 0, 18);
-        view.stroke({ color, width: 3, alpha: 1 });
     }
 
-    private drawMountains(view: PIXI.Graphics, blockedEdges: number[]): void {
+    private drawMountains(target: PIXI.Graphics | PIXI.Container, blockedEdges: number[]): void {
+        // If target is a Container, create a new Graphics and add it
+        const g = target instanceof PIXI.Graphics ? target : new PIXI.Graphics();
+        
         for (const edge of blockedEdges) {
             const [x1, y1, x2, y2] = getEdgeVertices(edge as EdgeIndex, this.HEX_SIZE);
 
-            view.moveTo(x1, y1);
-            view.lineTo(x2, y2);
-            view.stroke({ color: 0x2d3748, width: 8, alpha: 1 });
+            g.moveTo(x1, y1);
+            g.lineTo(x2, y2);
+            g.stroke({ color: 0x2d3748, width: 8, alpha: 1 });
 
-            view.moveTo(x1, y1);
-            view.lineTo(x2, y2);
-            view.stroke({ color: 0x1a202c, width: 4, alpha: 1 });
+            g.moveTo(x1, y1);
+            g.lineTo(x2, y2);
+            g.stroke({ color: 0x1a202c, width: 4, alpha: 1 });
+        }
+
+        if (!(target instanceof PIXI.Graphics)) {
+            target.addChild(g);
         }
     }
 
@@ -688,81 +728,27 @@ export class BoardRenderer {
     }
 
     private getTileLabel(tile: any): string {
-        if (!tile.discovered && tile.tier) {
-            return `T${tile.tier}`;
-        }
-
+        // Enhanced renderer now handles most visuals
+        // Labels are only for supplementary info not covered by graphics
+        
         if (!tile.discovered) return "";
 
-        if (tile.type === TileType.LandingHub) return "🚀 Hub";
-
+        // Starting sector - show player ID
         if (tile.type === TileType.StartingSector) {
             const playerId = tile.sectorPlayerId || "?";
-            const resourceEmojis: string[] = [];
-            if (tile.resources) {
-                if (tile.resources.biomass) resourceEmojis.push("🧬".repeat(tile.resources.biomass));
-                if (tile.resources.materials) resourceEmojis.push("🧱".repeat(tile.resources.materials));
-                if (tile.resources.alloys) resourceEmojis.push("⚙".repeat(tile.resources.alloys));
-            }
+            const extras: string[] = [];
             if (tile.componentBonus) {
-                resourceEmojis.push(`+${tile.componentBonus}🧩`);
+                extras.push(`+${tile.componentBonus}🧩`);
             }
-            if (tile.encounterActive) {
-                const tier = tile.monsterTier ?? 1;
-                const player = this.options.game.state.players[this.options.game.state.currentPlayerIndex];
-                const hasPrestigePenalty = player.prestige >= 12;
-                const required = hasPrestigePenalty ? tier + 1 : tier;
-
-                if (hasPrestigePenalty) {
-                    resourceEmojis.push(`👹T${tier}+1=${required}⚔`);
-                } else {
-                    resourceEmojis.push(`👹T${tier}=${required}⚔`);
-                }
-            }
-            const resourceLabel = resourceEmojis.join(" ");
-            return resourceLabel ? `🏠${playerId}\n${resourceLabel}` : `🏠${playerId}`;
+            return extras.length > 0 ? `${playerId}\n${extras.join(" ")}` : playerId;
         }
 
-        if (tile.type === TileType.Base && tile.ownerId) {
-            return `🏰 ${tile.ownerId}`;
-        }
-
-        const emojis: string[] = [];
-
-        if (tile.riskyEffect) {
-            const riskyMap: Record<string, string> = {
-                toxic: "☣",
-                unstable: "⚡",
-                rift: "🌪",
-            };
-            const riskyEmoji = riskyMap[tile.riskyEffect];
-            if (riskyEmoji) emojis.push(riskyEmoji);
-        }
-
-        if (tile.resources) {
-            const res = tile.resources;
-            if (res.biomass && res.biomass > 0) emojis.push("🧬".repeat(res.biomass));
-            if (res.materials && res.materials > 0) emojis.push("🧱".repeat(res.materials));
-            if (res.alloys && res.alloys > 0) emojis.push("⚙".repeat(res.alloys));
-        }
+        // Component bonus only (not shown by enhanced renderer)
         if (tile.componentBonus) {
-            emojis.push(`+${tile.componentBonus}🧩`);
+            return `+${tile.componentBonus}🧩`;
         }
 
-        if (tile.encounterActive) {
-            const tier = tile.monsterTier ?? 1;
-            const player = this.options.game.state.players[this.options.game.state.currentPlayerIndex];
-            const hasPrestigePenalty = player.prestige >= 12;
-            const required = hasPrestigePenalty ? tier + 1 : tier;
-
-            if (hasPrestigePenalty) {
-                emojis.push(`👹T${tier}+1=${required}⚔`);
-            } else {
-                emojis.push(`👹T${tier}=${required}⚔`);
-            }
-        }
-
-        return emojis.join(" ");
+        return "";
     }
 
     private getPlayerOffset(index: number): { x: number; y: number } {
