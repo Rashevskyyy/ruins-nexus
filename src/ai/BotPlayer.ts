@@ -27,6 +27,7 @@ export type BotAction =
     | { type: "build_base" }
     | { type: "build_modules"; modules: string[] }
     | { type: "craft"; recipeId: string }
+    | { type: "trade" }
     | { type: "hire_unit"; unitType: string }
     | { type: "end_turn" }
     | { type: "choose_reward"; choice: "standard" | "recover" | "push" }
@@ -115,6 +116,9 @@ export class BotPlayer {
 
         // Craft
         candidates.push(this.evaluateCraft(game, player));
+
+        // Trade
+        candidates.push(this.evaluateTrade(game, player, state));
 
         // Movement to interesting tiles
         candidates.push(...this.evaluateMovements(game, player, state));
@@ -209,7 +213,7 @@ export class BotPlayer {
         }
 
         // BOOST explore priority significantly if stuck
-        let score = unexplored.length * 10 + (this.difficulty === "aggressive" ? 20 : 10);
+        let score = unexplored.length * 6 + (this.difficulty === "aggressive" ? 15 : 5);
         
         if (!canMoveAnywhere) {
             score += 50; // High priority when stuck - explore to open new paths!
@@ -254,7 +258,7 @@ export class BotPlayer {
                               (tile.resources.materials ?? 0) + 
                               (tile.resources.alloys ?? 0);
         
-        const score = totalResources * 15 + 10;
+        const score = totalResources * 20 + 80;
 
         return {
             action: { type: "gather" },
@@ -272,12 +276,15 @@ export class BotPlayer {
 
         // Higher score if low HP
         const hpPercent = player.hp / player.maxHp;
-        let score = missingHp * 10;
+        let score = missingHp * 12;
         
         if (hpPercent < 0.4) {
-            score += 30; // Critical HP
+            score += 120; // Critical HP
         } else if (hpPercent < 0.6) {
-            score += 15;
+            score += 60;
+        }
+        if (player.hp < 3) {
+            score += 200;
         }
 
         return {
@@ -293,7 +300,7 @@ export class BotPlayer {
         }
 
         // High priority if we don't have a base
-        const score = player.basePosition ? 0 : 60;
+        const score = player.basePosition ? 0 : 160;
 
         return {
             action: { type: "build_base" },
@@ -354,10 +361,10 @@ export class BotPlayer {
 
         // Pick best recipe based on current inventory
         let bestRecipe = recipes[0];
-        let bestScore = 10;
+        let bestScore = 120;
 
         for (const recipe of recipes) {
-            let score = 10;
+            let score = 120;
 
             // Weapons if we don't have any
             if (recipe.category === "weapon" && player.inventory.weapons.filter(w => w).length === 0) {
@@ -378,6 +385,50 @@ export class BotPlayer {
             action: { type: "craft", recipeId: bestRecipe.id },
             reason: `Craft ${bestRecipe.name}`,
             score: bestScore,
+        };
+    }
+
+    private evaluateTrade(game: Game, player: Player, state: GameState): BotDecision {
+        const tile = state.board.getTile(player.position);
+        if (!tile || tile.type !== TileType.LandingHub) {
+            return { action: { type: "trade" }, reason: "Not at Landing Hub", score: 0 };
+        }
+
+        if (state.actionUsedInCurrentSlot || state.actionPoints <= 0) {
+            return { action: { type: "trade" }, reason: "No action points", score: 0 };
+        }
+
+        const canTradeBiomass = player.biomass >= 2;
+        const canTradeMaterials = player.materials >= 2;
+
+        if (!canTradeBiomass && !canTradeMaterials) {
+            return { action: { type: "trade" }, reason: "No trade resources", score: 0 };
+        }
+
+        let score = 0;
+        let reason = "Trade at Landing Hub";
+
+        if (canTradeBiomass && player.alloys < 1 && player.components >= 2) {
+            score = 130;
+            reason = "Trade biomass for alloys to craft weapon";
+        } else if (canTradeBiomass && player.alloys < 2 && player.components >= 4) {
+            score = 120;
+            reason = "Trade biomass for alloys to craft upgrades";
+        } else if (canTradeMaterials && player.biomass < 2 && player.alloys < 1) {
+            score = 90;
+            reason = "Trade materials for biomass to enable alloy trade";
+        } else if (canTradeBiomass) {
+            score = 70;
+            reason = "Convert biomass to alloys";
+        } else if (canTradeMaterials) {
+            score = 50;
+            reason = "Convert materials to biomass";
+        }
+
+        return {
+            action: { type: "trade" },
+            reason,
+            score,
         };
     }
 
@@ -594,6 +645,9 @@ export class BotPlayer {
                         return game.doCraft(action.recipeId);
                     }
                     return false;
+
+                case "trade":
+                    return game.doTrade();
 
                 case "choose_reward":
                     game.chooseReward(action.choice);
