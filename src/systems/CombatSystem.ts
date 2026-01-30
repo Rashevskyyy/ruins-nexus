@@ -75,6 +75,7 @@ export class CombatSystem {
             extraSkulls?: number;
             equipmentPenalty?: number;
             preCombat?: { bonusSwords?: number; skullReduction?: number; rerollIfZero?: boolean };
+            round?: number;
         } = {},
     ): CombatResult {
         const monsterTier = tile.monsterTier ?? 1;
@@ -168,7 +169,6 @@ export class CombatSystem {
         const hasTacticalUnit = player.units?.some(u => u?.type === "tactical");
         const hasTacticalUplink = player.modules.includes("TacticalUplink");
         const hasRerollModule = player.inventory.spells.some(s => s && s.effectId === "reroll_module");
-        const hasHeavyStriker = player.inventory.weapons.some(w => w && w.effectId === "heavy_striker");
         const hasPreCombatReroll = modifiers.preCombat?.rerollIfZero ?? false;
         
         // Only reroll if rolled 0 swords AND prestige < 15
@@ -192,11 +192,6 @@ export class CombatSystem {
                 roll = this.dice.rollHeroDie();
                 syncRollBreakdown();
                 breakdown.labels.push("🎲 Reroll Module reroll");
-                rerollUsed = true;
-            } else if (hasHeavyStriker) {
-                roll = this.dice.rollHeroDie();
-                syncRollBreakdown();
-                breakdown.labels.push("⚔ Heavy Striker reroll");
                 rerollUsed = true;
             }
         }
@@ -292,24 +287,24 @@ export class CombatSystem {
         
         // TacticalUplink: handled in reroll section below
 
-        // Pulse Blade / Blaster Core: +1 ⚔
-        const hasPulseBlade = player.inventory.weapons.some(
-            w => w && (w.effectId === "pulse_blade" || w.effectId === "blaster_core")
+        // Blaster Core: +1 ⚔
+        const hasBlasterCore = player.inventory.weapons.some(
+            w => w && w.effectId === "blaster_core"
         );
-        if (hasPulseBlade) {
+        if (hasBlasterCore) {
             bonusSwords += 1;
             breakdown.weaponBonus += 1;
             breakdown.labels.push("⚔ Blaster +1⚔");
         }
 
-        // Shock Pike: If roll ≥2 ⚔ then +1 ⚔
-        const hasShockPike = player.inventory.weapons.some(
-            w => w && w.effectId === "shock_pike"
+        // Shock Blade: +1 ⚔
+        const hasShockBlade = player.inventory.weapons.some(
+            w => w && w.effectId === "shock_blade"
         );
-        if (hasShockPike && roll.swords >= 2) {
+        if (hasShockBlade) {
             bonusSwords += 1;
             breakdown.weaponBonus += 1;
-            breakdown.labels.push("⚔ Shock Pike +1⚔");
+            breakdown.labels.push("⚔ Shock Blade +1⚔");
         }
 
         // Plasma Edge: +2 ⚔ if roll ≥1 ⚔
@@ -332,32 +327,36 @@ export class CombatSystem {
             breakdown.labels.push("⚔ Heavy Cannon +3⚔");
         }
 
-        // Quantum Blade (Legendary): +2 ⚔
-        const hasQuantumBlade = player.inventory.weapons.some(
-            w => w && w.effectId === "quantum_blade"
+        // Arc Rifle: +1 ⚔ per tile moved this turn (max +3)
+        const hasArcRifle = player.inventory.weapons.some(
+            w => w && w.effectId === "arc_rifle"
         );
-        if (hasQuantumBlade) {
+        if (hasArcRifle && player.tilesMovedThisTurn > 0) {
+            const arcBonus = Math.min(player.tilesMovedThisTurn, 3);
+            bonusSwords += arcBonus;
+            breakdown.weaponBonus += arcBonus;
+            breakdown.labels.push(`⚔ Arc Rifle +${arcBonus}⚔`);
+        }
+
+        // Void Launcher: +2 ⚔
+        const hasVoidLauncher = player.inventory.weapons.some(
+            w => w && w.effectId === "void_launcher"
+        );
+        if (hasVoidLauncher) {
             bonusSwords += 2;
             breakdown.weaponBonus += 2;
-            breakdown.labels.push("⚔ Quantum Blade +2⚔");
+            breakdown.labels.push("⚔ Void Launcher +2⚔");
         }
 
         // ========================================
         // AMULET/ARMOR EFFECTS
         // ========================================
 
-        // Stabilizer Plating: Ignore first 💀
-        if (player.inventory.amulet?.effectId === "stabilizer_plating" && roll.skulls > 0) {
-            reducedSkulls += 1;
-            breakdown.skullReductionEquip += 1;
-            breakdown.labels.push("📿 Stabilizer -1💀");
-        }
-
         // Shield Matrix: Ignore first 💀
         const hasShieldMatrix = player.inventory.spells.some(
             s => s && s.effectId === "shield_matrix"
         );
-        if (hasShieldMatrix && roll.skulls > 0) {
+        if (hasShieldMatrix && (rolledSkulls + extraSkulls) > reducedSkulls) {
             reducedSkulls += 1;
             breakdown.skullReductionEquip += 1;
             breakdown.labels.push("🔧 Shield Matrix -1💀");
@@ -368,19 +367,21 @@ export class CombatSystem {
             bonusSwords += 1;
             breakdown.amuletBonus += 1;
             breakdown.labels.push("📿 Core Relic +1⚔");
-            if (roll.skulls > 0) {
+            if ((rolledSkulls + extraSkulls) > reducedSkulls) {
                 reducedSkulls += 1;
                 breakdown.skullReductionEquip += 1;
                 breakdown.labels.push("📿 Core Relic -1💀");
             }
         }
 
-        // Chrono Shield (Legendary): Ignore ALL 💀
-        if (player.inventory.amulet?.effectId === "chrono_shield" && roll.skulls > 0) {
+        const round = modifiers.round ?? 0;
+        const hasStasisField = player.inventory.spells.some(s => s && s.effectId === "stasis_field");
+        if (hasStasisField && round > 0 && player.stasisFieldUsedRound !== round && (roll.skulls + extraSkulls) > reducedSkulls) {
             const totalSkullsToReduce = roll.skulls + extraSkulls;
             breakdown.skullReductionEquip += totalSkullsToReduce - reducedSkulls;
             reducedSkulls = totalSkullsToReduce;
-            breakdown.labels.push("📿 Chrono Shield ALL💀");
+            player.stasisFieldUsedRound = round;
+            breakdown.labels.push("🔧 Stasis Field ALL💀");
         }
 
         const preCombatSkullReduction = modifiers.preCombat?.skullReduction ?? 0;
@@ -395,14 +396,22 @@ export class CombatSystem {
         // MODULE/SPELL EFFECTS (one-time, consume spell)
         // ========================================
 
-        // Overdrive / Overcharge: +2 ⚔ (one-time)
+        const hasOvercharge = player.inventory.spells.some(s => s && s.effectId === "overcharge");
+        if (hasOvercharge && round > 0 && player.overchargeUsedRound !== round && breakdown.weaponBonus > 0) {
+            bonusSwords += breakdown.weaponBonus;
+            breakdown.moduleBonus += breakdown.weaponBonus;
+            player.overchargeUsedRound = round;
+            breakdown.labels.push("🔧 Overcharge x2 weapons");
+        }
+
+        // Overdrive: +3 ⚔ (one-time)
         const overdriveIndex = player.inventory.spells.findIndex(
-            s => s && (s.effectId === "overdrive" || s.effectId === "overcharge")
+            s => s && s.effectId === "overdrive"
         );
         if (overdriveIndex >= 0) {
-            bonusSwords += 2;
-            breakdown.moduleBonus += 2;
-            breakdown.labels.push("🔧 Overdrive +2⚔");
+            bonusSwords += 3;
+            breakdown.moduleBonus += 3;
+            breakdown.labels.push("🔧 Overdrive +3⚔");
             player.inventory.spells[overdriveIndex] = null; // Consume
         }
 
@@ -416,10 +425,16 @@ export class CombatSystem {
         }
 
         const totalSwords = roll.swords + bonusSwords;
-        const damageToPlayer = Math.max(0, roll.skulls + extraSkulls - reducedSkulls);
+        let damageToPlayer = Math.max(0, roll.skulls + extraSkulls - reducedSkulls);
         
         // v0.5: Single check - victory if totalSwords >= requiredTier
         const victory = totalSwords >= requiredTier;
+        if (victory && hasShockBlade && damageToPlayer > 0) {
+            damageToPlayer = 0;
+            reducedSkulls = roll.skulls + extraSkulls;
+            breakdown.skullReductionEquip = Math.max(breakdown.skullReductionEquip, roll.skulls + extraSkulls);
+            breakdown.labels.push("⚔ Shock Blade no 💀 on win");
+        }
 
         // Detailed logging with full breakdown
         console.log(`[Combat] ═══════════════════════════════════════`);
@@ -468,6 +483,11 @@ export class CombatSystem {
         if (!chronoSafeRetreat) {
             player.hp = Math.max(0, player.hp - result.damageToPlayer);
         }
+
+        if (player.inventory.amulet?.effectId === "survivors_mark" && !player.survivorMarkUsed && player.hp > 0 && player.hp <= 1) {
+            player.hp = Math.min(player.maxHp, player.hp + 2);
+            player.survivorMarkUsed = true;
+        }
         
         if (result.victory) {
             // Monster defeated - clear encounter
@@ -498,17 +518,24 @@ export class CombatSystem {
     }
 
     /**
-     * Use Med Gel spell (heal +2 HP)
+     * Use Emergency Repair spell (heal +3 HP)
      */
-    useMedGel(player: Player): boolean {
-        const medGelIndex = player.inventory.spells.findIndex(
-            s => s && s.effectId === "med_gel"
+    useEmergencyRepair(player: Player): boolean {
+        const repairIndex = player.inventory.spells.findIndex(
+            s => s && s.effectId === "emergency_repair"
         );
-        if (medGelIndex >= 0) {
-            player.hp = Math.min(player.maxHp, player.hp + 2);
-            player.inventory.spells[medGelIndex] = null;
+        if (repairIndex >= 0) {
+            player.hp = Math.min(player.maxHp, player.hp + 3);
+            player.inventory.spells[repairIndex] = null;
             return true;
         }
         return false;
+    }
+
+    /**
+     * Legacy alias for Med Gel
+     */
+    useMedGel(player: Player): boolean {
+        return this.useEmergencyRepair(player);
     }
 }

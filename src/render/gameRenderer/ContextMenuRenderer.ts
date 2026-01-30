@@ -211,6 +211,21 @@ export class ContextMenuRenderer {
                 });
             }
 
+            if (this.options.game.canUseEmergencyRepair()) {
+                actions.push({
+                    key: "EMERGENCY_REPAIR",
+                    label: "Repair",
+                    emoji: "🧰",
+                    hint: "Emergency Repair (+3 HP)",
+                    enabled: this.options.game.state.actionPoints >= 1,
+                    action: () => {
+                        this.hideContextMenu();
+                        this.options.game.doEmergencyRepair();
+                        this.options.onRenderAll();
+                    },
+                });
+            }
+
             if (tile.type === TileType.LandingHub) {
                 actions.push({
                     key: "TRADE",
@@ -296,6 +311,21 @@ export class ContextMenuRenderer {
                     action: () => {
                         this.hideContextMenu();
                         this.options.game.doRecallToBase();
+                        this.options.onRenderAll();
+                    },
+                });
+            }
+
+            if (this.options.game.canUseEscapePod()) {
+                actions.push({
+                    key: "ESCAPE_POD",
+                    label: "Escape",
+                    emoji: "🚀",
+                    hint: "Escape Pod to Base",
+                    enabled: this.options.game.state.actionPoints >= 1,
+                    action: () => {
+                        this.hideContextMenu();
+                        this.options.game.doEscapePod();
                         this.options.onRenderAll();
                     },
                 });
