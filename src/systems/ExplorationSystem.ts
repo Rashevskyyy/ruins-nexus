@@ -32,6 +32,7 @@ export class ExplorationSystem {
         if (!template.isFinalTile) {
             tile.encounterActive = true;
             tile.monsterTier = template.monsterTier;
+            tile.monsterType = template.monsterType;
             tile.enemyHp = template.enemyHp; // HP = monsterTier
             tile.pendingRewards = template.rewards; // Rewards for defeating this monster
         } else {

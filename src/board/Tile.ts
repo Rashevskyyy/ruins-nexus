@@ -1,6 +1,6 @@
 import type { HexCoord } from "./Hex.ts";
 import type { TileType } from "./TileTypes.ts";
-import type { ResourceMap, TokenType } from "./TileDeck.ts";
+import type { MonsterType, ResourceMap, TokenType } from "./TileDeck.ts";
 
 export type ResourceKind = "Biomass" | "Materials" | "Alloys";
 
@@ -26,6 +26,7 @@ export type Tile = {
     // Local threat (encounter)
     encounterActive?: boolean;
     monsterTier?: number;  // Monster tier (1-4, determines HP and rewards)
+    monsterType?: MonsterType;
     enemyHp?: number;      // Monster HP = monsterTier
     pendingRewards?: TokenType[]; // Rewards to give after defeating monster
 

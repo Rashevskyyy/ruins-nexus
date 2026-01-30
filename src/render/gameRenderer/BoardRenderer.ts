@@ -71,8 +71,7 @@ export class BoardRenderer {
                 ? {
                       alive: true,
                       tier: tile.monsterTier || 1,
-                      // Monster type can be added to Tile later, default to standard for now
-                      type: "standard" as const,
+                      type: tile.monsterType ?? "standard",
                   }
                 : undefined,
             hasBase: !!tile.ownerId,
