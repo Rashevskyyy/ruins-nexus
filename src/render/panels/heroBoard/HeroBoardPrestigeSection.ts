@@ -4,45 +4,39 @@ import type { HeroBoardPrestigeContext, HeroBoardPrestigeData } from "./HeroBoar
 type PrestigeContext = HeroBoardPrestigeContext & HeroBoardPrestigeData;
 
 export class HeroBoardPrestigeSection {
+    getSectionHeight(): number {
+        return 64;
+    }
+
     render({ layer, leftX, rightX, panelW, y, prestige }: PrestigeContext): number {
-        const prestigeBgColor = prestige >= 15 ? 0x3d1a1a : (prestige >= 12 ? 0x3d2a1a : 0x161b2e);
         const prestigeBorderColor = prestige >= 15 ? 0xff4444 : (prestige >= 12 ? 0xffaa00 : 0xffd700);
 
         const prestigeBox = new PIXI.Graphics();
         prestigeBox.roundRect(leftX, y, panelW - 28, 56, 8);
-        prestigeBox.fill({ color: prestigeBgColor, alpha: 0 });
-        prestigeBox.stroke({ color: prestigeBorderColor, width: 2 });
+        prestigeBox.fill({ color: 0x0b0f14, alpha: 0.6 });
+        prestigeBox.stroke({ color: 0x1a2a3a, width: 1 });
         layer.addChild(prestigeBox);
 
-        const prestigeHeader = new PIXI.Text({
-            text: "⭐ PRESTIGE",
-            style: new PIXI.TextStyle({ fontSize: 13, fill: 0xffd700, fontWeight: "700", letterSpacing: 1 }),
-        });
-        prestigeHeader.position.set(leftX + 10, y + 6);
-        layer.addChild(prestigeHeader);
+        const starIcon = new PIXI.Text({ text: "⭐", style: new PIXI.TextStyle({ fontSize: 18 }) });
+        starIcon.position.set(leftX + 10, y + 12);
+        layer.addChild(starIcon);
 
-        const prestigeValue = new PIXI.Text({
-            text: `${prestige}`,
-            style: new PIXI.TextStyle({
-                fontSize: 38,
-                fill: 0xffd700,
-                fontWeight: "900",
-                dropShadow: { color: 0xffd700, blur: 8, alpha: 0.5, distance: 0 },
-            }),
+        const prestigeLabel = new PIXI.Text({
+            text: "Prestige",
+            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x6b7280, fontWeight: "700", letterSpacing: 1 }),
         });
-        prestigeValue.anchor.set(1, 0);
-        prestigeValue.position.set(rightX - 10, y + 14);
-        layer.addChild(prestigeValue);
+        prestigeLabel.position.set(leftX + 36, y + 14);
+        layer.addChild(prestigeLabel);
 
-        const barW = panelW - 50;
-        const barH = 8;
-        const barX = leftX + 10;
-        const barY = y + 40;
+        const barW = panelW - 82;
+        const barH = 6;
+        const barX = leftX + 36;
+        const barY = y + 30;
         const maxPrestige = 20;
 
         const prestigeBarBg = new PIXI.Graphics();
         prestigeBarBg.roundRect(barX, barY, barW, barH, 3);
-        prestigeBarBg.fill({ color: 0x0d1117, alpha: 0 });
+        prestigeBarBg.fill({ color: 0x1a1a0a, alpha: 1 });
         layer.addChild(prestigeBarBg);
 
         const fillW = Math.min(prestige / maxPrestige, 1) * barW;
@@ -52,6 +46,18 @@ export class HeroBoardPrestigeSection {
             prestigeBarFill.fill({ color: prestigeBorderColor });
             layer.addChild(prestigeBarFill);
         }
+
+        const prestigeValue = new PIXI.Text({
+            text: `${prestige}`,
+            style: new PIXI.TextStyle({
+                fontSize: 26,
+                fill: 0xffd700,
+                fontWeight: "900",
+            }),
+        });
+        prestigeValue.anchor.set(1, 0.5);
+        prestigeValue.position.set(rightX - 10, y + 26);
+        layer.addChild(prestigeValue);
 
         const marker12X = barX + (12 / maxPrestige) * barW;
         const marker15X = barX + (15 / maxPrestige) * barW;
@@ -65,16 +71,6 @@ export class HeroBoardPrestigeSection {
         m15.rect(marker15X, barY, 1, barH);
         m15.fill({ color: 0xffffff, alpha: 0.5 });
         layer.addChild(m15);
-
-        if (prestige >= 12) {
-            const warnText = prestige >= 15 ? "🚫 No Rerolls" : "⚠️ +1 Difficulty";
-            const warn = new PIXI.Text({
-                text: warnText,
-                style: new PIXI.TextStyle({ fontSize: 11, fill: prestigeBorderColor, fontWeight: "600" }),
-            });
-            warn.position.set(leftX + 10, y + 22);
-            layer.addChild(warn);
-        }
 
         return y + 64;
     }

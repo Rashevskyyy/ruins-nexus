@@ -5,78 +5,73 @@ import type { HeroBoardAbilitiesContext, HeroBoardAbilitiesData } from "./HeroBo
 type AbilitiesContext = HeroBoardAbilitiesContext & HeroBoardAbilitiesData;
 
 export class HeroBoardAbilitiesSection {
-    private labelStyle = new PIXI.TextStyle({
-        fontSize: 12,
-        fill: 0x9ca3af,
-        letterSpacing: 1,
-        fontWeight: "700",
-    });
     private titleStyle = new PIXI.TextStyle({
         fontSize: 13,
-        fill: 0xf8fafc,
+        fill: 0x00ff88,
         fontWeight: "700",
     });
 
     getSectionHeight({ panelW, raceId, raceOption }: Omit<AbilitiesContext, "layer" | "leftX" | "y">): number {
-        const labelHeight = 18;
         const padding = 10;
-        const spacing = 6;
+        const spacing = 4;
         const sectionWidth = panelW - 28;
         const content = this.getAbilityContent(raceId, raceOption);
         const bodyStyle = this.getBodyStyle(sectionWidth);
 
         const titleText = new PIXI.Text({ text: content.title, style: this.titleStyle });
         const passiveText = new PIXI.Text({ text: content.passive, style: bodyStyle });
-        const optionText = new PIXI.Text({ text: content.option, style: bodyStyle });
 
         const contentHeight =
-            titleText.height + passiveText.height + optionText.height + padding * 2 + spacing * 2;
+            titleText.height + passiveText.height + padding * 2 + spacing;
 
-        return labelHeight + contentHeight + 8;
+        return contentHeight + 10;
     }
 
     render({ layer, leftX, panelW, y, raceId, raceOption }: AbilitiesContext): number {
-        const label = new PIXI.Text({ text: "✨ ABILITIES", style: this.labelStyle });
-        label.position.set(leftX, y);
-        layer.addChild(label);
-        y += 18;
-
         const sectionWidth = panelW - 28;
         const padding = 10;
-        const spacing = 6;
+        const spacing = 4;
         const content = this.getAbilityContent(raceId, raceOption);
         const bodyStyle = this.getBodyStyle(sectionWidth);
 
         const titleText = new PIXI.Text({ text: content.title, style: this.titleStyle });
         const passiveText = new PIXI.Text({ text: content.passive, style: bodyStyle });
-        const optionText = new PIXI.Text({ text: content.option, style: bodyStyle });
+        const boxHeight = titleText.height + passiveText.height + padding * 2 + spacing;
+        const box = new PIXI.Graphics();
+        box.roundRect(leftX, y, sectionWidth, boxHeight, 8);
+        box.fill({ color: 0x0f172a, alpha: 0.35 });
+        box.stroke({ color: 0x1a2a3a, width: 1 });
+        layer.addChild(box);
 
-        const contentHeight =
-            titleText.height + passiveText.height + optionText.height + padding * 2 + spacing * 2;
+        const iconText = new PIXI.Text({ text: content.icon, style: new PIXI.TextStyle({ fontSize: 16 }) });
+        iconText.anchor.set(0.5, 0);
+        iconText.position.set(leftX + 18, y + 8);
+        layer.addChild(iconText);
 
-
-
-        let textY = y + padding;
-        titleText.position.set(leftX + padding, textY);
+        titleText.position.set(leftX + 36, y + 8);
         layer.addChild(titleText);
-        textY += titleText.height + spacing;
 
-        passiveText.position.set(leftX + padding, textY);
+        const variantText = new PIXI.Text({
+            text: content.variantLabel,
+            style: new PIXI.TextStyle({ fontSize: 9, fill: 0x6b7280, fontWeight: "700" }),
+        });
+        variantText.anchor.set(1, 0);
+        variantText.position.set(leftX + sectionWidth - 8, y + 10);
+        layer.addChild(variantText);
+
+        passiveText.position.set(leftX + 18, y + 26);
         layer.addChild(passiveText);
-        textY += passiveText.height + spacing;
 
-        optionText.position.set(leftX + padding, textY);
-        layer.addChild(optionText);
-
-        return y + contentHeight + 8;
+        return y + boxHeight + 10;
     }
 
     private getAbilityContent(raceId: AbilitiesContext["raceId"], raceOption: AbilitiesContext["raceOption"]) {
         if (!raceId || !raceOption || !RACES[raceId]) {
             return {
+                icon: "✨",
                 title: "Unknown Hero",
-                passive: "Select a race in the lobby to see your passive ability.",
-                option: "Choose an option to unlock your hero specialization.",
+                passive: "Passive: Select a race to see your passive ability.",
+                variantLabel: "Option ?",
             };
         }
 
@@ -84,19 +79,20 @@ export class HeroBoardAbilitiesSection {
         const option = raceOption === "A" ? race.optionA : race.optionB;
 
         return {
-            title: `${race.emoji} ${race.name}`,
+            icon: race.emoji,
+            title: race.name,
             passive: `Passive: ${race.passiveDescription}`,
-            option: `Option ${raceOption} — ${option.name}: ${option.description}`,
+            variantLabel: `Option ${raceOption}: ${option.name}`,
         };
     }
 
     private getBodyStyle(sectionWidth: number): PIXI.TextStyle {
         return new PIXI.TextStyle({
-            fontSize: 11,
-            fill: 0x9ca3af,
+            fontSize: 10,
+            fill: 0x94a3b8,
             wordWrap: true,
-            wordWrapWidth: sectionWidth - 20,
-            lineHeight: 14,
+            wordWrapWidth: sectionWidth - 24,
+            lineHeight: 13,
         });
     }
 }

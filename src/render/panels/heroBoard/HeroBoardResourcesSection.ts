@@ -4,15 +4,19 @@ import type { HeroBoardResourcesContext, HeroBoardResourcesData } from "./HeroBo
 type ResourcesContext = HeroBoardResourcesContext & HeroBoardResourcesData;
 
 export class HeroBoardResourcesSection {
+    getSectionHeight(): number {
+        return 62;
+    }
+
     render({ layer, leftX, panelW, y, player }: ResourcesContext): number {
         const columnGap = 8;
         const statsW = (panelW - 28 - columnGap * 4) / 5;
         const stats = [
-            { emoji: "❤️", value: `${player.hp}`, color: 0xff6b6b },
-            { emoji: "🧬", value: player.biomass, color: 0x00ff88 },
-            { emoji: "🧱", value: player.materials, color: 0xd97706 },
-            { emoji: "⚙", value: player.alloys, color: 0x708090 },
-            { emoji: "🧩", value: player.components, color: 0x9333ea },
+            { emoji: "❤️", value: `${player.hp}`, color: 0xff6b6b, key: "hp" },
+            { emoji: "🧬", value: player.biomass, color: 0x00ff88, key: "biomass" },
+            { emoji: "🧱", value: player.materials, color: 0xffaa00, key: "materials" },
+            { emoji: "⚙️", value: player.alloys, color: 0x00ddff, key: "alloys" },
+            { emoji: "🧩", value: player.components, color: 0xcc66ff, key: "components" },
         ];
 
         for (let i = 0; i < 5; i++) {
@@ -20,9 +24,9 @@ export class HeroBoardResourcesSection {
             const sx = leftX + i * (statsW + columnGap);
 
             const statBox = new PIXI.Graphics();
-            statBox.roundRect(sx, y, statsW, 44, 10);
-            statBox.fill({ color: 0x0f172a, alpha: 0 });
-            statBox.stroke({ color: stat.color, width: 1, alpha: 0.4 });
+            statBox.roundRect(sx, y, statsW, 52, 10);
+            statBox.fill({ color: 0x05080d, alpha: 0.6 });
+            statBox.stroke({ color: stat.color, width: 1, alpha: 0.35 });
             layer.addChild(statBox);
 
             const emoji = new PIXI.Text({ text: stat.emoji, style: new PIXI.TextStyle({ fontSize: 16 }) });
@@ -32,13 +36,33 @@ export class HeroBoardResourcesSection {
 
             const val = new PIXI.Text({
                 text: `${stat.value}`,
-                style: new PIXI.TextStyle({ fontSize: 18, fill: stat.color, fontWeight: "800" }),
+                style: new PIXI.TextStyle({ fontSize: 16, fill: stat.color, fontWeight: "800" }),
             });
             val.anchor.set(0.5);
-            val.position.set(sx + statsW / 2, y + 31);
+            val.position.set(sx + statsW / 2, y + 30);
             layer.addChild(val);
+
+            if (stat.key === "hp") {
+                const barX = sx + 6;
+                const barY = y + 42;
+                const barW = statsW - 12;
+                const barH = 4;
+
+                const hpBarBg = new PIXI.Graphics();
+                hpBarBg.roundRect(barX, barY, barW, barH, 2);
+                hpBarBg.fill({ color: 0x2a1a1a, alpha: 1 });
+                layer.addChild(hpBarBg);
+
+                const fillW = Math.max(0, Math.min(player.hp / Math.max(player.maxHp, 1), 1)) * barW;
+                if (fillW > 0) {
+                    const hpBarFill = new PIXI.Graphics();
+                    hpBarFill.roundRect(barX, barY, fillW, barH, 2);
+                    hpBarFill.fill({ color: 0xff5c5c, alpha: 1 });
+                    layer.addChild(hpBarFill);
+                }
+            }
         }
 
-        return y + 54;
+        return y + 62;
     }
 }

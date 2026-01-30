@@ -25,6 +25,8 @@ export type HeroBoardHeaderData = {
     playerColor: number;
     playerId: string;
     raceId: RaceId | null;
+    heroClass: string;
+    powerValue: string;
 };
 
 export type HeroBoardPrestigeContext = {
@@ -72,8 +74,31 @@ export type HeroBoardEquipmentContext = {
 
 export type HeroBoardEquipmentData = {
     inventory: Player["inventory"];
-    isAtBase: boolean;
-    hasComponents: boolean;
+    totalSlots: number;
+};
+
+export type HeroBoardModuleSlotsContext = {
+    layer: PIXI.Container;
+    leftX: number;
+    rightX: number;
+    panelW: number;
+    y: number;
+};
+
+export type HeroBoardModuleSlotsData = {
+    inventory: Player["inventory"];
+};
+
+export type HeroBoardActionsContext = {
+    layer: PIXI.Container;
+    leftX: number;
+    panelW: number;
+    y: number;
+};
+
+export type HeroBoardActionsData = {
+    canCraft: boolean;
+    canBuild: boolean;
 };
 
 export type HeroBoardUnitsContext = {
