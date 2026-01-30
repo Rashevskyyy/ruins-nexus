@@ -7,7 +7,23 @@ import { type ModifierId, GAME_MODIFIERS, getRandomModifier, ASYMMETRIC_BONUSES,
 import { type EventProgress, type GameEvent, createEventDeck } from "./GameEvents";
 import { type ObjectivePhase, type PublicObjective, createPublicObjectivesForPhase, getPublicObjectivePhase } from "./PublicObjectives";
 
-export type UIMode = "NONE" | "EXPLORE_TARGETING" | "TILE_PLACEMENT" | "BUILD_MENU" | "CRAFT_MENU";
+export type UIMode = "NONE" | "EXPLORE_TARGETING" | "TILE_PLACEMENT" | "BUILD_MENU" | "CRAFT_MENU" | "PRE_COMBAT";
+
+export type PreCombatSpend = {
+    componentSwords: number;
+    componentSkullReduction: number;
+    componentReroll: boolean;
+    prestigeSwords: boolean;
+    prestigeCancelRetreat: boolean;
+    biomassHeal: boolean;
+};
+
+export type PendingCombat = {
+    playerId: string;
+    tileCoord: HexCoord;
+    fromCoord: HexCoord;
+    spend: PreCombatSpend;
+};
 
 export type GameState = {
     board: Board;
@@ -69,6 +85,9 @@ export type GameState = {
         monsterTier: number;
         standardReward: { prestige: number; tokens: string[]; components: number };
     } | null;
+
+    // Pre-combat spend (v0.6)
+    pendingCombat: PendingCombat | null;
 };
 
 /**
@@ -227,5 +246,6 @@ export function createInitialState(playerCount: number = 4, modifierId?: Modifie
         finalTrialResults: [],
         // Reward choice
         pendingRewardChoice: null,
+        pendingCombat: null,
     };
 }

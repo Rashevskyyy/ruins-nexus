@@ -279,7 +279,7 @@ async function main() {
             // On reconnect, don't restore modal modes (CRAFT_MENU, BUILD_MENU) - they should not auto-open
             // On regular updates, restore them normally
             if (isReconnect) {
-                const isModalMode = restoredMode === "CRAFT_MENU" || restoredMode === "BUILD_MENU";
+                const isModalMode = restoredMode === "CRAFT_MENU" || restoredMode === "BUILD_MENU" || restoredMode === "PRE_COMBAT";
                 game.state.uiMode = isModalMode ? "NONE" : restoredMode;
             } else {
                 game.state.uiMode = restoredMode;
@@ -309,6 +309,7 @@ async function main() {
         game.state.winnerId = serverState.winnerId;
         game.state.missionFailed = serverState.missionFailed;
         game.state.pendingRewardChoice = serverState.pendingRewardChoice || null;
+        game.state.pendingCombat = serverState.pendingCombat || null;
         // v0.5 Final Trial
         game.state.isFinalPreparation = serverState.isFinalPreparation ?? false;
         game.state.finalPrepRoundsLeft = serverState.finalPrepRoundsLeft ?? 0;
