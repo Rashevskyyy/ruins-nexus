@@ -414,7 +414,6 @@ export class GameRenderer {
             app: this.app,
             game: this.game,
             layer: this.craftMenuLayer,
-            playerColors: this.PLAYER_COLORS,
             canShowHint: (id) => this.tutorialHints.canShowHint(id),
             showHint: this.showHint.bind(this),
             renderAll: this.renderAll.bind(this),
