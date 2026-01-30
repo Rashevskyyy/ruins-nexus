@@ -44,7 +44,7 @@ export class PreCombatPanel {
         layer.addChild(backdrop);
 
         const panelW = 520;
-        const panelH = 560;
+        const panelH = 600;
         const panelX = (screenW - panelW) / 2;
         const panelY = (screenH - panelH) / 2;
 
@@ -68,6 +68,7 @@ export class PreCombatPanel {
         layer.addChild(title);
 
         const monsterTier = tile.monsterTier ?? 1;
+        const monsterType = tile.monsterType ?? "standard";
         const requiredTier = p.prestige >= 12 ? monsterTier + 1 : monsterTier;
         const header = new PIXI.Text({
             text: `Monster Tier ${monsterTier} • Need ${requiredTier}⚔`,
@@ -83,6 +84,36 @@ export class PreCombatPanel {
         resourceText.position.set(panelX + 20, panelY + 70);
         layer.addChild(resourceText);
 
+        const monsterMeta = {
+            standard: { label: "STANDARD", icon: "👹", description: "Standard fight", warning: "" },
+            hunter: { label: "HUNTER", icon: "🐺", description: "Moves toward nearest player", warning: "⚠️ Will move at end of round!" },
+            guardian: { label: "GUARDIAN", icon: "🛡️", description: "Blocks passage — must defeat", warning: "💎 Reward: ×1.5 (rounded up)" },
+        } as const;
+
+        const meta = monsterMeta[monsterType];
+        const monsterTitle = new PIXI.Text({
+            text: `${meta.icon} ${meta.label}`,
+            style: new PIXI.TextStyle({ fontSize: 14, fill: 0xe2e8f0, fontWeight: "700" }),
+        });
+        monsterTitle.position.set(panelX + 20, panelY + 94);
+        layer.addChild(monsterTitle);
+
+        const monsterDesc = new PIXI.Text({
+            text: meta.description,
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0x94a3b8 }),
+        });
+        monsterDesc.position.set(panelX + 20, panelY + 116);
+        layer.addChild(monsterDesc);
+
+        if (meta.warning) {
+            const monsterWarning = new PIXI.Text({
+                text: meta.warning,
+                style: new PIXI.TextStyle({ fontSize: 12, fill: 0xfacc15, fontWeight: "600" }),
+            });
+            monsterWarning.position.set(panelX + 20, panelY + 134);
+            layer.addChild(monsterWarning);
+        }
+
         const rerollAllowed = spend.componentReroll && p.prestige < 15;
         const componentCost = spend.componentSwords + spend.componentSkullReduction * 3 + (rerollAllowed ? 2 : 0);
         const prestigeCost = (spend.prestigeSwords ? 1 : 0) + (spend.prestigeCancelRetreat ? 2 : 0);
@@ -92,7 +123,7 @@ export class PreCombatPanel {
         const prestigeRemaining = p.prestige - prestigeCost;
         const biomassRemaining = p.biomass - biomassCost;
 
-        let y = panelY + 110;
+        let y = panelY + 164;
 
         const sectionTitle = new PIXI.Text({
             text: "Spend for bonuses",

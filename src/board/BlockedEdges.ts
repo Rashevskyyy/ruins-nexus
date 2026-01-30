@@ -42,7 +42,8 @@ export function getOppositeEdge(edge: number): number {
 export function canMoveBetween(
     fromTile: Tile,
     toCoord: HexCoord,
-    toTile: Tile | null
+    toTile: Tile | null,
+    options: { ignoreTargetBlocked?: boolean } = {}
 ): boolean {
     const edge = getEdgeToNeighbor(fromTile.coord, toCoord);
     
@@ -57,7 +58,7 @@ export function canMoveBetween(
     }
 
     // Проверяем противоположную грань на целевом тайле
-    if (toTile) {
+    if (toTile && !options.ignoreTargetBlocked) {
         const oppositeEdge = OPPOSITE_EDGE[edge];
         const toBlocked = toTile.blockedEdges || [];
         if (toBlocked.includes(oppositeEdge)) {

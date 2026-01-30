@@ -1,5 +1,5 @@
 import type { HexCoord } from "../board/Hex";
-import { isNeighbor, neighbors } from "../board/Hex";
+import { hexDistance, hexKey, isNeighbor, neighbors } from "../board/Hex";
 import { TileType } from "../board/TileTypes";
 import { Phase } from "./Phase";
 import type { GameState, PreCombatSpend } from "./GameState";
@@ -514,6 +514,104 @@ export class Game {
         finalizeCombat();
     }
 
+    private moveHuntersAtEndOfRound(): void {
+        const hunterTiles = this.state.board
+            .getAllTiles()
+            .filter(tile => tile.encounterActive && tile.monsterType === "hunter");
+        if (hunterTiles.length === 0) return;
+
+        const hunterStartPositions = new Set(hunterTiles.map(tile => hexKey(tile.coord)));
+
+        for (const hunterTile of hunterTiles) {
+            const targetPlayer = this.findNearestPlayerForHunter(hunterTile.coord);
+            if (!targetPlayer) continue;
+
+            const distance = hexDistance(hunterTile.coord, targetPlayer.position);
+            if (distance === 0 || distance > 3) continue;
+
+            const nextStep = this.getNextHunterStep(hunterTile, targetPlayer.position);
+            if (!nextStep) continue;
+
+            const nextKey = hexKey(nextStep);
+            if (hunterStartPositions.has(nextKey)) continue;
+
+            const nextTile = this.state.board.getTile(nextStep);
+            if (!nextTile || !nextTile.discovered) continue;
+            if (nextTile.encounterActive) continue;
+
+            if (!canMoveBetween(hunterTile, nextStep, nextTile)) continue;
+
+            const hunterTier = hunterTile.monsterTier ?? 1;
+            hunterTile.encounterActive = false;
+            hunterTile.enemyHp = undefined;
+            hunterTile.monsterType = undefined;
+            hunterTile.pendingRewards = [];
+
+            nextTile.encounterActive = true;
+            nextTile.monsterTier = hunterTier;
+            nextTile.monsterType = "hunter";
+            nextTile.enemyHp = hunterTier;
+            nextTile.pendingRewards = [];
+
+            this.addLog(`🐺 Hunter moved to ${nextStep.q},${nextStep.r}`);
+        }
+    }
+
+    private findNearestPlayerForHunter(origin: HexCoord): Player | null {
+        let bestPlayer: Player | null = null;
+        let bestDistance = Infinity;
+        let bestPrestige = Infinity;
+
+        for (const player of this.state.players) {
+            const distance = hexDistance(origin, player.position);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestPrestige = player.prestige;
+                bestPlayer = player;
+                continue;
+            }
+
+            if (distance === bestDistance) {
+                if (player.prestige < bestPrestige) {
+                    bestPrestige = player.prestige;
+                    bestPlayer = player;
+                }
+            }
+        }
+
+        return bestPlayer;
+    }
+
+    private getNextHunterStep(hunterTile: Tile, target: HexCoord): HexCoord | null {
+        const currentDistance = hexDistance(hunterTile.coord, target);
+        let bestStep: HexCoord | null = null;
+        let bestDistance = currentDistance;
+
+        for (const neighbor of neighbors(hunterTile.coord)) {
+            const neighborTile = this.state.board.getTile(neighbor);
+            if (!neighborTile || !neighborTile.discovered) continue;
+
+            const distance = hexDistance(neighbor, target);
+            if (distance >= bestDistance) continue;
+
+            if (!canMoveBetween(hunterTile, neighbor, neighborTile)) continue;
+
+            bestDistance = distance;
+            bestStep = neighbor;
+        }
+
+        return bestStep;
+    }
+
+    private startHunterAutoCombatIfNeeded(player: Player): boolean {
+        const tile = this.state.board.getTile(player.position);
+        if (!tile || !tile.encounterActive || tile.monsterType !== "hunter") return false;
+
+        this.state.phase = Phase.ResolveAction;
+        this.openPreCombat(player, tile, player.position);
+        return true;
+    }
+
     // ========================================
     // HEX CLICK (MOVEMENT + TILE PLACEMENT)
     // ========================================
@@ -694,7 +792,8 @@ export class Game {
             const fromTile = this.state.board.getTile(from);
             const targetTile = this.state.board.getTile(target) || null;
 
-            if (fromTile && !canMoveBetween(fromTile, target, targetTile)) {
+            const ignoreTargetBlocked = targetTile?.encounterActive && targetTile.monsterType === "guardian";
+            if (fromTile && !canMoveBetween(fromTile, target, targetTile, { ignoreTargetBlocked })) {
                 this.addLog(`[Round ${this.state.round}] ${player.id} cannot move - blocked by terrain!`);
                 return;
             }
@@ -903,6 +1002,11 @@ export class Game {
             default:
                 prestigeGain = 1;
                 componentGain = 0;
+        }
+
+        if (tile.monsterType === "guardian") {
+            prestigeGain = Math.ceil(prestigeGain * 1.5);
+            componentGain = Math.ceil(componentGain * 1.5);
         }
 
         if (rewardMultiplier > 1) {
@@ -2212,6 +2316,7 @@ export class Game {
             this.state.round += 1;
             this.updateEventsForNewRound();
             this.updatePublicObjectivesForRound();
+            this.moveHuntersAtEndOfRound();
 
             // v0.5: Final Preparation countdown
             if (this.state.isFinalPreparation && this.state.finalPrepRoundsLeft > 0) {
@@ -2278,6 +2383,10 @@ export class Game {
         currentPlayer.pushedBackFromTile = null;
 
         this.state.phase = Phase.AwaitInput;
+
+        if (this.startHunterAutoCombatIfNeeded(currentPlayer)) {
+            return;
+        }
         
         // v0.6: Increment state version for sync
         this.incrementStateVersion();

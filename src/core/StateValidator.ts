@@ -166,6 +166,13 @@ function validateBoard(state: GameState): ValidationResult {
             }
         }
 
+        if (tile.encounterActive && tile.monsterType) {
+            const validTypes = ["standard", "hunter", "guardian"];
+            if (!validTypes.includes(tile.monsterType)) {
+                errors.push(`Tile at ${tile.coord.q},${tile.coord.r}: Invalid monster type ${tile.monsterType}`);
+            }
+        }
+
         // Blocked edges validation
         if (tile.blockedEdges) {
             for (const edge of tile.blockedEdges) {

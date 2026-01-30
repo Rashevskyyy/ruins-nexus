@@ -19,6 +19,8 @@ export type ResourceMap = {
 // Token types for rewards
 export type TokenType = "CommonLoot" | "UncommonLoot" | "SpellToken" | "Medkit" | "Legendary";
 
+export type MonsterType = "standard" | "hunter" | "guardian";
+
 // Risky tile effects (v0.4)
 export type RiskyEffect = "toxic" | "unstable" | "rift";
 
@@ -29,6 +31,7 @@ export type TileTemplate = {
     tier: number;           // Tile tier (1, 2, or 3 for Final)
     resources: ResourceMap;
     monsterTier: number;    // Monster tier (1-4, determines HP and rewards)
+    monsterType: MonsterType;
     enemyHp: number;        // Monster HP = monsterTier
     blockedEdges: number[]; // Which edges are blocked (0-5, before rotation)
     isFinalTile?: boolean;
@@ -105,6 +108,7 @@ export class TileDeck {
                 tier: 1,
                 resources,
                 monsterTier,
+                monsterType: this.generateMonsterType(monsterTier),
                 enemyHp: monsterTier, // HP = Tier
                 blockedEdges: this.randomBlockedEdges(1),
                 rewards: [...rewards],
@@ -130,6 +134,7 @@ export class TileDeck {
                 tier: 2,
                 resources,
                 monsterTier,
+                monsterType: this.generateMonsterType(monsterTier),
                 enemyHp: monsterTier, // HP = Tier
                 blockedEdges: this.randomBlockedEdges(2),
                 rewards: [...rewards],
@@ -147,6 +152,7 @@ export class TileDeck {
             tier: 1,
             resources,
             monsterTier,
+            monsterType: this.generateMonsterType(monsterTier),
             enemyHp: monsterTier,
             blockedEdges: this.randomBlockedEdges(1),
             rewards: [...rewards],
@@ -166,11 +172,23 @@ export class TileDeck {
             tier: 2,
             resources,
             monsterTier,
+            monsterType: this.generateMonsterType(monsterTier),
             enemyHp: monsterTier,
             blockedEdges: this.randomBlockedEdges(2),
             rewards: [...rewards],
             riskyEffect: effect,
         });
+    }
+
+    private generateMonsterType(monsterTier: number): MonsterType {
+        const tier = Math.max(1, Math.min(4, monsterTier));
+        const roll = Math.random() * 100;
+        const guardianChance = 10 + (tier - 1) * 5; // 10%, 15%, 20%, 25%
+        const hunterChance = 20 + (tier - 1) * 5; // 20%, 25%, 30%, 35%
+
+        if (roll < guardianChance) return "guardian";
+        if (roll < guardianChance + hunterChance) return "hunter";
+        return "standard";
     }
 
     private randomBlockedEdges(tier: number): number[] {
@@ -207,6 +225,7 @@ export class TileDeck {
             tier: 3,
             resources: {}, // Final Tile has no resources (Final Threat instead)
             monsterTier: 6, // Final Threat tier
+            monsterType: "standard",
             enemyHp: 0, // Final Threat is tracked separately (40 HP)
             blockedEdges: [], // No blocked edges - can enter from any side
             isFinalTile: true,

@@ -3,7 +3,7 @@ import { hexKey, addHex } from "./Hex";
 import { EDGE_DIRECTIONS } from "./HexEdges";
 import type { Tile } from "./Tile";
 import { TileType } from "./TileTypes";
-import type { ResourceMap } from "./TileDeck";
+import type { MonsterType, ResourceMap } from "./TileDeck";
 
 /**
  * Random resource for starting sectors
@@ -23,6 +23,7 @@ type StartingSectorConfig = {
     resources: ResourceMap;
     encounterActive?: boolean;
     monsterTier?: number;
+    monsterType?: MonsterType;
     enemyHp?: number;
     componentBonus?: number;
 };
@@ -43,6 +44,7 @@ function getStartingSectorConfig(): StartingSectorConfig {
             resources: { biomass: 1, materials: 1, alloys: 1 },
             encounterActive: true,
             monsterTier: 2,
+            monsterType: "standard",
             enemyHp: 2,
         };
     }
@@ -150,6 +152,7 @@ export class Board {
                 componentBonus: startingSector.componentBonus,
                 encounterActive: startingSector.encounterActive ?? false,
                 monsterTier: startingSector.monsterTier,
+                monsterType: startingSector.monsterType,
                 enemyHp: startingSector.enemyHp,
             });
         }
