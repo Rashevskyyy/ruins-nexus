@@ -23,8 +23,8 @@ export type Player = {
 
     // Hero Board
     inventory: {
-        weapons: (Item | null)[]; // 4 слота
-        spells: (Item | null)[];  // 4 слота
+        weapons: (Item | null)[]; // 2 слота
+        spells: (Item | null)[];  // 2 слота
         amulet: Item | null;      // 1 слот
     };
     
@@ -88,6 +88,15 @@ export type Player = {
     
     // v0.5: Heavy Cannon penalty
     heavyCannonPenaltyApplied: boolean; // First move costs extra this turn
+
+    // Equipment tracking
+    tilesMovedThisTurn: number; // Arc Rifle bonus tracking
+    explorerCharmUsed: boolean; // Explorer's Charm free explore (1/turn)
+    survivorMarkUsed: boolean; // Survivor's Mark trigger (once per game)
+    phaseShiftUsedRound: number | null; // Phase Shift cooldown (1/round)
+    stasisFieldUsedRound: number | null; // Stasis Field cooldown (1/round)
+    overchargeUsedRound: number | null; // Overcharge cooldown (1/round)
+    huntersMarkUsedRound: number | null; // Hunter's Mark cooldown (1/round)
 
     // Events
     techBreakthroughUsed: boolean; // Next craft -1🧩 (once per event)

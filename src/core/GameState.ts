@@ -171,6 +171,13 @@ export function createInitialState(playerCount: number = 4, modifierId?: Modifie
             pushedBackFromTile: null,    // v0.5: Combat retry restriction
             underdogBonusUsed: false,    // v0.5: Underdog Bonus
             heavyCannonPenaltyApplied: false, // v0.5: Heavy Cannon -1 Move
+            tilesMovedThisTurn: 0,
+            explorerCharmUsed: false,
+            survivorMarkUsed: false,
+            phaseShiftUsedRound: null,
+            stasisFieldUsedRound: null,
+            overchargeUsedRound: null,
+            huntersMarkUsedRound: null,
             techBreakthroughUsed: false,
             tilesExplored: 0,
             monstersDefeatedTier2Plus: 0,

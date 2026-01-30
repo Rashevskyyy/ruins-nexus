@@ -475,6 +475,7 @@ export class Game {
                 skullReduction: preCombat.skullReduction,
                 rerollIfZero: preCombat.rerollIfZero,
             },
+            round: this.state.round,
         });
 
         const finalizeCombat = () => {
@@ -737,6 +738,16 @@ export class Game {
 
             // AUTO-MOVE: Player moves onto the new tile
             player.position = target;
+            player.tilesMovedThisTurn += 1;
+
+            const hasVoidLauncher = player.inventory.weapons.some(w => w?.effectId === "void_launcher");
+            const bypassGuardian = hasVoidLauncher && newTile.encounterActive && newTile.monsterType === "guardian";
+            if (bypassGuardian) {
+                this.addLog(`🌀 ${player.id} bypassed a Guardian with Void Launcher`);
+                if (this.onToast) {
+                    this.onToast(`🌀 Void Launcher bypassed Guardian!`, "info");
+                }
+            }
 
             if (this.hasActiveEvent("volcanic_eruption") && !this.state.eventProgress.volcanicEruption.rewardClaimed) {
                 const bonus = this.getActiveEventEffects().enterRiskyPrestigeBonus ?? 0;
@@ -754,7 +765,7 @@ export class Game {
             }
 
             // AUTO-COMBAT: If there's a threat, show dice FIRST then apply results
-            if (newTile.encounterActive === true) {
+            if (newTile.encounterActive === true && !bypassGuardian) {
                 this.state.phase = Phase.ResolveAction;
                 this.openPreCombat(player, newTile, from);
                 return;
@@ -764,6 +775,10 @@ export class Game {
                     this.state.phase = Phase.AwaitInput;
                     this.state.uiMode = "NONE";
                     this.state.actionUsedInCurrentSlot = true;
+                } else if (player.inventory.amulet?.effectId === "explorers_charm" && !player.explorerCharmUsed) {
+                    player.explorerCharmUsed = true;
+                    this.state.phase = Phase.AwaitInput;
+                    this.state.uiMode = "NONE";
                 } else {
                     this.forceEndTurnAfterEncounter();
                 }
@@ -794,8 +809,18 @@ export class Game {
 
             const ignoreTargetBlocked = targetTile?.encounterActive && targetTile.monsterType === "guardian";
             if (fromTile && !canMoveBetween(fromTile, target, targetTile, { ignoreTargetBlocked })) {
-                this.addLog(`[Round ${this.state.round}] ${player.id} cannot move - blocked by terrain!`);
-                return;
+                const hasPhaseShift = player.inventory.spells.some(s => s?.effectId === "phase_shift");
+                const canUsePhaseShift = hasPhaseShift && player.phaseShiftUsedRound !== this.state.round;
+                if (canUsePhaseShift) {
+                    player.phaseShiftUsedRound = this.state.round;
+                    this.addLog(`✨ ${player.id} used Phase Shift to bypass terrain`);
+                    if (this.onToast) {
+                        this.onToast(`✨ Phase Shift!`, "success");
+                    }
+                } else {
+                    this.addLog(`[Round ${this.state.round}] ${player.id} cannot move - blocked by terrain!`);
+                    return;
+                }
             }
 
             // 🌪 Gravity Rift: Leaving always consumes a slot (overrides Void Navigator)
@@ -808,6 +833,7 @@ export class Game {
             }
 
             player.position = target;
+            player.tilesMovedThisTurn += 1;
             
             if (forcePaidMove) {
                 this.state.movedInCurrentSlot = true;
@@ -857,6 +883,18 @@ export class Game {
 
         // Local threat active → combat → turn ends
         if (tile.encounterActive === true) {
+            const hasVoidLauncher = player.inventory.weapons.some(w => w?.effectId === "void_launcher");
+            if (hasVoidLauncher && tile.monsterType === "guardian") {
+                this.addLog(`🌀 ${player.id} bypassed a Guardian with Void Launcher`);
+                if (this.onToast) {
+                    this.onToast(`🌀 Void Launcher bypassed Guardian!`, "info");
+                }
+                this.state.phase = Phase.AwaitInput;
+                if (usedPostActionMove) {
+                    this.tryFinishCurrentSlotAndStartNew();
+                }
+                return;
+            }
             // v0.5: Combat retry restriction - can't attack same tile after pushback
             if (player.pushedBackFromTile && 
                 player.pushedBackFromTile.q === target.q && 
@@ -945,6 +983,13 @@ export class Game {
                 this.addLog(`⚔️ Monster Bounty bonus: ${player.id} +2🧩`);
             }
         }
+
+        const hasHuntersMark = player.inventory.spells.some(s => s?.effectId === "hunters_mark");
+        if (hasHuntersMark && tile.monsterType === "hunter" && player.huntersMarkUsedRound !== this.state.round) {
+            rewardMultiplier *= 2;
+            player.huntersMarkUsedRound = this.state.round;
+            this.addLog(`🎯 ${player.id} Hunter's Mark: rewards doubled`);
+        }
         
         // ========================================
         // RACE BONUSES ON KILL (v0.5)
@@ -1005,8 +1050,9 @@ export class Game {
         }
 
         if (tile.monsterType === "guardian") {
-            prestigeGain = Math.ceil(prestigeGain * 1.5);
-            componentGain = Math.ceil(componentGain * 1.5);
+            const guardianMultiplier = player.inventory.amulet?.effectId === "guardians_crest" ? 2 : 1.5;
+            prestigeGain = Math.ceil(prestigeGain * guardianMultiplier);
+            componentGain = Math.ceil(componentGain * guardianMultiplier);
         }
 
         if (rewardMultiplier > 1) {
@@ -1016,6 +1062,11 @@ export class Game {
 
         prestigeGain += eventPrestigeBonus;
         componentGain += eventComponentBonus;
+
+        if (player.inventory.amulet?.effectId === "war_medal") {
+            componentGain += 1;
+            this.addLog(`🎖️ ${player.id} War Medal: +1🧩`);
+        }
         
         // v0.5: Apply component multiplier from game modifier
         const finalComponentGain = Math.round(componentGain * this.state.componentMultiplier);
@@ -1755,6 +1806,16 @@ export class Game {
             this.state.uiMode = "TILE_PLACEMENT";
             this.state.pendingTileTier = 1; // Will be determined by deck
             this.state.pendingTileRotation = 0;
+
+            const hasThreatScanner = player.inventory.spells.some(s => s?.effectId === "threat_scanner");
+            const nextTile = hasThreatScanner ? this.state.tileDeck.peekNextTile() : null;
+            if (nextTile) {
+                const scanMsg = `📡 Threat Scanner: ${nextTile.monsterType?.toUpperCase()} (Tier ${nextTile.monsterTier})`;
+                this.addLog(scanMsg);
+                if (this.onToast) {
+                    this.onToast(scanMsg, "info");
+                }
+            }
         }
 
         return true;
@@ -1979,6 +2040,7 @@ export class Game {
         if (!this.state.isFinalPreparation) return false;
         
         const player = this.currentPlayer;
+        const hasVoidPendant = player.inventory.amulet?.effectId === "void_pendant";
         
         // Must have a base
         if (!player.basePosition) return false;
@@ -1986,7 +2048,9 @@ export class Game {
         // Check remaining recalls (Void Option B has 2, others have 1)
         
         // For Void Option B, check voidRecallsRemaining
-        if (player.raceId === "void" && player.raceOption === "B") {
+        if (hasVoidPendant) {
+            // Void Pendant ignores recall usage limits
+        } else if (player.raceId === "void" && player.raceOption === "B") {
             if (player.voidRecallsRemaining <= 0) return false;
         } else {
             // Normal: only use once per Orbital Phase
@@ -1999,6 +2063,65 @@ export class Game {
             return false;
         }
         
+        return true;
+    }
+
+    // ========================================
+    // CONSUMABLE MODULES
+    // ========================================
+
+    canUseEmergencyRepair(): boolean {
+        const player = this.currentPlayer;
+        return player.hp < player.maxHp && player.inventory.spells.some(s => s?.effectId === "emergency_repair");
+    }
+
+    doEmergencyRepair(): boolean {
+        if (this.state.phase !== Phase.AwaitInput) return false;
+        if (this.state.actionPoints <= 0) return false;
+        if (!this.canUseEmergencyRepair()) return false;
+
+        const player = this.currentPlayer;
+        const repairIndex = player.inventory.spells.findIndex(s => s?.effectId === "emergency_repair");
+        if (repairIndex < 0) return false;
+
+        player.hp = Math.min(player.maxHp, player.hp + 3);
+        player.inventory.spells[repairIndex] = null;
+        this.addLog(`🧰 ${player.id} used Emergency Repair (+3 HP)`);
+        if (this.onToast) {
+            this.onToast(`🧰 Emergency Repair! +3 HP`, "success");
+        }
+
+        this.state.actionUsedInCurrentSlot = true;
+        this.tryFinishCurrentSlotAndStartNew();
+        return true;
+    }
+
+    canUseEscapePod(): boolean {
+        const player = this.currentPlayer;
+        return Boolean(player.basePosition) && player.inventory.spells.some(s => s?.effectId === "escape_pod");
+    }
+
+    doEscapePod(): boolean {
+        if (this.state.phase !== Phase.AwaitInput) return false;
+        if (this.state.actionPoints <= 0) return false;
+        if (!this.canUseEscapePod()) return false;
+
+        const player = this.currentPlayer;
+        const base = player.basePosition;
+        if (!base) return false;
+
+        const podIndex = player.inventory.spells.findIndex(s => s?.effectId === "escape_pod");
+        if (podIndex < 0) return false;
+
+        player.inventory.spells[podIndex] = null;
+        player.position = { q: base.q, r: base.r };
+        this.addLog(`🚀 ${player.id} used Escape Pod to return to Base`);
+        if (this.onToast) {
+            this.onToast(`🚀 Escape Pod: back to Base!`, "success");
+        }
+
+        this.state.actionUsedInCurrentSlot = true;
+        this.tryFinishCurrentSlotAndStartNew();
         return true;
     }
 
@@ -2025,11 +2148,14 @@ export class Game {
 
         const player = this.currentPlayer;
         const base = player.basePosition!;
+        const hasVoidPendant = player.inventory.amulet?.effectId === "void_pendant";
         
         player.position = { q: base.q, r: base.r };
         
         // Track recall usage
-        if (player.raceId === "void" && player.raceOption === "B") {
+        if (hasVoidPendant) {
+            this.addLog(`📿 ${player.id} recalled with Void Pendant`);
+        } else if (player.raceId === "void" && player.raceOption === "B") {
             player.voidRecallsRemaining--;
             this.addLog(`📡 ${player.id} RECALLED to Base! (${player.voidRecallsRemaining} recalls left)`);
         } else {
@@ -2147,15 +2273,15 @@ export class Game {
             
             switch (weapon.effectId) {
                 case "blaster_core":
-                case "pulse_blade":
+                case "shock_blade":
                     score += 1;
                     break;
                 case "plasma_edge":
-                case "shock_pike":
+                case "void_launcher":
                     score += 2;
                     break;
                 case "heavy_cannon":
-                case "quantum_blade":
+                case "arc_rifle":
                     score += 3;
                     break;
             }
@@ -2168,9 +2294,16 @@ export class Game {
             switch (spell.effectId) {
                 case "reroll_module":
                 case "shield_matrix":
+                case "threat_scanner":
+                case "phase_shift":
+                case "hunters_mark":
+                case "emergency_repair":
+                case "escape_pod":
                     score += 1;
                     break;
                 case "overdrive":
+                case "stasis_field":
+                case "overcharge":
                     score += 2;
                     break;
             }
@@ -2179,13 +2312,14 @@ export class Game {
         // Amulet bonus
         if (player.inventory.amulet) {
             switch (player.inventory.amulet.effectId) {
-                case "stabilizer_plating":
-                    score += 1;
-                    break;
                 case "core_relic":
                     score += 3;
                     break;
-                case "chrono_shield":
+                case "explorers_charm":
+                case "survivors_mark":
+                case "war_medal":
+                case "void_pendant":
+                case "guardians_crest":
                     score += 2;
                     break;
             }
@@ -2378,6 +2512,8 @@ export class Game {
         currentPlayer.nomadGatherBonusUsed = false;
         currentPlayer.forgeCraftFreeUsed = false;
         currentPlayer.heavyCannonPenaltyApplied = false; // Reset Heavy Cannon penalty
+        currentPlayer.tilesMovedThisTurn = 0;
+        currentPlayer.explorerCharmUsed = false;
         
         // v0.5: Reset combat retry restriction
         currentPlayer.pushedBackFromTile = null;

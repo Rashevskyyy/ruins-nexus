@@ -20,6 +20,8 @@ type CraftMenuContext = {
 };
 
 export class CraftMenuPanel {
+    private activeCategory: "weapon" | "module" | "amulet" = "weapon";
+
     render({ app, game, layer, playerColors, canShowHint, showHint, renderAll }: CraftMenuContext): void {
         layer.removeChildren();
 
@@ -85,12 +87,45 @@ export class CraftMenuPanel {
         title.position.set(panelX + 20, panelY + 16);
         layer.addChild(title);
 
+        const categories: Array<{ id: "weapon" | "module" | "amulet"; label: string; emoji: string }> = [
+            { id: "weapon", label: "Weapons", emoji: "⚔" },
+            { id: "module", label: "Modules", emoji: "🔧" },
+            { id: "amulet", label: "Amulets", emoji: "📿" },
+        ];
+
+        let tabX = panelX + 20;
+        const tabY = panelY + 48;
+        for (const category of categories) {
+            const isActive = this.activeCategory === category.id;
+            const tab = new PIXI.Graphics();
+            tab.roundRect(tabX, tabY, 100, 24, 8);
+            tab.fill({ color: isActive ? 0x3b82f6 : 0x2d3748, alpha: 0.9 });
+            tab.stroke({ color: isActive ? 0x60a5fa : 0x4b5563, width: 1 });
+            tab.eventMode = "static";
+            tab.cursor = "pointer";
+            tab.on("pointerdown", () => {
+                this.activeCategory = category.id;
+                renderAll();
+            });
+            layer.addChild(tab);
+
+            const tabLabel = new PIXI.Text({
+                text: `${category.emoji} ${category.label}`,
+                style: new PIXI.TextStyle({ fontSize: 12, fill: 0xf8fafc, fontWeight: "700" }),
+            });
+            tabLabel.anchor.set(0.5);
+            tabLabel.position.set(tabX + 50, tabY + 12);
+            layer.addChild(tabLabel);
+
+            tabX += 110;
+        }
+
         // Resources
         const resourceText = new PIXI.Text({
-            text: `Your resources: 🧩${p.components}  ⚙${p.alloys}  🧱${p.materials}  ⭐${p.prestige}`,
+            text: `Resources: 🧩${p.components}  ⚙${p.alloys}  🧱${p.materials}  ⭐${p.prestige}`,
             style: new PIXI.TextStyle({ fontSize: 14, fill: 0xa0aec0, fontWeight: "600" }),
         });
-        resourceText.position.set(panelX + 20, panelY + 50);
+        resourceText.position.set(panelX + 20, panelY + 78);
         layer.addChild(resourceText);
 
         // Close button
@@ -114,19 +149,28 @@ export class CraftMenuPanel {
         closeX.position.set(panelX + panelW - 24, panelY + 24);
         layer.addChild(closeX);
 
-        let yOffset = panelY + 80;
+        const yOffset = panelY + 110;
 
-        // Get all recipes
-        const allRecipes = game.getAllCraftRecipes();
+        // Get filtered recipes
+        const allRecipes = game.getAllCraftRecipes().filter(recipe => recipe.result.type === this.activeCategory);
+        const columns = allRecipes.length > 8 ? 2 : 1;
+        const columnGap = 12;
+        const columnWidth = (panelW - 32 - (columns - 1) * columnGap) / columns;
 
-        for (const recipe of allRecipes) {
+        for (let i = 0; i < allRecipes.length; i++) {
+            const recipe = allRecipes[i];
             const canCraft =
                 p.components >= recipe.cost.components &&
                 p.alloys >= recipe.cost.alloys &&
                 p.materials >= recipe.cost.materials &&
                 p.prestige >= recipe.cost.prestige;
 
-            this.renderCraftCard(layer, panelX + 16, yOffset, panelW - 32, {
+            const column = i % columns;
+            const row = Math.floor(i / columns);
+            const cardX = panelX + 16 + column * (columnWidth + columnGap);
+            const cardY = yOffset + row * 62;
+
+            this.renderCraftCard(layer, cardX, cardY, columnWidth, {
                 name: recipe.name,
                 emoji: recipe.emoji,
                 cost: this.formatCraftCost(recipe.cost),
@@ -137,8 +181,6 @@ export class CraftMenuPanel {
                     renderAll();
                 },
             });
-
-            yOffset += 62;
         }
     }
 

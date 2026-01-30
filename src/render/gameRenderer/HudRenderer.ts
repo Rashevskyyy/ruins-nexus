@@ -571,20 +571,24 @@ export class HudRenderer {
 
         for (const weapon of player.inventory.weapons) {
             if (!weapon) continue;
-            if (weapon.effectId === "pulse_blade" || weapon.effectId === "blaster_core") weapons += 1;
-            if (weapon.effectId === "heavy_cannon") weapons += 3;
-            if (weapon.effectId === "quantum_blade") weapons += 2;
+            if (weapon.effectId === "blaster_core") weapons += 1;
+            if (weapon.effectId === "shock_blade") weapons += 1;
             if (weapon.effectId === "plasma_edge") weapons += 2;
-            if (weapon.effectId === "shock_pike") weapons += 1;
-            if (weapon.effectId === "heavy_striker") hasReroll = true;
+            if (weapon.effectId === "heavy_cannon") weapons += 3;
+            if (weapon.effectId === "arc_rifle") weapons += Math.min(player.tilesMovedThisTurn, 3);
+            if (weapon.effectId === "void_launcher") weapons += 2;
         }
 
         for (const spell of player.inventory.spells) {
             if (!spell) continue;
             if (spell.effectId === "reroll_module") hasReroll = true;
+            if (spell.effectId === "shield_matrix") skullReduction += 1;
         }
 
-        if (player.inventory.amulet?.effectId === "stabilizer_plating") skullReduction += 1;
+        if (player.inventory.amulet?.effectId === "core_relic") {
+            weapons += 1;
+            skullReduction += 1;
+        }
 
         if (player.raceId === "warbound") race += 1;
         if (player.raceId === "warbound" && player.raceOption === "A") race += 1;

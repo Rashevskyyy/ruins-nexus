@@ -295,11 +295,6 @@ export class RewardRenderer {
             player.inventory.amulet = item;
         }
 
-        if (item.effectId === "reinforced_suit") {
-            player.maxHp += 1;
-            player.hp += 1;
-        }
-
         this.options.game.addLog(`${player.id} chose ${item.emoji} ${item.name}`);
         this.options.showToast(`${item.emoji} ${item.name} added to inventory!`, "success");
 
