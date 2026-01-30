@@ -6,6 +6,7 @@ import { CraftMenuPanel } from "./panels/CraftMenuPanel";
 import { HeroBoardPanel } from "./panels/HeroBoardPanel";
 import { HireUnitMenuPanel } from "./panels/HireUnitMenuPanel";
 import { OrbitalHangarMenuPanel } from "./panels/OrbitalHangarMenuPanel";
+import { PreCombatPanel } from "./panels/PreCombatPanel";
 import { FinalPhaseBanner } from "./panels/FinalPhaseBanner";
 import { EventLogPanel } from "./panels/EventLogPanel";
 import { DeckInfoPanel } from "./panels/DeckInfoPanel";
@@ -30,6 +31,7 @@ export class GameRenderer {
     private rotationIndicatorsLayer = new PIXI.Container();
     private buildMenuLayer = new PIXI.Container();
     private craftMenuLayer = new PIXI.Container();
+    private preCombatLayer = new PIXI.Container();
     private finalPhaseBannerLayer = new PIXI.Container();
     private eventLogLayer = new PIXI.Container();
     private deckInfoLayer = new PIXI.Container();
@@ -60,6 +62,7 @@ export class GameRenderer {
     private heroBoardPanel = new HeroBoardPanel();
     private buildMenuPanel = new BuildMenuPanel();
     private craftMenuPanel = new CraftMenuPanel();
+    private preCombatPanel = new PreCombatPanel();
     private hireUnitMenuPanel = new HireUnitMenuPanel();
     private orbitalHangarMenuPanel = new OrbitalHangarMenuPanel();
     private finalPhaseBanner = new FinalPhaseBanner();
@@ -146,6 +149,9 @@ export class GameRenderer {
 
         this.app.stage.addChild(this.craftMenuLayer);
         this.craftMenuLayer.zIndex = 210;
+
+        this.app.stage.addChild(this.preCombatLayer);
+        this.preCombatLayer.zIndex = 320;
 
         this.app.stage.addChild(this.finalPhaseBannerLayer);
         this.finalPhaseBannerLayer.zIndex = 50;
@@ -317,6 +323,7 @@ export class GameRenderer {
 
         this.renderBuildMenu();
         this.renderCraftMenu();
+        this.renderPreCombat();
         this.renderFinalPhaseBanner();
         this.debugPanelRenderer.renderDebugPanel();
         this.rewardRenderer.checkPendingTokenRewards();
@@ -410,6 +417,16 @@ export class GameRenderer {
             playerColors: this.PLAYER_COLORS,
             canShowHint: (id) => this.tutorialHints.canShowHint(id),
             showHint: this.showHint.bind(this),
+            renderAll: this.renderAll.bind(this),
+        });
+    }
+
+    private renderPreCombat(): void {
+        this.preCombatPanel.render({
+            app: this.app,
+            game: this.game,
+            layer: this.preCombatLayer,
+            playerColors: this.PLAYER_COLORS,
             renderAll: this.renderAll.bind(this),
         });
     }

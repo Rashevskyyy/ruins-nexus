@@ -2,7 +2,7 @@ import type { HexCoord } from "../board/Hex";
 import { isNeighbor, neighbors } from "../board/Hex";
 import { TileType } from "../board/TileTypes";
 import { Phase } from "./Phase";
-import type { GameState } from "./GameState";
+import type { GameState, PreCombatSpend } from "./GameState";
 import { ExplorationSystem } from "../systems/ExplorationSystem";
 import { CombatSystem } from "../systems/CombatSystem";
 import { SettlementSystem } from "../systems/SettlementSystem";
@@ -365,6 +365,155 @@ export class Game {
         this.endTurn();
     }
 
+    private createDefaultPreCombatSpend(): PreCombatSpend {
+        return {
+            componentSwords: 0,
+            componentSkullReduction: 0,
+            componentReroll: false,
+            prestigeSwords: false,
+            prestigeCancelRetreat: false,
+            biomassHeal: false,
+        };
+    }
+
+    private openPreCombat(player: Player, tile: Tile, from: HexCoord): void {
+        if (!this.onDiceRoll) {
+            const preCombat = this.applyPreCombatSpend(player, this.createDefaultPreCombatSpend());
+            this.resolveCombat(player, tile, from, preCombat);
+            return;
+        }
+
+        this.state.pendingCombat = {
+            playerId: player.id,
+            tileCoord: tile.coord,
+            fromCoord: { ...from },
+            spend: this.createDefaultPreCombatSpend(),
+        };
+        this.state.uiMode = "PRE_COMBAT";
+    }
+
+    public confirmPreCombat(applySpend: boolean): void {
+        const pending = this.state.pendingCombat;
+        if (!pending) return;
+
+        const player = this.state.players.find(p => p.id === pending.playerId);
+        const tile = this.state.board.getTile(pending.tileCoord);
+        if (!player || !tile) {
+            this.state.pendingCombat = null;
+            this.state.uiMode = "NONE";
+            return;
+        }
+
+        const spend = applySpend ? pending.spend : this.createDefaultPreCombatSpend();
+        const preCombat = this.applyPreCombatSpend(player, spend);
+
+        this.state.pendingCombat = null;
+        this.state.uiMode = "NONE";
+
+        this.resolveCombat(player, tile, pending.fromCoord, preCombat);
+    }
+
+    private applyPreCombatSpend(
+        player: Player,
+        spend: PreCombatSpend,
+    ): {
+        bonusSwords: number;
+        skullReduction: number;
+        rerollIfZero: boolean;
+        cancelRetreat: boolean;
+    } {
+        const canUseReroll = spend.componentReroll && player.prestige < 15;
+        const componentCost = spend.componentSwords + spend.componentSkullReduction * 3 + (canUseReroll ? 2 : 0);
+        if (componentCost > player.components) {
+            return { bonusSwords: 0, skullReduction: 0, rerollIfZero: false, cancelRetreat: false };
+        }
+
+        const prestigeCost = (spend.prestigeSwords ? 1 : 0) + (spend.prestigeCancelRetreat ? 2 : 0);
+        if (prestigeCost > player.prestige) {
+            return { bonusSwords: 0, skullReduction: 0, rerollIfZero: false, cancelRetreat: false };
+        }
+
+        const canHealWithBiomass = spend.biomassHeal && player.hp < player.maxHp;
+        const biomassCost = canHealWithBiomass ? 2 : 0;
+        if (biomassCost > player.biomass) {
+            return { bonusSwords: 0, skullReduction: 0, rerollIfZero: false, cancelRetreat: false };
+        }
+
+        if (componentCost > 0) {
+            player.components -= componentCost;
+        }
+        if (prestigeCost > 0) {
+            player.prestige -= prestigeCost;
+        }
+        if (biomassCost > 0) {
+            player.biomass -= biomassCost;
+        }
+
+        if (canHealWithBiomass) {
+            player.hp = Math.min(player.maxHp, player.hp + 1);
+        }
+
+        return {
+            bonusSwords: spend.componentSwords + (spend.prestigeSwords ? 2 : 0),
+            skullReduction: spend.componentSkullReduction,
+            rerollIfZero: canUseReroll,
+            cancelRetreat: spend.prestigeCancelRetreat,
+        };
+    }
+
+    private resolveCombat(
+        player: Player,
+        tile: Tile,
+        from: HexCoord,
+        preCombat: { bonusSwords: number; skullReduction: number; rerollIfZero: boolean; cancelRetreat: boolean },
+    ): void {
+        const combatModifiers = this.getCombatEventModifiers(tile, player);
+        const outcome = this.combat.simulateCombat(player, tile, player.prestige, {
+            ...combatModifiers,
+            preCombat: {
+                bonusSwords: preCombat.bonusSwords,
+                skullReduction: preCombat.skullReduction,
+                rerollIfZero: preCombat.rerollIfZero,
+            },
+        });
+
+        const finalizeCombat = () => {
+            this.combat.applyCombatResult(player, tile, outcome);
+
+            const tierNote = outcome.prestigePenalty
+                ? `👹T${outcome.monsterTier}+1(prestige)=${outcome.requiredTier}⚔`
+                : `👹T${outcome.monsterTier}=${outcome.requiredTier}⚔`;
+            const dmgNote = outcome.damageToPlayer > 0 ? `, took ${outcome.damageToPlayer}💀` : "";
+            const resultLabel = outcome.victory ? "WON" : (preCombat.cancelRetreat ? "STAYED" : "PUSHBACK");
+            this.addLog(
+                `${player.id} vs ${tierNote}: 🎲${outcome.roll.swords}+${outcome.bonusSwords}=${outcome.totalSwords}⚔ → ${resultLabel}${dmgNote}`
+            );
+
+            if (outcome.victory) {
+                this.awardCombatRewards(player, tile);
+                this.showVictoryResult(outcome);
+            } else {
+                if (!preCombat.cancelRetreat) {
+                    player.position = { q: from.q, r: from.r };
+                    player.pushedBackFromTile = { q: tile.coord.q, r: tile.coord.r };
+                }
+                this.showDefeatResult(outcome, { cancelRetreat: preCombat.cancelRetreat });
+                this.forceEndTurnAfterEncounter();
+            }
+
+            if (this.onCombatResolved) {
+                this.onCombatResolved();
+            }
+        };
+
+        if (this.onDiceRoll) {
+            this.onDiceRoll(outcome.roll, finalizeCombat);
+            return;
+        }
+
+        finalizeCombat();
+    }
+
     // ========================================
     // HEX CLICK (MOVEMENT + TILE PLACEMENT)
     // ========================================
@@ -377,7 +526,7 @@ export class Game {
         const forcePaidMove = (this.getActiveEventEffects().moveCost ?? 0) > 0;
         const hasPostActionMove = !forcePaidMove && (player.voidPhaseStepAvailable || player.warboundBattleRushAvailable);
         if (this.state.actionPoints <= 0 && !hasPostActionMove) return;
-        const from = player.position;
+        const from = { ...player.position };
         const isSame = from.q === target.q && from.r === target.r;
 
         // Tile Placement mode: player selects where to place new tile
@@ -509,54 +658,8 @@ export class Game {
             // AUTO-COMBAT: If there's a threat, show dice FIRST then apply results
             if (newTile.encounterActive === true) {
                 this.state.phase = Phase.ResolveAction;
-                
-                // Show dice UI FIRST - combat applied AFTER animation
-                if (this.onDiceRoll) {
-                    // Simulate combat (calculate result without applying)
-                    const combatModifiers = this.getCombatEventModifiers(newTile, player);
-                    const outcome = this.combat.simulateCombat(player, newTile, player.prestige, combatModifiers);
-                    
-                    this.onDiceRoll(outcome.roll, () => {
-                        // AFTER dice animation: NOW apply results
-                        this.combat.applyCombatResult(player, newTile, outcome);
-                        
-                        // v0.5: Detailed combat logging with breakdown
-                        const tierNote = outcome.prestigePenalty 
-                            ? `👹T${outcome.monsterTier}+1(prestige)=${outcome.requiredTier}⚔` 
-                            : `👹T${outcome.monsterTier}=${outcome.requiredTier}⚔`;
-                        const dmgNote = outcome.damageToPlayer > 0 ? `, took ${outcome.damageToPlayer}💀` : "";
-                        this.addLog(
-                            `${player.id} vs ${tierNote}: 🎲${outcome.roll.swords}+${outcome.bonusSwords}=${outcome.totalSwords}⚔ → ${outcome.victory ? "WON" : "PUSHBACK"}${dmgNote}`
-                        );
-                        
-                        if (outcome.victory) {
-                            this.awardCombatRewards(player, newTile);
-                            this.showVictoryResult(outcome);
-                        } else {
-                            player.position = { q: from.q, r: from.r }; // Pushback
-                            player.pushedBackFromTile = { q: target.q, r: target.r }; // v0.5: Mark tile
-                            this.showDefeatResult(outcome);
-                            this.forceEndTurnAfterEncounter();
-                        }
-                        
-                        // Trigger state sync after combat resolution
-                        if (this.onCombatResolved) {
-                            this.onCombatResolved();
-                        }
-                    });
-                    return; // Wait for dice callback
-                }
-                
-                // Fallback without dice UI
-                const combatModifiers = this.getCombatEventModifiers(newTile, player);
-                const outcome = this.combat.fightOnce(player, newTile, player.prestige, combatModifiers);
-                if (outcome.killed) {
-                    this.awardCombatRewards(player, newTile);
-                } else {
-                    player.position = from;
-                    player.pushedBackFromTile = { q: newTile.coord.q, r: newTile.coord.r }; // v0.5: Mark tile
-                    this.forceEndTurnAfterEncounter();
-                }
+                this.openPreCombat(player, newTile, from);
+                return;
             } else {
                 // No combat - just end turn
                 if (player.voidPhaseStepAvailable) {
@@ -669,57 +772,7 @@ export class Game {
             }
             
             this.state.phase = Phase.ResolveAction;
-
-            // Show dice UI FIRST - combat applied AFTER animation
-            if (this.onDiceRoll) {
-                // Simulate combat (calculate result without applying)
-                const combatModifiers = this.getCombatEventModifiers(tile, player);
-                const outcome = this.combat.simulateCombat(player, tile, player.prestige, combatModifiers);
-                
-                this.onDiceRoll(outcome.roll, () => {
-                    // AFTER dice animation: NOW apply results
-                    this.combat.applyCombatResult(player, tile, outcome);
-                    
-                    // v0.5: Detailed combat logging with breakdown
-                    const tierNote = outcome.prestigePenalty 
-                        ? `👹T${outcome.monsterTier}+1(prestige)=${outcome.requiredTier}⚔` 
-                        : `👹T${outcome.monsterTier}=${outcome.requiredTier}⚔`;
-                    const dmgNote = outcome.damageToPlayer > 0 ? `, took ${outcome.damageToPlayer}💀` : "";
-                    this.addLog(
-                        `${player.id} vs ${tierNote}: 🎲${outcome.roll.swords}+${outcome.bonusSwords}=${outcome.totalSwords}⚔ → ${outcome.victory ? "WON" : "PUSHBACK"}${dmgNote}`
-                    );
-                    
-                    if (outcome.victory) {
-                        this.awardCombatRewards(player, tile);
-                        this.showVictoryResult(outcome);
-                    } else {
-                        player.position = from;
-                        player.pushedBackFromTile = { q: tile.coord.q, r: tile.coord.r }; // v0.5: Mark tile
-                        this.showDefeatResult(outcome);
-                        this.forceEndTurnAfterEncounter();
-                    }
-                    
-                    // Trigger state sync after combat resolution
-                    if (this.onCombatResolved) {
-                        this.onCombatResolved();
-                    }
-                });
-                return; // Wait for dice callback
-            }
-            
-            // Fallback without dice UI
-            const combatModifiers = this.getCombatEventModifiers(tile, player);
-            const outcome = this.combat.fightOnce(player, tile, player.prestige, combatModifiers);
-            this.addLog(
-                `${player.id} fought Threat ${outcome.killed ? "WON" : "PUSHBACK"}`
-            );
-            if (outcome.killed) {
-                this.awardCombatRewards(player, tile);
-            } else {
-                player.position = from;
-                player.pushedBackFromTile = { q: tile.coord.q, r: tile.coord.r }; // v0.5: Mark tile
-                this.forceEndTurnAfterEncounter();
-            }
+            this.openPreCombat(player, tile, from);
             return;
         } else {
             this.state.phase = Phase.AwaitInput;
@@ -929,6 +982,7 @@ export class Game {
                 if (b.weaponBonus > 0) swordParts.push(`+${b.weaponBonus}⚔`);
                 if (b.moduleBonus > 0) swordParts.push(`+${b.moduleBonus}🔧`);
                 if (b.amuletBonus > 0) swordParts.push(`+${b.amuletBonus}📿`);
+                if (b.preCombatBonus > 0) swordParts.push(`+${b.preCombatBonus}🎯`);
                 
                 // Monster info
                 const tierInfo = outcome.prestigePenalty 
@@ -950,7 +1004,10 @@ export class Game {
     /**
      * Show defeat result after dice animation (with breakdown)
      */
-    showDefeatResult(outcome?: import("../systems/CombatSystem").CombatResult): void {
+    showDefeatResult(
+        outcome?: import("../systems/CombatSystem").CombatResult,
+        options?: { cancelRetreat?: boolean },
+    ): void {
         if (this.onToast) {
             if (outcome) {
                 const b = outcome.breakdown;
@@ -962,6 +1019,7 @@ export class Game {
                 if (b.weaponBonus > 0) swordParts.push(`+${b.weaponBonus}⚔`);
                 if (b.moduleBonus > 0) swordParts.push(`+${b.moduleBonus}🔧`);
                 if (b.amuletBonus > 0) swordParts.push(`+${b.amuletBonus}📿`);
+                if (b.preCombatBonus > 0) swordParts.push(`+${b.preCombatBonus}🎯`);
                 
                 // Monster info with explanation
                 const tierInfo = outcome.prestigePenalty 
@@ -973,7 +1031,8 @@ export class Game {
                     ? ` | 💀${outcome.damageToPlayer} dmg`
                     : "";
                 
-                this.onToast(`❌ PUSHBACK! ${swordParts.join("")}=${outcome.totalSwords}⚔ < ${tierInfo}${dmgInfo}`, "error");
+                const label = options?.cancelRetreat ? "❌ HELD GROUND!" : "❌ PUSHBACK!";
+                this.onToast(`${label} ${swordParts.join("")}=${outcome.totalSwords}⚔ < ${tierInfo}${dmgInfo}`, "error");
             } else {
                 this.onToast(`💥 Pushed back!`, "error");
             }
@@ -2204,6 +2263,7 @@ export class Game {
         this.state.movedInCurrentSlot = false;
         this.state.actionUsedInCurrentSlot = false;
         this.state.uiMode = "NONE";
+        this.state.pendingCombat = null;
         
         // v0.5: Reset all race flags for new turn
         currentPlayer.voidFreeMoveUsed = false;

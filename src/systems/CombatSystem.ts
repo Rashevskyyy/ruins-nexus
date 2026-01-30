@@ -14,6 +14,7 @@ export type CombatBreakdown = {
     weaponBonus: number;        // From weapons
     moduleBonus: number;        // From modules/spells
     amuletBonus: number;        // From amulet
+    preCombatBonus: number;     // From pre-combat spending
     
     // Skull reduction sources
     skullsFromDice: number;
@@ -22,6 +23,7 @@ export type CombatBreakdown = {
     skullReductionUnit: number;
     skullReductionBuilding: number; // From base buildings (ShieldArray etc)
     skullReductionEquip: number;
+    preCombatSkullReduction: number;
     
     // Labels for UI display
     labels: string[];
@@ -69,7 +71,11 @@ export class CombatSystem {
         player: Player,
         tile: Tile,
         prestige: number = 0,
-        modifiers: { extraSkulls?: number; equipmentPenalty?: number } = {},
+        modifiers: {
+            extraSkulls?: number;
+            equipmentPenalty?: number;
+            preCombat?: { bonusSwords?: number; skullReduction?: number; rerollIfZero?: boolean };
+        } = {},
     ): CombatResult {
         const monsterTier = tile.monsterTier ?? 1;
         
@@ -91,12 +97,14 @@ export class CombatSystem {
             weaponBonus: 0,
             moduleBonus: 0,
             amuletBonus: 0,
+            preCombatBonus: 0,
             skullsFromDice: roll.skulls,
             skullsFromTile: 0,
             skullReductionRace: 0,
             skullReductionUnit: 0,
             skullReductionBuilding: 0,
             skullReductionEquip: 0,
+            preCombatSkullReduction: 0,
             labels: [],
         };
         
@@ -161,10 +169,16 @@ export class CombatSystem {
         const hasTacticalUplink = player.modules.includes("TacticalUplink");
         const hasRerollModule = player.inventory.spells.some(s => s && s.effectId === "reroll_module");
         const hasHeavyStriker = player.inventory.weapons.some(w => w && w.effectId === "heavy_striker");
+        const hasPreCombatReroll = modifiers.preCombat?.rerollIfZero ?? false;
         
         // Only reroll if rolled 0 swords AND prestige < 15
         if (roll.swords === 0 && canReroll && !rerollUsed) {
-            if (hasTacticalUnit) {
+            if (hasPreCombatReroll) {
+                roll = this.dice.rollHeroDie();
+                syncRollBreakdown();
+                breakdown.labels.push("🧩 Pre-combat reroll");
+                rerollUsed = true;
+            } else if (hasTacticalUnit) {
                 roll = this.dice.rollHeroDie();
                 syncRollBreakdown();
                 breakdown.labels.push("📡 Tactical Scanner reroll");
@@ -225,6 +239,13 @@ export class CombatSystem {
             bonusSwords += player.permanentCombatBonus;
             breakdown.moduleBonus += player.permanentCombatBonus;
             breakdown.labels.push(`🏆 Objective +${player.permanentCombatBonus}⚔`);
+        }
+
+        const preCombatBonusSwords = modifiers.preCombat?.bonusSwords ?? 0;
+        if (preCombatBonusSwords > 0) {
+            bonusSwords += preCombatBonusSwords;
+            breakdown.preCombatBonus += preCombatBonusSwords;
+            breakdown.labels.push(`🎯 Pre-combat +${preCombatBonusSwords}⚔`);
         }
 
         // ========================================
@@ -360,6 +381,14 @@ export class CombatSystem {
             breakdown.skullReductionEquip += totalSkullsToReduce - reducedSkulls;
             reducedSkulls = totalSkullsToReduce;
             breakdown.labels.push("📿 Chrono Shield ALL💀");
+        }
+
+        const preCombatSkullReduction = modifiers.preCombat?.skullReduction ?? 0;
+        if (preCombatSkullReduction > 0 && (rolledSkulls + extraSkulls) > reducedSkulls) {
+            const reducible = Math.min(preCombatSkullReduction, rolledSkulls + extraSkulls - reducedSkulls);
+            reducedSkulls += reducible;
+            breakdown.preCombatSkullReduction += reducible;
+            breakdown.labels.push(`🎯 Pre-combat -${reducible}💀`);
         }
 
         // ========================================
