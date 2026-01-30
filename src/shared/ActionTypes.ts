@@ -78,7 +78,7 @@ export const BuildModulesActionSchema = z.object({
 // Choose reward after combat
 export const ChooseRewardActionSchema = z.object({
     type: z.literal("choose-reward"),
-    choice: z.enum(["standard", "components"]),
+    choice: z.enum(["standard", "recover", "push"]),
 });
 
 // Finish token selection

@@ -45,7 +45,7 @@ const GameActionSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("place-tile") }),
     z.object({ type: z.literal("build-base") }),
     z.object({ type: z.literal("build-modules"), modules: z.array(z.string()) }),
-    z.object({ type: z.literal("choose-reward"), choice: z.enum(["standard", "components"]) }),
+    z.object({ type: z.literal("choose-reward"), choice: z.enum(["standard", "recover", "push"]) }),
     z.object({ type: z.literal("finish-token-selection") }),
     z.object({ type: z.literal("craft"), recipeId: z.string() }),
     z.object({ type: z.literal("toggle-craft-menu") }),
