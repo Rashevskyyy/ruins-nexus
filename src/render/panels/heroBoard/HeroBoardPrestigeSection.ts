@@ -8,7 +8,7 @@ export class HeroBoardPrestigeSection {
         return 64;
     }
 
-    render({ layer, leftX, rightX, panelW, y, prestige }: PrestigeContext): number {
+    render({ layer, leftX, rightX, panelW, y, prestige, tooltip }: PrestigeContext): number {
         const prestigeBorderColor = prestige >= 15 ? 0xff4444 : (prestige >= 12 ? 0xffaa00 : 0xffd700);
 
         const prestigeBox = new PIXI.Graphics();
@@ -17,13 +17,13 @@ export class HeroBoardPrestigeSection {
         prestigeBox.stroke({ color: 0x1a2a3a, width: 1 });
         layer.addChild(prestigeBox);
 
-        const starIcon = new PIXI.Text({ text: "⭐", style: new PIXI.TextStyle({ fontSize: 18 }) });
+        const starIcon = new PIXI.Text({ text: "⭐", style: new PIXI.TextStyle({ fontSize: 19 }) });
         starIcon.position.set(leftX + 10, y + 12);
         layer.addChild(starIcon);
 
         const prestigeLabel = new PIXI.Text({
             text: "Prestige",
-            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x6b7280, fontWeight: "700", letterSpacing: 1 }),
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x6b7280, fontWeight: "700", letterSpacing: 1 }),
         });
         prestigeLabel.position.set(leftX + 36, y + 14);
         layer.addChild(prestigeLabel);
@@ -50,7 +50,7 @@ export class HeroBoardPrestigeSection {
         const prestigeValue = new PIXI.Text({
             text: `${prestige}`,
             style: new PIXI.TextStyle({
-                fontSize: 26,
+                fontSize: 28,
                 fill: 0xffd700,
                 fontWeight: "900",
             }),
@@ -71,6 +71,14 @@ export class HeroBoardPrestigeSection {
         m15.rect(marker15X, barY, 1, barH);
         m15.fill({ color: 0xffffff, alpha: 0.5 });
         layer.addChild(m15);
+
+        tooltip.attach(prestigeBox, {
+            title: "Prestige",
+            description: "Victory points. Earn by defeating monsters, completing objectives, and building.",
+            stats: [`Current: ${prestige}`, "Goal: ~15 to win"],
+            accentColor: prestigeBorderColor,
+            icon: "⭐",
+        });
 
         return y + 64;
     }

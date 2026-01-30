@@ -7,8 +7,8 @@ import { HeroBoardEquipmentSection } from "./heroBoard/HeroBoardEquipmentSection
 import type { HeroBoardContext } from "./heroBoard/HeroBoardTypes";
 import { HeroBoardAbilitiesSection } from "./heroBoard/HeroBoardAbilitiesSection";
 import { HeroBoardModuleSlotsSection } from "./heroBoard/HeroBoardModuleSlotsSection";
-import { HeroBoardActionsSection } from "./heroBoard/HeroBoardActionsSection";
 import type { Player } from "../../entities/Player";
+import { HeroBoardTooltip } from "./heroBoard/HeroBoardTooltip";
 
 export class HeroBoardPanel {
     private headerSection = new HeroBoardHeaderSection();
@@ -18,15 +18,12 @@ export class HeroBoardPanel {
     private moduleSlotsSection = new HeroBoardModuleSlotsSection();
     private modulesSection = new HeroBoardModulesSection();
     private abilitiesSection = new HeroBoardAbilitiesSection();
-    private actionsSection = new HeroBoardActionsSection();
 
     render({ app, game, layer, playerColors, playerIndex }: HeroBoardContext): void {
         const p = game.state.players[playerIndex];
         if (!p) return;
 
         const playerColor = playerColors[playerIndex % playerColors.length];
-        const isAtBase = game.isInOwnBase();
-        const hasComponents = p.components >= 1;
 
         layer.removeChildren();
 
@@ -41,7 +38,6 @@ export class HeroBoardPanel {
         const headerHeight = this.headerSection.getSectionHeight();
         const equipmentSectionHeight = this.equipmentSection.getSectionHeight();
         const moduleSlotsHeight = this.moduleSlotsSection.getSectionHeight(p.inventory.spells.length);
-        const actionsHeight = this.actionsSection.getSectionHeight();
         const basePanelHeight =
             headerHeight
             + abilitiesSectionHeight
@@ -49,8 +45,7 @@ export class HeroBoardPanel {
             + this.resourcesSection.getSectionHeight()
             + equipmentSectionHeight
             + moduleSlotsHeight
-            + modulesSectionHeight
-            + actionsHeight;
+            + modulesSectionHeight;
         const panelH = basePanelHeight + 16;
         const panelX = app.renderer.width - panelW - 40;
         const panelY = 70;
@@ -65,6 +60,7 @@ export class HeroBoardPanel {
         const powerValue = powerRange.min === powerRange.max
             ? `${powerRange.max}`
             : `${powerRange.min}-${powerRange.max}`;
+        const tooltip = new HeroBoardTooltip(layer, app);
 
         this.headerSection.render({
             layer,
@@ -77,6 +73,7 @@ export class HeroBoardPanel {
             raceId: p.raceId,
             heroClass: "Commander",
             powerValue,
+            tooltip,
         });
 
         let y = panelY + headerHeight;
@@ -90,6 +87,7 @@ export class HeroBoardPanel {
             y,
             raceId: p.raceId,
             raceOption: p.raceOption,
+            tooltip,
         });
 
         y = this.prestigeSection.render({
@@ -99,9 +97,10 @@ export class HeroBoardPanel {
             panelW,
             y,
             prestige: p.prestige,
+            tooltip,
         });
 
-        y = this.resourcesSection.render({ layer, leftX, y, panelW, player: p });
+        y = this.resourcesSection.render({ layer, leftX, y, panelW, player: p, tooltip });
 
         y = this.equipmentSection.render({
             layer,
@@ -111,6 +110,7 @@ export class HeroBoardPanel {
             y,
             inventory: p.inventory,
             totalSlots: 5,
+            tooltip,
         });
 
         y = this.moduleSlotsSection.render({
@@ -120,6 +120,7 @@ export class HeroBoardPanel {
             panelW,
             y,
             inventory: p.inventory,
+            tooltip,
         });
 
         this.modulesSection.render({
@@ -130,17 +131,7 @@ export class HeroBoardPanel {
             y,
             moduleOrder,
             builtModules,
-        });
-
-        y += modulesSectionHeight;
-
-        this.actionsSection.render({
-            layer,
-            leftX,
-            panelW,
-            y,
-            canCraft: isAtBase && hasComponents,
-            canBuild: Boolean(p.basePosition),
+            tooltip,
         });
     }
 

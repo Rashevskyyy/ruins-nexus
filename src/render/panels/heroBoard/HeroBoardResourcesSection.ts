@@ -8,15 +8,55 @@ export class HeroBoardResourcesSection {
         return 62;
     }
 
-    render({ layer, leftX, panelW, y, player }: ResourcesContext): number {
+    render({ layer, leftX, panelW, y, player, tooltip }: ResourcesContext): number {
         const columnGap = 8;
         const statsW = (panelW - 28 - columnGap * 4) / 5;
         const stats = [
-            { emoji: "❤️", value: `${player.hp}`, color: 0xff6b6b, key: "hp" },
-            { emoji: "🧬", value: player.biomass, color: 0x00ff88, key: "biomass" },
-            { emoji: "🧱", value: player.materials, color: 0xffaa00, key: "materials" },
-            { emoji: "⚙️", value: player.alloys, color: 0x00ddff, key: "alloys" },
-            { emoji: "🧩", value: player.components, color: 0xcc66ff, key: "components" },
+            {
+                emoji: "❤️",
+                value: `${player.hp}`,
+                color: 0xff6b6b,
+                key: "hp",
+                title: "Health Points",
+                desc: "Your life total. If HP reaches 0, you're knocked out and lose resources.",
+                stats: [`Current: ${player.hp}/${player.maxHp}`],
+            },
+            {
+                emoji: "🧬",
+                value: player.biomass,
+                color: 0x00ff88,
+                key: "biomass",
+                title: "Biomass",
+                desc: "Organic material gathered from alien flora. Used for healing and some crafting.",
+                stats: ["Heal: 2→1 HP", "Trade: 3→1"],
+            },
+            {
+                emoji: "🧱",
+                value: player.materials,
+                color: 0xffaa00,
+                key: "materials",
+                title: "Materials",
+                desc: "Raw construction materials. Essential for building base modules.",
+                stats: ["Build: Base modules", "Trade: 2→1"],
+            },
+            {
+                emoji: "⚙️",
+                value: player.alloys,
+                color: 0x00ddff,
+                key: "alloys",
+                title: "Alloys",
+                desc: "Refined metals for advanced crafting. Required for weapons and equipment.",
+                stats: ["Craft: Weapons", "Trade: 2→1"],
+            },
+            {
+                emoji: "🧩",
+                value: player.components,
+                color: 0xcc66ff,
+                key: "components",
+                title: "Components",
+                desc: "Rare tech parts dropped by Tier 2+ monsters. Required for all crafting.",
+                stats: ["Source: Tier 2+ monsters"],
+            },
         ];
 
         for (let i = 0; i < 5; i++) {
@@ -36,7 +76,7 @@ export class HeroBoardResourcesSection {
 
             const val = new PIXI.Text({
                 text: `${stat.value}`,
-                style: new PIXI.TextStyle({ fontSize: 16, fill: stat.color, fontWeight: "800" }),
+                style: new PIXI.TextStyle({ fontSize: 18, fill: stat.color, fontWeight: "800" }),
             });
             val.anchor.set(0.5);
             val.position.set(sx + statsW / 2, y + 30);
@@ -61,6 +101,14 @@ export class HeroBoardResourcesSection {
                     layer.addChild(hpBarFill);
                 }
             }
+
+            tooltip.attach(statBox, {
+                title: stat.title,
+                description: stat.desc,
+                stats: stat.stats,
+                accentColor: stat.color,
+                icon: stat.emoji,
+            });
         }
 
         return y + 62;

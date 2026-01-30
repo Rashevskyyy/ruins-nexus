@@ -16,7 +16,7 @@ export class HeroBoardModuleSlotsSection {
         return 24 + rows * 58 + 6;
     }
 
-    render({ layer, leftX, rightX, panelW, y, inventory }: ModuleSlotsContext): number {
+    render({ layer, leftX, rightX, panelW, y, inventory, tooltip }: ModuleSlotsContext): number {
         const slotCount = 4;
         const filledCount = inventory.spells.filter(Boolean).length;
 
@@ -28,14 +28,14 @@ export class HeroBoardModuleSlotsSection {
 
         const label = new PIXI.Text({
             text: "🔧 Modules",
-            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x94a3b8, letterSpacing: 1, fontWeight: "700" }),
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x94a3b8, letterSpacing: 1, fontWeight: "700" }),
         });
         label.position.set(leftX + 6, y + 5);
         layer.addChild(label);
 
         const slotsText = new PIXI.Text({
             text: `${filledCount}/${slotCount}`,
-            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x00ddff, fontWeight: "700" }),
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0x00ddff, fontWeight: "700" }),
         });
         slotsText.anchor.set(1, 0);
         slotsText.position.set(rightX - 4, y + 5);
@@ -87,6 +87,14 @@ export class HeroBoardModuleSlotsSection {
                 badgeText.position.set(slotX + slotSize - 6, slotY + 6);
                 layer.addChild(badgeText);
             }
+
+            tooltip.attach(slot, {
+                title: item ? item.name : "Empty Module Slot",
+                description: item ? item.description : "Craft modules at the Hub to fill this slot.",
+                stats: item ? ["Type: Module"] : undefined,
+                accentColor: style.border,
+                icon: item?.emoji ?? "🔧",
+            });
         });
 
         return y + slotSize + 10;

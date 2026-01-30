@@ -35,7 +35,7 @@ export class HeroBoardModulesSection {
         return 28 + moduleRows * moduleRowHeight + 8;
     }
 
-    render({ layer, leftX, rightX, panelW, y, moduleOrder, builtModules }: ModulesContext): void {
+    render({ layer, leftX, rightX, panelW, y, moduleOrder, builtModules, tooltip }: ModulesContext): void {
         const headerBg = new PIXI.Graphics();
         headerBg.roundRect(leftX - 2, y, panelW - 24, 22, 6);
         headerBg.fill({ color: 0x05080d, alpha: 0.6 });
@@ -44,14 +44,14 @@ export class HeroBoardModulesSection {
 
         const modulesLabel = new PIXI.Text({
             text: "🏠 Base Modules",
-            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x94a3b8, letterSpacing: 1, fontWeight: "700" }),
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x94a3b8, letterSpacing: 1, fontWeight: "700" }),
         });
         modulesLabel.position.set(leftX + 6, y + 5);
         layer.addChild(modulesLabel);
 
         const modulesCountLabel = new PIXI.Text({
             text: `${builtModules.length}/${moduleOrder.length}`,
-            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x00ddff, fontWeight: "700" }),
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0x00ddff, fontWeight: "700" }),
         });
         modulesCountLabel.anchor.set(1, 0);
         modulesCountLabel.position.set(rightX - 4, y + 5);
@@ -88,7 +88,7 @@ export class HeroBoardModulesSection {
 
             const name = new PIXI.Text({
                 text: def.description,
-                style: new PIXI.TextStyle({ fontSize: 12, fill: 0xf8fafc, fontWeight: "700" }),
+                style: new PIXI.TextStyle({ fontSize: 13, fill: 0xf8fafc, fontWeight: "700" }),
             });
             name.position.set(leftX + 36, y + 6);
             layer.addChild(name);
@@ -96,7 +96,7 @@ export class HeroBoardModulesSection {
             const effect = new PIXI.Text({
                 text: def.effect,
                 style: new PIXI.TextStyle({
-                    fontSize: 10,
+                    fontSize: 11,
                     fill: 0x8b949e,
                     fontWeight: "600",
                     wordWrap: true,
@@ -113,6 +113,15 @@ export class HeroBoardModulesSection {
             prestigeText.anchor.set(1, 0.5);
             prestigeText.position.set(rightX - 8, y + moduleRowHeight / 2);
             layer.addChild(prestigeText);
+
+            const cost = `${def.cost.materials}🧱 ${def.cost.alloys}⚙`;
+            tooltip.attach(row, {
+                title: def.description,
+                description: def.effect,
+                stats: [`Prestige: +${def.prestigeGain}`, `Cost: ${cost}`],
+                accentColor: 0xffd700,
+                icon: this.moduleIcons[type] ?? "🏠",
+            });
 
             y += moduleRowHeight + 6;
         }

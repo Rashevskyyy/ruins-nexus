@@ -8,7 +8,7 @@ export class HeroBoardEquipmentSection {
         return 104;
     }
 
-    render({ layer, leftX, rightX, panelW, y, inventory, totalSlots }: EquipmentContext): number {
+    render({ layer, leftX, rightX, panelW, y, inventory, totalSlots, tooltip }: EquipmentContext): number {
         const weaponsCount = inventory.weapons.filter((w) => w !== null).length;
         const hasAmulet = inventory.amulet !== null;
         const totalEquip = weaponsCount + (hasAmulet ? 1 : 0);
@@ -21,14 +21,14 @@ export class HeroBoardEquipmentSection {
 
         const equipLabel = new PIXI.Text({
             text: "⚔️ Equipment",
-            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x94a3b8, letterSpacing: 1, fontWeight: "700" }),
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x94a3b8, letterSpacing: 1, fontWeight: "700" }),
         });
         equipLabel.position.set(leftX + 6, y + 5);
         layer.addChild(equipLabel);
 
         const slotsText = new PIXI.Text({
             text: `${totalEquip}/${totalSlots}`,
-            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x00ddff, fontWeight: "700" }),
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0x00ddff, fontWeight: "700" }),
         });
         slotsText.anchor.set(1, 0);
         slotsText.position.set(rightX - 4, y + 5);
@@ -63,7 +63,7 @@ export class HeroBoardEquipmentSection {
             if (item) {
                 const name = new PIXI.Text({
                     text: item.name,
-                    style: new PIXI.TextStyle({ fontSize: 8, fill: 0x94a3b8, fontWeight: "600" }),
+                    style: new PIXI.TextStyle({ fontSize: 9, fill: 0x94a3b8, fontWeight: "600" }),
                 });
                 name.anchor.set(0.5);
                 name.position.set(slotX + slotSize / 2, slotY + 40);
@@ -79,11 +79,19 @@ export class HeroBoardEquipmentSection {
                     layer.addChild(badge);
                 }
             }
+
+            tooltip.attach(slot, {
+                title: item ? item.name : "Empty Weapon Slot",
+                description: item ? item.description : "Craft weapons at the Base to fill this slot.",
+                stats: item ? ["Type: Weapon"] : undefined,
+                accentColor: 0xff6666,
+                icon: item?.emoji ?? "⚔️",
+            });
         });
 
         const weaponLabel = new PIXI.Text({
             text: "🗡️ Weapons (2)",
-            style: new PIXI.TextStyle({ fontSize: 9, fill: 0x6b7280, fontWeight: "700" }),
+            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x6b7280, fontWeight: "700" }),
         });
         weaponLabel.position.set(columnX, y);
         layer.addChild(weaponLabel);
@@ -107,7 +115,7 @@ export class HeroBoardEquipmentSection {
         if (amuletSlot) {
             const name = new PIXI.Text({
                 text: amuletSlot.name,
-                style: new PIXI.TextStyle({ fontSize: 8, fill: 0x94a3b8, fontWeight: "600" }),
+                style: new PIXI.TextStyle({ fontSize: 9, fill: 0x94a3b8, fontWeight: "600" }),
             });
             name.anchor.set(0.5);
             name.position.set(amuletX + slotSize / 2, y + 58);
@@ -116,10 +124,18 @@ export class HeroBoardEquipmentSection {
 
         const amuletLabel = new PIXI.Text({
             text: "💎 Amulet (1)",
-            style: new PIXI.TextStyle({ fontSize: 9, fill: 0x6b7280, fontWeight: "700" }),
+            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x6b7280, fontWeight: "700" }),
         });
         amuletLabel.position.set(amuletX, y);
         layer.addChild(amuletLabel);
+
+        tooltip.attach(amuletBox, {
+            title: amuletSlot ? amuletSlot.name : "Empty Amulet Slot",
+            description: amuletSlot ? amuletSlot.description : "Legendary amulets provide powerful bonuses.",
+            stats: amuletSlot ? ["Type: Amulet"] : undefined,
+            accentColor: 0xcc66ff,
+            icon: amuletSlot?.emoji ?? "💎",
+        });
 
         return y + 78;
     }

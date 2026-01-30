@@ -6,10 +6,10 @@ type HeaderContext = HeroBoardHeaderContext & HeroBoardHeaderData;
 
 export class HeroBoardHeaderSection {
     getSectionHeight(): number {
-        return 92;
+        return 96;
     }
 
-    render({ layer, panelX, panelY, playerColor, playerId, raceId, heroClass, powerValue }: HeaderContext): void {
+    render({ layer, panelX, panelY, playerColor, playerId, raceId, heroClass, powerValue, tooltip }: HeaderContext): void {
         const portraitX = panelX + 16;
         const portraitY = panelY + 14;
         const portraitSize = 52;
@@ -58,20 +58,20 @@ export class HeroBoardHeaderSection {
 
         const title = new PIXI.Text({
             text: playerId,
-            style: new PIXI.TextStyle({ fontSize: 22, fill: 0x00ddff, fontWeight: "900" }),
+            style: new PIXI.TextStyle({ fontSize: 20, fill: 0x00ddff, fontWeight: "900" }),
         });
-        title.position.set(panelX + 78, panelY + 18);
+        title.position.set(panelX + 78, panelY + 16);
         layer.addChild(title);
 
         const subtitle = new PIXI.Text({
             text: heroClass,
-            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x6b7280, fontWeight: "600" }),
+            style: new PIXI.TextStyle({ fontSize: 12, fill: 0x6b7280, fontWeight: "600" }),
         });
-        subtitle.position.set(panelX + 78, panelY + 42);
+        subtitle.position.set(panelX + 78, panelY + 40);
         layer.addChild(subtitle);
 
         const powerBox = new PIXI.Graphics();
-        powerBox.roundRect(panelX + 206, panelY + 16, 78, 54, 10);
+        powerBox.roundRect(panelX + 206, panelY + 14, 78, 56, 10);
         powerBox.fill({ color: 0x0b0f14, alpha: 0.85 });
         powerBox.stroke({ color: 0x2a4a6a, width: 1 });
         layer.addChild(powerBox);
@@ -79,20 +79,20 @@ export class HeroBoardHeaderSection {
         const powerLabel = new PIXI.Text({
             text: "POWER",
             style: new PIXI.TextStyle({
-                fontSize: 8,
+                fontSize: 9,
                 fill: 0x6b7280,
                 fontWeight: "700",
                 letterSpacing: 1,
             }),
         });
         powerLabel.anchor.set(0.5, 0);
-        powerLabel.position.set(panelX + 245, panelY + 22);
+        powerLabel.position.set(panelX + 245, panelY + 20);
         layer.addChild(powerLabel);
 
         const powerText = new PIXI.Text({
             text: powerValue,
             style: new PIXI.TextStyle({
-                fontSize: 18,
+                fontSize: 20,
                 fill: 0xffaa00,
                 fontWeight: "900",
             }),
@@ -100,5 +100,12 @@ export class HeroBoardHeaderSection {
         powerText.anchor.set(0.5, 0);
         powerText.position.set(panelX + 245, panelY + 34);
         layer.addChild(powerText);
+
+        tooltip.attach(portraitBox, {
+            title: playerId,
+            description: `${heroClass} hero.`,
+            stats: ["Hero Die: 0-3", `Power: ${powerValue}`],
+            accentColor: playerColor,
+        });
     }
 }

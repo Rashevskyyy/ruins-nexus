@@ -6,7 +6,7 @@ type AbilitiesContext = HeroBoardAbilitiesContext & HeroBoardAbilitiesData;
 
 export class HeroBoardAbilitiesSection {
     private titleStyle = new PIXI.TextStyle({
-        fontSize: 13,
+        fontSize: 14,
         fill: 0x00ff88,
         fontWeight: "700",
     });
@@ -27,7 +27,7 @@ export class HeroBoardAbilitiesSection {
         return contentHeight + 10;
     }
 
-    render({ layer, leftX, panelW, y, raceId, raceOption }: AbilitiesContext): number {
+    render({ layer, leftX, panelW, y, raceId, raceOption, tooltip }: AbilitiesContext): number {
         const sectionWidth = panelW - 28;
         const padding = 10;
         const spacing = 4;
@@ -43,7 +43,7 @@ export class HeroBoardAbilitiesSection {
         box.stroke({ color: 0x1a2a3a, width: 1 });
         layer.addChild(box);
 
-        const iconText = new PIXI.Text({ text: content.icon, style: new PIXI.TextStyle({ fontSize: 16 }) });
+        const iconText = new PIXI.Text({ text: content.icon, style: new PIXI.TextStyle({ fontSize: 17 }) });
         iconText.anchor.set(0.5, 0);
         iconText.position.set(leftX + 18, y + 8);
         layer.addChild(iconText);
@@ -53,7 +53,7 @@ export class HeroBoardAbilitiesSection {
 
         const variantText = new PIXI.Text({
             text: content.variantLabel,
-            style: new PIXI.TextStyle({ fontSize: 9, fill: 0x6b7280, fontWeight: "700" }),
+            style: new PIXI.TextStyle({ fontSize: 10, fill: 0x6b7280, fontWeight: "700" }),
         });
         variantText.anchor.set(1, 0);
         variantText.position.set(leftX + sectionWidth - 8, y + 10);
@@ -61,6 +61,14 @@ export class HeroBoardAbilitiesSection {
 
         passiveText.position.set(leftX + 18, y + 26);
         layer.addChild(passiveText);
+
+        tooltip.attach(box, {
+            title: content.title,
+            description: content.passive,
+            stats: [content.variantLabel],
+            accentColor: 0x00ff88,
+            icon: content.icon,
+        });
 
         return y + boxHeight + 10;
     }
@@ -88,11 +96,11 @@ export class HeroBoardAbilitiesSection {
 
     private getBodyStyle(sectionWidth: number): PIXI.TextStyle {
         return new PIXI.TextStyle({
-            fontSize: 10,
+            fontSize: 11,
             fill: 0x94a3b8,
             wordWrap: true,
             wordWrapWidth: sectionWidth - 24,
-            lineHeight: 13,
+            lineHeight: 14,
         });
     }
 }
