@@ -4,6 +4,7 @@ import type { ModuleType } from "../../../entities/BuildingType";
 import type { Player } from "../../../entities/Player";
 import type { RaceId, RaceOption } from "../../../entities/Race";
 import type { Unit } from "../../../entities/Unit";
+import type { HeroBoardTooltip } from "./HeroBoardTooltip";
 
 export type HeroBoardContext = {
     app: PIXI.Application;
@@ -25,6 +26,9 @@ export type HeroBoardHeaderData = {
     playerColor: number;
     playerId: string;
     raceId: RaceId | null;
+    heroClass: string;
+    powerValue: string;
+    tooltip: HeroBoardTooltip;
 };
 
 export type HeroBoardPrestigeContext = {
@@ -37,6 +41,7 @@ export type HeroBoardPrestigeContext = {
 
 export type HeroBoardPrestigeData = {
     prestige: number;
+    tooltip: HeroBoardTooltip;
 };
 
 export type HeroBoardAbilitiesContext = {
@@ -49,6 +54,7 @@ export type HeroBoardAbilitiesContext = {
 export type HeroBoardAbilitiesData = {
     raceId: RaceId | null;
     raceOption: RaceOption | null;
+    tooltip: HeroBoardTooltip;
 };
 
 export type HeroBoardResourcesContext = {
@@ -60,6 +66,7 @@ export type HeroBoardResourcesContext = {
 
 export type HeroBoardResourcesData = {
     player: Player;
+    tooltip: HeroBoardTooltip;
 };
 
 export type HeroBoardEquipmentContext = {
@@ -72,8 +79,21 @@ export type HeroBoardEquipmentContext = {
 
 export type HeroBoardEquipmentData = {
     inventory: Player["inventory"];
-    isAtBase: boolean;
-    hasComponents: boolean;
+    totalSlots: number;
+    tooltip: HeroBoardTooltip;
+};
+
+export type HeroBoardModuleSlotsContext = {
+    layer: PIXI.Container;
+    leftX: number;
+    rightX: number;
+    panelW: number;
+    y: number;
+};
+
+export type HeroBoardModuleSlotsData = {
+    inventory: Player["inventory"];
+    tooltip: HeroBoardTooltip;
 };
 
 export type HeroBoardUnitsContext = {
@@ -99,4 +119,5 @@ export type HeroBoardModulesContext = {
 export type HeroBoardModulesData = {
     moduleOrder: ModuleType[];
     builtModules: ModuleType[];
+    tooltip: HeroBoardTooltip;
 };
