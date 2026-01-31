@@ -113,6 +113,7 @@ export class GameRenderer {
 
     public onDebugReset: (() => void) | null = null;
     public onDebugAddResources: (() => void) | null = null;
+    public onDebugAddComponents: (() => void) | null = null;
     public onDebugSkipTurn: (() => void) | null = null;
     public onDebugHeal: (() => void) | null = null;
     public onDebugLeaveGame: (() => void) | null = null;
@@ -260,6 +261,7 @@ export class GameRenderer {
             onRenderAll: () => this.renderAll(),
             getOnDebugReset: () => this.onDebugReset,
             getOnDebugAddResources: () => this.onDebugAddResources,
+            getOnDebugAddComponents: () => this.onDebugAddComponents,
             getOnDebugSkipTurn: () => this.onDebugSkipTurn,
             getOnDebugHeal: () => this.onDebugHeal,
             getOnDebugLeaveGame: () => this.onDebugLeaveGame,
@@ -318,7 +320,7 @@ export class GameRenderer {
         this.hudRenderer.renderHUD();
 
         this.hudRenderer.renderTopStatusBar();
-        this.hudRenderer.renderCombatSummary();
+        this.combatSummaryLayer.removeChildren(); // Combat summary removed from HUD
         this.hudRenderer.renderContextHints();
 
         this.renderBuildMenu();

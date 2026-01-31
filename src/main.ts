@@ -616,6 +616,15 @@ async function main() {
             }
             if (isMultiplayer) sendActionToServer({ type: "debug-add-resources", playerId: player?.id });
         };
+
+        renderer.onDebugAddComponents = () => {
+            const player = game!.state.players.find(p => p.id === (myPlayerId || "P1"));
+            if (player) {
+                player.components += 10;
+                game!.addLog(`🐛 DEBUG: +10 components for ${player.id}`);
+            }
+            if (isMultiplayer) sendActionToServer({ type: "debug-add-components", playerId: player?.id });
+        };
         
         renderer.onDebugHeal = () => {
             const player = game!.state.players.find(p => p.id === (myPlayerId || "P1"));

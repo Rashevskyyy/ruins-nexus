@@ -6,18 +6,41 @@ type HeaderContext = HeroBoardHeaderContext & HeroBoardHeaderData;
 
 export class HeroBoardHeaderSection {
     getSectionHeight(): number {
-        return 96;
+        return 80;
     }
 
-    render({ layer, panelX, panelY, playerColor, playerId, raceId, heroClass, powerValue, tooltip }: HeaderContext): void {
-        const portraitX = panelX + 16;
+    render({ layer, panelX, panelY, panelW, playerColor, playerId, raceId, heroClass, powerValue, tooltip }: HeaderContext): void {
+        // Header background with gradient effect (left side tinted with player color)
+        const headerBg = new PIXI.Graphics();
+        headerBg.roundRect(panelX, panelY, panelW, 80, 12);
+        headerBg.fill({ color: 0x121a24 });
+        layer.addChild(headerBg);
+
+        // Gradient overlay for left side accent
+        const gradientOverlay = new PIXI.Graphics();
+        gradientOverlay.roundRect(panelX, panelY, panelW * 0.6, 80, 12);
+        gradientOverlay.fill({ color: 0x00aaff, alpha: 0.1 });
+        layer.addChild(gradientOverlay);
+
+        // Bottom border
+        const borderLine = new PIXI.Graphics();
+        borderLine.rect(panelX, panelY + 79, panelW, 1);
+        borderLine.fill({ color: 0x1a2a3a });
+        layer.addChild(borderLine);
+
+        // Portrait container
+        const portraitX = panelX + 14;
         const portraitY = panelY + 14;
         const portraitSize = 52;
+
+        const portraitContainer = new PIXI.Container();
+        portraitContainer.position.set(portraitX, portraitY);
+
         const portraitBox = new PIXI.Graphics();
-        portraitBox.roundRect(portraitX, portraitY, portraitSize, portraitSize, 12);
-        portraitBox.fill({ color: 0x0b1220 });
-        portraitBox.stroke({ color: playerColor, width: 2, alpha: 0.6 });
-        layer.addChild(portraitBox);
+        portraitBox.roundRect(0, 0, portraitSize, portraitSize, 10);
+        portraitBox.fill({ color: 0x2a3a4a });
+        portraitBox.stroke({ color: 0x00aaff, width: 2 });
+        portraitContainer.addChild(portraitBox);
 
         const portraitTexture = raceId ? AssetLoader.getTexture(`hero-${raceId}`) : null;
         if (portraitTexture) {
@@ -36,76 +59,132 @@ export class HeroBoardHeaderSection {
             const baseScale = Math.max(portraitSize / portraitTexture.width, portraitSize / portraitTexture.height);
             portraitSprite.scale.set(baseScale * settings.scale);
             portraitSprite.anchor.set(0.5, settings.anchorY);
-            portraitSprite.position.set(portraitX + portraitSize / 2, portraitY + portraitSize / 2);
+            portraitSprite.position.set(portraitSize / 2, portraitSize / 2);
 
-            // Mask must be filled in PIXI v8
             const mask = new PIXI.Graphics();
-            mask.roundRect(portraitX, portraitY, portraitSize, portraitSize, 12);
-            mask.fill({ color: 0xffffff }); // Fill is required for mask to work
+            mask.roundRect(0, 0, portraitSize, portraitSize, 10);
+            mask.fill({ color: 0xffffff });
             
             portraitSprite.mask = mask;
-            layer.addChild(portraitSprite);
-            layer.addChild(mask); // Mask added after sprite
+            portraitContainer.addChild(portraitSprite);
+            portraitContainer.addChild(mask);
         } else {
             const portraitHint = new PIXI.Text({
-                text: "HERO",
-                style: new PIXI.TextStyle({ fontSize: 11, fill: 0x8b949e, fontWeight: "700", letterSpacing: 1 }),
+                text: "👨‍🚀",
+                style: new PIXI.TextStyle({ fontSize: 28 }),
             });
             portraitHint.anchor.set(0.5);
-            portraitHint.position.set(portraitX + portraitSize / 2, portraitY + portraitSize / 2);
-            layer.addChild(portraitHint);
+            portraitHint.position.set(portraitSize / 2, portraitSize / 2);
+            portraitContainer.addChild(portraitHint);
         }
 
-        const title = new PIXI.Text({
-            text: playerId,
-            style: new PIXI.TextStyle({ fontSize: 20, fill: 0x00ddff, fontWeight: "900" }),
-        });
-        title.position.set(panelX + 78, panelY + 16);
-        layer.addChild(title);
+        layer.addChild(portraitContainer);
 
-        const subtitle = new PIXI.Text({
-            text: heroClass,
-            style: new PIXI.TextStyle({ fontSize: 12, fill: 0x6b7280, fontWeight: "600" }),
+        // Portrait hover effect
+        portraitContainer.eventMode = "static";
+        portraitContainer.cursor = "pointer";
+        portraitContainer.on("pointerover", () => {
+            portraitBox.clear();
+            portraitBox.roundRect(0, 0, portraitSize, portraitSize, 10);
+            portraitBox.fill({ color: 0x2a3a4a });
+            portraitBox.stroke({ color: 0x00ddff, width: 2 });
+            portraitContainer.scale.set(1.05);
         });
-        subtitle.position.set(panelX + 78, panelY + 40);
-        layer.addChild(subtitle);
+        portraitContainer.on("pointerout", () => {
+            portraitBox.clear();
+            portraitBox.roundRect(0, 0, portraitSize, portraitSize, 10);
+            portraitBox.fill({ color: 0x2a3a4a });
+            portraitBox.stroke({ color: 0x00aaff, width: 2 });
+            portraitContainer.scale.set(1);
+        });
+
+        // Hero info section
+        const heroName = new PIXI.Text({
+            text: playerId,
+            style: new PIXI.TextStyle({ fontSize: 18, fill: 0x00ddff, fontWeight: "700" }),
+        });
+        heroName.position.set(panelX + 78, panelY + 20);
+        layer.addChild(heroName);
+
+        // Hero class badge
+        const classBadgeBg = new PIXI.Graphics();
+        const classBadgeText = new PIXI.Text({
+            text: heroClass,
+            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x666666, fontWeight: "600" }),
+        });
+        const classBadgeWidth = classBadgeText.width + 12;
+        classBadgeBg.roundRect(panelX + 78 + heroName.width + 8, panelY + 22, classBadgeWidth, 18, 4);
+        classBadgeBg.fill({ color: 0xffffff, alpha: 0.05 });
+        layer.addChild(classBadgeBg);
+
+        classBadgeText.position.set(panelX + 78 + heroName.width + 14, panelY + 24);
+        layer.addChild(classBadgeText);
+
+        // Power box (right side)
+        const powerBoxWidth = 58;
+        const powerBoxHeight = 50;
+        const powerBoxX = panelX + panelW - powerBoxWidth - 14;
+        const powerBoxY = panelY + 15;
+
+        const powerContainer = new PIXI.Container();
+        powerContainer.position.set(powerBoxX, powerBoxY);
 
         const powerBox = new PIXI.Graphics();
-        powerBox.roundRect(panelX + 206, panelY + 14, 78, 56, 10);
-        powerBox.fill({ color: 0x0b0f14, alpha: 0.85 });
+        powerBox.roundRect(0, 0, powerBoxWidth, powerBoxHeight, 8);
+        powerBox.fill({ color: 0x000000, alpha: 0.3 });
         powerBox.stroke({ color: 0x2a4a6a, width: 1 });
-        layer.addChild(powerBox);
+        powerContainer.addChild(powerBox);
 
         const powerLabel = new PIXI.Text({
             text: "POWER",
-            style: new PIXI.TextStyle({
-                fontSize: 9,
-                fill: 0x6b7280,
-                fontWeight: "700",
-                letterSpacing: 1,
-            }),
+            style: new PIXI.TextStyle({ fontSize: 9, fill: 0x666666, fontWeight: "700", letterSpacing: 1 }),
         });
         powerLabel.anchor.set(0.5, 0);
-        powerLabel.position.set(panelX + 245, panelY + 20);
-        layer.addChild(powerLabel);
+        powerLabel.position.set(powerBoxWidth / 2, 6);
+        powerContainer.addChild(powerLabel);
 
-        const powerText = new PIXI.Text({
+        const powerValueText = new PIXI.Text({
             text: powerValue,
-            style: new PIXI.TextStyle({
-                fontSize: 20,
-                fill: 0xffaa00,
-                fontWeight: "900",
-            }),
+            style: new PIXI.TextStyle({ fontSize: 18, fill: 0xffaa00, fontWeight: "700" }),
         });
-        powerText.anchor.set(0.5, 0);
-        powerText.position.set(panelX + 245, panelY + 34);
-        layer.addChild(powerText);
+        powerValueText.anchor.set(0.5, 0);
+        powerValueText.position.set(powerBoxWidth / 2, 22);
+        powerContainer.addChild(powerValueText);
 
-        tooltip.attach(portraitBox, {
-            title: playerId,
-            description: `${heroClass} hero.`,
-            stats: ["Hero Die: 0-3", `Power: ${powerValue}`],
+        layer.addChild(powerContainer);
+
+        // Power box hover effect
+        powerContainer.eventMode = "static";
+        powerContainer.cursor = "pointer";
+        powerContainer.on("pointerover", () => {
+            powerBox.clear();
+            powerBox.roundRect(0, 0, powerBoxWidth, powerBoxHeight, 8);
+            powerBox.fill({ color: 0xffaa00, alpha: 0.1 });
+            powerBox.stroke({ color: 0xffaa00, width: 1 });
+        });
+        powerContainer.on("pointerout", () => {
+            powerBox.clear();
+            powerBox.roundRect(0, 0, powerBoxWidth, powerBoxHeight, 8);
+            powerBox.fill({ color: 0x000000, alpha: 0.3 });
+            powerBox.stroke({ color: 0x2a4a6a, width: 1 });
+        });
+
+        // Tooltips
+        tooltip.attach(portraitContainer, {
+            title: `${playerId} - ${heroClass}`,
+            description: "Your hero character. Commanders have balanced stats and can adapt to any strategy.",
+            stats: [`Hero Die: 0-3`, `Gear Bonus: +${parseInt(powerValue.split("-")[0]) || 0}`, `Total Power: ${powerValue}`],
             accentColor: playerColor,
+            icon: "👨‍🚀",
+        });
+
+        tooltip.attach(powerContainer, {
+            title: "Combat Power",
+            description: "Your total attack range in combat. Roll dice and add your power to determine damage dealt.",
+            stats: [`Base Die: 0-3`, `Total: ${powerValue}`],
+            accentColor: 0xffaa00,
+            icon: "⚔️",
+            itemType: "Stat",
         });
     }
 }

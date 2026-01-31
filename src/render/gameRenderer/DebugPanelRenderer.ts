@@ -11,6 +11,7 @@ export type DebugPanelRendererOptions = {
     onRenderAll: () => void;
     getOnDebugReset: () => (() => void) | null;
     getOnDebugAddResources: () => (() => void) | null;
+    getOnDebugAddComponents: () => (() => void) | null;
     getOnDebugSkipTurn: () => (() => void) | null;
     getOnDebugHeal: () => (() => void) | null;
     getOnDebugLeaveGame: () => (() => void) | null;
@@ -159,6 +160,7 @@ export class DebugPanelRenderer {
     private renderActionsTab(panelX: number, panelY: number, panelW: number, panelH: number): void {
         const buttons = [
             { label: "💰 +10 Resources", callback: () => this.options.getOnDebugAddResources()?.() },
+            { label: "🧩 +10 Components", callback: () => this.options.getOnDebugAddComponents()?.() },
             { label: "❤️ Full Heal", callback: () => this.options.getOnDebugHeal()?.() },
             { label: "⏭️ Skip Turn", callback: () => this.options.getOnDebugSkipTurn()?.() },
             { label: "🔄 Reset Game", callback: () => this.options.getOnDebugReset()?.() },

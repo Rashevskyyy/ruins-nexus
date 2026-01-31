@@ -349,7 +349,7 @@ export class HudRenderer {
         const canMaybeBeat = monsterTier > 0 && totalMax >= monsterTier;
         const nearMonster = monsterTier > 0;
 
-        let borderColor = 0xffd700;
+        let borderColor = 0x1a2a3a; // Neutral dark border when no monster
         if (nearMonster) {
             if (canBeat) {
                 borderColor = 0x00ff88;
@@ -363,14 +363,15 @@ export class HudRenderer {
         const bg = new PIXI.Graphics();
         bg.roundRect(panelX, panelY, panelW, panelH, 12);
         bg.fill({ color: 0x0d1117, alpha: 0.96 });
-        bg.stroke({ color: borderColor, width: 3 });
+        bg.stroke({ color: borderColor, width: nearMonster ? 3 : 1 });
         this.options.combatSummaryLayer.addChild(bg);
 
+        const headerColor = nearMonster ? borderColor : 0x4ade80; // Green header when idle
         const header = new PIXI.Text({
             text: "⚔ POWER",
             style: new PIXI.TextStyle({
                 fontSize: 14,
-                fill: borderColor,
+                fill: headerColor,
                 fontWeight: "800",
                 letterSpacing: 1,
             }),

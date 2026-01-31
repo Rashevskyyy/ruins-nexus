@@ -7,17 +7,19 @@ import { HeroBoardEquipmentSection } from "./heroBoard/HeroBoardEquipmentSection
 import type { HeroBoardContext } from "./heroBoard/HeroBoardTypes";
 import { HeroBoardAbilitiesSection } from "./heroBoard/HeroBoardAbilitiesSection";
 import { HeroBoardModuleSlotsSection } from "./heroBoard/HeroBoardModuleSlotsSection";
+import { HeroBoardUnitsSection } from "./heroBoard/HeroBoardUnitsSection";
 import type { Player } from "../../entities/Player";
 import { HeroBoardTooltip } from "./heroBoard/HeroBoardTooltip";
 
 export class HeroBoardPanel {
     private headerSection = new HeroBoardHeaderSection();
-    private prestigeSection = new HeroBoardPrestigeSection();
+    private abilitiesSection = new HeroBoardAbilitiesSection();
     private resourcesSection = new HeroBoardResourcesSection();
+    private prestigeSection = new HeroBoardPrestigeSection();
     private equipmentSection = new HeroBoardEquipmentSection();
     private moduleSlotsSection = new HeroBoardModuleSlotsSection();
     private modulesSection = new HeroBoardModulesSection();
-    private abilitiesSection = new HeroBoardAbilitiesSection();
+    private unitsSection = new HeroBoardUnitsSection();
 
     render({ app, game, layer, playerColors, playerIndex }: HeroBoardContext): void {
         const p = game.state.players[playerIndex];
@@ -36,23 +38,28 @@ export class HeroBoardPanel {
             raceOption: p.raceOption,
         });
         const headerHeight = this.headerSection.getSectionHeight();
+        const resourcesSectionHeight = this.resourcesSection.getSectionHeight();
+        const prestigeSectionHeight = this.prestigeSection.getSectionHeight();
         const equipmentSectionHeight = this.equipmentSection.getSectionHeight();
         const moduleSlotsHeight = this.moduleSlotsSection.getSectionHeight(p.inventory.spells.length);
+        const unitsSectionHeight = this.unitsSection.getSectionHeight();
         const basePanelHeight =
             headerHeight
             + abilitiesSectionHeight
-            + this.prestigeSection.getSectionHeight()
-            + this.resourcesSection.getSectionHeight()
+            + resourcesSectionHeight
+            + prestigeSectionHeight
             + equipmentSectionHeight
             + moduleSlotsHeight
-            + modulesSectionHeight;
-        const panelH = basePanelHeight + 16;
+            + modulesSectionHeight
+            + unitsSectionHeight;
+        const panelH = basePanelHeight;
         const panelX = app.renderer.width - panelW - 40;
         const panelY = 70;
 
+        // Main panel background with gradient effect
         const bg = new PIXI.Graphics();
         bg.roundRect(panelX, panelY, panelW, panelH, 12);
-        bg.fill({ color: 0x0a1015, alpha: 0.96 });
+        bg.fill({ color: 0x0a1015, alpha: 0.98 });
         bg.stroke({ color: 0x1a2a3a, width: 1 });
         layer.addChild(bg);
 
@@ -61,6 +68,9 @@ export class HeroBoardPanel {
             ? `${powerRange.max}`
             : `${powerRange.min}-${powerRange.max}`;
         const tooltip = new HeroBoardTooltip(layer, app);
+        
+        // Set hero board boundaries for tooltip positioning
+        tooltip.setBoardBounds(panelX, panelY, panelW);
 
         this.headerSection.render({
             layer,
@@ -77,11 +87,13 @@ export class HeroBoardPanel {
         });
 
         let y = panelY + headerHeight;
-        const leftX = panelX + 14;
-        const rightX = panelX + panelW - 14;
+        const leftX = panelX + 16;
+        const rightX = panelX + panelW - 16;
 
+        // Race Ability section
         y = this.abilitiesSection.render({
             layer,
+            panelX,
             leftX,
             panelW,
             y,
@@ -90,8 +102,13 @@ export class HeroBoardPanel {
             tooltip,
         });
 
+        // Resources section
+        y = this.resourcesSection.render({ layer, panelX, leftX, y, panelW, player: p, tooltip });
+
+        // Prestige section
         y = this.prestigeSection.render({
             layer,
+            panelX,
             leftX,
             rightX,
             panelW,
@@ -100,10 +117,10 @@ export class HeroBoardPanel {
             tooltip,
         });
 
-        y = this.resourcesSection.render({ layer, leftX, y, panelW, player: p, tooltip });
-
+        // Equipment section
         y = this.equipmentSection.render({
             layer,
+            panelX,
             leftX,
             rightX,
             panelW,
@@ -113,8 +130,10 @@ export class HeroBoardPanel {
             tooltip,
         });
 
+        // Modules section
         y = this.moduleSlotsSection.render({
             layer,
+            panelX,
             leftX,
             rightX,
             panelW,
@@ -123,14 +142,28 @@ export class HeroBoardPanel {
             tooltip,
         });
 
-        this.modulesSection.render({
+        // Base Modules section
+        y = this.modulesSection.render({
             layer,
+            panelX,
             leftX,
             rightX,
             panelW,
             y,
             moduleOrder,
             builtModules,
+            tooltip,
+        });
+
+        // Combat Units section
+        this.unitsSection.render({
+            layer,
+            panelX,
+            leftX,
+            rightX,
+            panelW,
+            y,
+            units: p.units,
             tooltip,
         });
     }

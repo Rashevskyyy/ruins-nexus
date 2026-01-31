@@ -33,6 +33,7 @@ export type HeroBoardHeaderData = {
 
 export type HeroBoardPrestigeContext = {
     layer: PIXI.Container;
+    panelX: number;
     leftX: number;
     rightX: number;
     panelW: number;
@@ -46,6 +47,7 @@ export type HeroBoardPrestigeData = {
 
 export type HeroBoardAbilitiesContext = {
     layer: PIXI.Container;
+    panelX: number;
     leftX: number;
     panelW: number;
     y: number;
@@ -59,6 +61,7 @@ export type HeroBoardAbilitiesData = {
 
 export type HeroBoardResourcesContext = {
     layer: PIXI.Container;
+    panelX: number;
     leftX: number;
     panelW: number;
     y: number;
@@ -71,6 +74,7 @@ export type HeroBoardResourcesData = {
 
 export type HeroBoardEquipmentContext = {
     layer: PIXI.Container;
+    panelX: number;
     leftX: number;
     rightX: number;
     panelW: number;
@@ -85,6 +89,7 @@ export type HeroBoardEquipmentData = {
 
 export type HeroBoardModuleSlotsContext = {
     layer: PIXI.Container;
+    panelX: number;
     leftX: number;
     rightX: number;
     panelW: number;
@@ -98,6 +103,7 @@ export type HeroBoardModuleSlotsData = {
 
 export type HeroBoardUnitsContext = {
     layer: PIXI.Container;
+    panelX: number;
     leftX: number;
     rightX: number;
     panelW: number;
@@ -106,10 +112,12 @@ export type HeroBoardUnitsContext = {
 
 export type HeroBoardUnitsData = {
     units: Array<Unit | null>;
+    tooltip: HeroBoardTooltip;
 };
 
 export type HeroBoardModulesContext = {
     layer: PIXI.Container;
+    panelX: number;
     leftX: number;
     rightX: number;
     panelW: number;
