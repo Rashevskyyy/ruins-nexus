@@ -7,8 +7,13 @@ import { LobbyScreen } from "./screens/LobbyScreen";
 import { LoadingScreen } from "./screens/LoadingScreen";
 import { socketClient } from "./network/SocketClient";
 import { AssetLoader, GAME_VERSION } from "./assets/AssetLoader";
+import { MainMenuScreen } from "./ui/screens/MainMenuScreen";
+import { CreateRoomScreen, type CreateRoomOptions } from "./ui/screens/CreateRoomScreen";
 import type { RaceId, RaceOption } from "./entities/Race";
 import type { GameState } from "./core/GameState";
+
+// Feature flag to enable new UI (set to true to use new screens)
+const USE_NEW_UI = true;
 
 // ========================================
 // MAIN FUNCTION (async wrapper)
@@ -68,13 +73,107 @@ async function main() {
     let isMultiplayer = false;
 
     // ========================================
-    // LOBBY SCREEN
+    // UI SCREENS
     // ========================================
 
+    // Legacy lobby screen (used for in-lobby functionality)
     const lobbyScreen = new LobbyScreen(app);
+    
+    // New UI screens
+    let mainMenuScreen: MainMenuScreen | null = null;
+    let createRoomScreen: CreateRoomScreen | null = null;
+    let playerName = "";
+    
+    // Screen management (track current screen for debugging/logging)
+    type UIScreen = "main-menu" | "create-room" | "lobby" | "game";
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    let _currentScreen: UIScreen = "main-menu";
+    void _currentScreen; // Mark as intentionally unused for tracking purposes
+    
+    function showMainMenu(): void {
+        _currentScreen = "main-menu";
+        app.stage.removeChildren();
+        
+        if (!mainMenuScreen) {
+            mainMenuScreen = new MainMenuScreen(app, {
+                onCreateRoom: () => showCreateRoom(),
+                onJoinRoom: (code) => handleJoinRoom(code),
+                onHowToPlay: () => window.open("docs/GAME.md", "_blank"),
+            });
+        }
+        
+        app.stage.addChild(mainMenuScreen);
+        mainMenuScreen.show();
+    }
+    
+    function showCreateRoom(): void {
+        _currentScreen = "create-room";
+        app.stage.removeChildren();
+        
+        if (!createRoomScreen) {
+            createRoomScreen = new CreateRoomScreen(app, {
+                onBack: () => showMainMenu(),
+                onCreate: (options) => handleCreateRoom(options),
+            }, playerName);
+        } else {
+            createRoomScreen.setPlayerName(playerName);
+        }
+        
+        app.stage.addChild(createRoomScreen);
+        createRoomScreen.show();
+    }
+    
+    function showLobby(): void {
+        _currentScreen = "lobby";
+        lobbyScreen.showLobby(socketClient.players);
+    }
+    
+    async function handleCreateRoom(options: CreateRoomOptions): Promise<void> {
+        playerName = options.playerName;
+        console.log("[Main] Creating room with options:", options);
+        
+        const result = await socketClient.createRoom(options.playerName, options.playerCount);
+        
+        if (result.success) {
+            console.log("[Main] Room created, code:", socketClient.roomCode);
+            showLobby();
+        } else {
+            console.error("[Main] Failed to create room:", result.error);
+            alert(result.error || "Failed to create room");
+        }
+    }
+    
+    async function handleJoinRoom(code?: string): Promise<void> {
+        let joinCode = code || "";
+        
+        if (!joinCode) {
+            const inputCode = prompt("Enter room code:");
+            if (!inputCode) return;
+            joinCode = inputCode.toUpperCase();
+        }
+        
+        if (!playerName) {
+            const name = prompt("Enter your name:", "Player");
+            if (!name) return;
+            playerName = name;
+        }
+        
+        console.log("[Main] Joining room:", joinCode);
+        
+        const result = await socketClient.joinRoom(joinCode, playerName);
+        
+        if (result.success) {
+            console.log("[Main] Joined room successfully");
+            showLobby();
+        } else {
+            console.error("[Main] Failed to join room:", result.error);
+            alert(result.error || "Failed to join room");
+        }
+    }
 
     lobbyScreen.onGameStart = (playerCount: number, playerId: string, initialState?: any) => {
         console.log(`[Main] Starting game with ${playerCount} players, I am ${playerId}`);
+        _currentScreen = "game";
         myPlayerId = playerId;
         isMultiplayer = true;
         
@@ -149,7 +248,11 @@ async function main() {
 
     async function tryReconnect() {
         if (!socketClient.hasStoredSession()) {
-            lobbyScreen.show();
+            if (USE_NEW_UI) {
+                showMainMenu();
+            } else {
+                lobbyScreen.show();
+            }
             return;
         }
 
@@ -169,8 +272,12 @@ async function main() {
                 lobbyScreen.showLobby(socketClient.players);
             }
         } else {
-            console.log("[Main] No active session, showing lobby");
-            lobbyScreen.show();
+            console.log("[Main] No active session, showing main menu");
+            if (USE_NEW_UI) {
+                showMainMenu();
+            } else {
+                lobbyScreen.show();
+            }
         }
     }
 
@@ -208,7 +315,11 @@ async function main() {
     socketClient.onGameReset = (_data: { reason: string }) => {
         game = null;
         renderer = null;
-        lobbyScreen.show();
+        if (USE_NEW_UI) {
+            showMainMenu();
+        } else {
+            lobbyScreen.show();
+        }
     };
 
     // ========================================
