@@ -183,7 +183,7 @@ export class GameLobbyScreen extends PIXI.Container {
         // Race Selection Card - height will be set in layout
         this.raceSelectionCard = new LobbyCard({
             width: LAYOUT.leftColumnWidth,
-            height: 580, // Initial height, will be adjusted
+            height: 725, // Initial height, will be adjusted
             headerIcon: '🎭',
             headerTitle: 'SELECT RACE',
         });
@@ -192,7 +192,7 @@ export class GameLobbyScreen extends PIXI.Container {
         // Race Carousel - portrait height adjusted to fit
         this.raceCarousel = new RaceCarousel({
             width: LAYOUT.leftColumnWidth - 32,
-            portraitHeight: 280, // Smaller portrait to fit everything
+            portraitHeight: 380, // Smaller portrait to fit everything
             onRaceSelect: (raceId, option) => {
                 this.selectedOption = option;
                 this.callbacks.onRaceSelect(raceId, option);
@@ -263,7 +263,7 @@ export class GameLobbyScreen extends PIXI.Container {
         // Players Card
         this.playersCard = new LobbyCard({
             width: LAYOUT.rightColumnWidth,
-            height: 320,
+            height: 575,
             headerIcon: '👥',
             headerTitle: 'PLAYERS',
             headerRight: `${this.state.players.length}/4`,

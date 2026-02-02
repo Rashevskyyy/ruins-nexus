@@ -124,7 +124,7 @@ export class RaceCarousel extends PIXI.Container {
             size: 40,
             onClick: () => this.navigate(-1),
         });
-        this.leftArrow.position.set(portraitX - 50, portraitHeight / 2 - 20);
+        this.leftArrow.position.set(portraitX - 25, portraitHeight / 2 - 20);
         this.addChild(this.leftArrow);
 
         // Right arrow - positioned to the right of portrait
@@ -133,7 +133,7 @@ export class RaceCarousel extends PIXI.Container {
             size: 40,
             onClick: () => this.navigate(1),
         });
-        this.rightArrow.position.set(portraitX + 300 + 10, portraitHeight / 2 - 20);
+        this.rightArrow.position.set(portraitX + 275 + 10, portraitHeight / 2 - 20);
         this.addChild(this.rightArrow);
     }
 
@@ -184,7 +184,7 @@ export class RaceCarousel extends PIXI.Container {
 
         // Passive ability badge
         this.passiveBadge = this.createPassiveBadge();
-        this.passiveBadge.position.set(width / 2, portraitHeight + 40);
+        this.passiveBadge.position.set(width / 2, portraitHeight + 60);
         this.addChild(this.passiveBadge);
     }
 
@@ -220,7 +220,7 @@ export class RaceCarousel extends PIXI.Container {
             const bg = this.passiveBadge.getChildAt(0) as PIXI.Graphics;
             const padding = 16;
             const width = text.width + padding * 2;
-            const height = 24;
+            const height = 32;
 
             bg.clear();
             bg.roundRect(-width / 2, -height / 2, width, height, 12);
@@ -234,7 +234,7 @@ export class RaceCarousel extends PIXI.Container {
         const { width, portraitHeight } = this.options;
 
         this.dotsContainer = new PIXI.Container();
-        this.dotsContainer.position.set(width / 2, portraitHeight + 60);
+        this.dotsContainer.position.set(width / 2, portraitHeight + 100);
         this.addChild(this.dotsContainer);
     }
 
@@ -242,7 +242,7 @@ export class RaceCarousel extends PIXI.Container {
         const { width, portraitHeight } = this.options;
 
         this.optionContainer = new PIXI.Container();
-        this.optionContainer.position.set(width / 2, portraitHeight + 90);
+        this.optionContainer.position.set(width / 2, portraitHeight + 130);
         this.addChild(this.optionContainer);
 
         // Option A button
@@ -259,10 +259,10 @@ export class RaceCarousel extends PIXI.Container {
 
     private createOptionButton(option: 'A' | 'B', xOffset: number): PIXI.Container {
         const button = new PIXI.Container();
-        button.position.set(xOffset, 0);
+        button.position.set(xOffset, 25);
 
         const buttonWidth = 155;
-        const buttonHeight = 55;
+        const buttonHeight = 65;
 
         // Background
         const bg = new PIXI.Graphics();
@@ -375,7 +375,7 @@ export class RaceCarousel extends PIXI.Container {
     private updateOptionButtons(): void {
         const race = RACE_LIST[this.currentIndex];
         const buttonWidth = 155;
-        const buttonHeight = 55;
+        const buttonHeight = 65;
 
         // Update Option A
         const nameA = this.optionButtonA.getChildByName('name') as PIXI.Text;
@@ -435,7 +435,7 @@ export class RaceCarousel extends PIXI.Container {
         const { width, portraitHeight } = this.options;
 
         this.randomButton = new PIXI.Container();
-        this.randomButton.position.set((width - 200) / 2, portraitHeight + 155);
+        this.randomButton.position.set((width - 200) / 2, portraitHeight + 215);
 
         const bg = new PIXI.Graphics();
         bg.roundRect(0, 0, 200, 40, 10);
@@ -517,7 +517,7 @@ export class RaceCarousel extends PIXI.Container {
             const settings = heroSettings[race.id] || { scale: 1.0, anchorY: 0.35 };
 
             this.portraitSprite = new PIXI.Sprite(texture);
-            const baseScale = Math.max(300 / texture.width, this.options.portraitHeight / texture.height);
+            const baseScale = Math.max(400 / texture.width, this.options.portraitHeight / texture.height);
             this.portraitSprite.scale.set(baseScale * settings.scale);
             this.portraitSprite.anchor.set(0.5, settings.anchorY);
             this.portraitSprite.position.set(150, this.options.portraitHeight / 2);

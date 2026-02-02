@@ -76,28 +76,29 @@ export class LobbyCard extends PIXI.Container {
         // Outer neon glow effect (multiple layers for soft glow)
         if (borderGlow) {
             // Outermost glow - very soft
-            this.glowBg.roundRect(-4, -4, width + 8, height + 8, borderRadius + 4);
-            this.glowBg.fill({ color: borderColor, alpha: 0.05 });
-
-            // Middle glow
-            this.glowBg.roundRect(-2, -2, width + 4, height + 4, borderRadius + 2);
-            this.glowBg.fill({ color: borderColor, alpha: 0.08 });
+            // this.glowBg.roundRect(-4, -4, width + 8, height + 8, borderRadius + 4);
+            // this.glowBg.fill({ color: borderColor, alpha: 0.05 });
+            //
+            // // Middle glow
+            // this.glowBg.roundRect(-2, -2, width + 4, height + 4, borderRadius + 2);
+            // this.glowBg.fill({ color: borderColor, alpha: 0.5 });
         }
 
         // Main card background - gradient from top to bottom
         // Top part: rgba(18, 26, 40, 0.95) = 0x121a28
-        this.bg.roundRect(0, 0, width, height, borderRadius);
-        this.bg.fill({ color: 0x121a28, alpha: 0.95 });
+        // this.bg.roundRect(0, 0, width, height, borderRadius);
+        // this.bg.fill({ color: 0x121a28, alpha: 0.95 });
 
         // Bottom gradient overlay: rgba(12, 18, 28, 0.98) = 0x0c121c
         // Create gradient effect by layering
-        const gradientHeight = height * 0.6;
-        this.bg.roundRect(0, height - gradientHeight, width, gradientHeight, borderRadius);
-        this.bg.fill({ color: 0x0c121c, alpha: 0.5 });
+        // const gradientHeight = height * 0.6;
+        // this.bg.roundRect(0, height - gradientHeight, width, gradientHeight, borderRadius);
+        // this.bg.fill({ color: 0x0c121c, alpha: 0.5 });
 
         // Border with neon effect
         this.bg.roundRect(0, 0, width, height, borderRadius);
-        this.bg.stroke({ color: borderColor, width: 1, alpha: 0.3 });
+        this.bg.stroke({ color: borderColor, width: 1, alpha: 0.5
+        });
 
         // Inner subtle border for depth
         this.bg.roundRect(1, 1, width - 2, height - 2, borderRadius - 1);
@@ -115,8 +116,8 @@ export class LobbyCard extends PIXI.Container {
         this.headerBg.fill({ color: 0x000000, alpha: 0.25 });
 
         // Fill in bottom corners
-        this.headerBg.rect(0, 34, width, 16);
-        this.headerBg.fill({ color: 0x000000, alpha: 0.25 });
+        // this.headerBg.rect(0, 34, width, 16);
+        // this.headerBg.fill({ color: 0x000000, alpha: 0.25 });
 
         // Bottom border line
         this.headerBg.moveTo(0, 49);
