@@ -3,17 +3,14 @@ import { createInitialState } from "./core/GameState";
 import { Game, applyRaceBonusesToPlayer } from "./core/Game";
 import { Phase } from "./core/Phase";
 import { GameRenderer } from "./render/GameRenderer";
-import { LobbyScreen } from "./screens/LobbyScreen";
 import { LoadingScreen } from "./screens/LoadingScreen";
 import { socketClient } from "./network/SocketClient";
 import { AssetLoader, GAME_VERSION } from "./assets/AssetLoader";
 import { MainMenuScreen } from "./ui/screens/MainMenuScreen";
 import { CreateRoomScreen, type CreateRoomOptions } from "./ui/screens/CreateRoomScreen";
+import { GameLobbyScreen, type GameLobbyState } from "./ui/screens/GameLobbyScreen";
 import type { RaceId, RaceOption } from "./entities/Race";
 import type { GameState } from "./core/GameState";
-
-// Feature flag to enable new UI (set to true to use new screens)
-const USE_NEW_UI = true;
 
 // ========================================
 // MAIN FUNCTION (async wrapper)
@@ -76,12 +73,10 @@ async function main() {
     // UI SCREENS
     // ========================================
 
-    // Legacy lobby screen (used for in-lobby functionality)
-    const lobbyScreen = new LobbyScreen(app);
-    
     // New UI screens
     let mainMenuScreen: MainMenuScreen | null = null;
     let createRoomScreen: CreateRoomScreen | null = null;
+    let gameLobbyScreen: GameLobbyScreen | null = null;
     let playerName = "";
     
     // Screen management (track current screen for debugging/logging)
@@ -125,7 +120,108 @@ async function main() {
     
     function showLobby(): void {
         _currentScreen = "lobby";
-        lobbyScreen.showLobby(socketClient.players);
+        app.stage.removeChildren();
+
+        // Create initial lobby state from socket client data
+        const lobbyState: GameLobbyState = {
+            roomCode: socketClient.roomCode || "????",
+            players: socketClient.players.map((p, i) => ({
+                id: p.id,
+                name: p.name,
+                colorIndex: i,
+                raceId: p.raceId as RaceId | undefined,
+                raceOption: p.raceOption as RaceOption | undefined,
+                isHost: p.isAdmin,
+                isReady: p.ready,
+            })),
+            myPlayerId: socketClient.playerId || "",
+            isHost: socketClient.isAdmin,
+            settings: [
+                { icon: "👥", label: "Players", value: `${socketClient.players.length}/4` },
+                { icon: "🗺️", label: "Map Size", value: "Standard" },
+                { icon: "⏱️", label: "Turn Timer", value: "Off" },
+                { icon: "🎮", label: "Mode", value: "Co-op" },
+                { icon: "⚔️", label: "Difficulty", value: "Normal" },
+                { icon: "🎲", label: "Random Start", value: "On" },
+            ],
+        };
+
+        if (!gameLobbyScreen) {
+            gameLobbyScreen = new GameLobbyScreen(app, {
+                onRaceSelect: (raceId, option) => {
+                    console.log("[Main] Race selected:", raceId, option);
+                    socketClient.updatePlayerData({ raceId, raceOption: option });
+                },
+                onReady: (isReady) => {
+                    console.log("[Main] Ready state:", isReady);
+                    socketClient.setReady(isReady);
+                },
+                onStart: () => {
+                    console.log("[Main] Start game requested");
+                    handleRequestStart();
+                },
+                onLeave: () => {
+                    console.log("[Main] Leave room");
+                    socketClient.leaveRoom();
+                    showMainMenu();
+                },
+                onSendMessage: (text) => {
+                    console.log("[Main] Chat message:", text);
+                    // socketClient.sendChatMessage(text); // If chat is implemented
+                },
+            }, lobbyState);
+        } else {
+            gameLobbyScreen.updateState(lobbyState);
+        }
+
+        app.stage.addChild(gameLobbyScreen);
+        gameLobbyScreen.show();
+    }
+
+    async function handleRequestStart(): Promise<void> {
+        console.log("[Main] Admin requesting game start");
+
+        const state = createInitialState();
+        state.players = state.players.slice(0, socketClient.players.length);
+        applyLobbySelectionsToState(state);
+
+        const serializedState = {
+            currentPlayerIndex: state.currentPlayerIndex,
+            round: state.round,
+            actionPoints: state.actionPoints,
+            movedInCurrentSlot: state.movedInCurrentSlot,
+            actionUsedInCurrentSlot: state.actionUsedInCurrentSlot,
+            uiMode: state.uiMode,
+            pendingTileRotation: state.pendingTileRotation,
+            selectedPlacementPosition: state.selectedPlacementPosition,
+            eventLog: state.eventLog,
+            activeEvents: state.activeEvents,
+            eventDeck: state.eventDeck,
+            eventProgress: state.eventProgress,
+            moduleCostDiscount: state.moduleCostDiscount,
+            publicObjectives: state.publicObjectives,
+            publicObjectivesPhase: state.publicObjectivesPhase,
+            modifierId: state.modifierId,
+            componentMultiplier: state.componentMultiplier,
+            isFinalPhase: state.isFinalPhase,
+            isFinalPreparation: state.isFinalPreparation,
+            finalPrepRoundsLeft: state.finalPrepRoundsLeft,
+            finalRoundsLeft: state.finalRoundsLeft,
+            finalThreatHp: state.finalThreatHp,
+            finalTrialStarted: state.finalTrialStarted,
+            finalTrialResults: state.finalTrialResults,
+            gameOver: state.gameOver,
+            winnerId: state.winnerId,
+            missionFailed: state.missionFailed,
+            players: state.players,
+            tiles: state.board.getAllTiles(),
+            tileDeck: state.tileDeck.serialize(),
+        };
+
+        const result = await socketClient.startGame(serializedState);
+        if (!result.success) {
+            console.error("[Main] Failed to start game:", result.error);
+        }
     }
     
     async function handleCreateRoom(options: CreateRoomOptions): Promise<void> {
@@ -171,22 +267,23 @@ async function main() {
         }
     }
 
-    lobbyScreen.onGameStart = (playerCount: number, playerId: string, initialState?: any) => {
-        console.log(`[Main] Starting game with ${playerCount} players, I am ${playerId}`);
+    // Socket client callbacks for game start
+    socketClient.onGameStart = (data: { players: any[]; playerCount: number; initialState: any }) => {
+        console.log(`[Main] Starting game with ${data.playerCount} players, I am ${socketClient.playerId}`);
         _currentScreen = "game";
-        myPlayerId = playerId;
+        myPlayerId = socketClient.playerId;
         isMultiplayer = true;
-        
-        if (initialState) {
-            startGameWithState(initialState, playerCount);
+
+        if (data.initialState) {
+            startGameWithState(data.initialState, data.playerCount);
         } else {
-            startGame(playerCount);
+            startGame(data.playerCount);
         }
     };
 
     function applyLobbySelectionsToState(state: GameState): void {
         if (!socketClient.players.length) return;
-        
+
         state.players.forEach((player) => {
             const lobbyPlayer = socketClient.players.find(p => p.id === player.id);
             if (!lobbyPlayer?.raceId || !lobbyPlayer.raceOption) return;
@@ -196,49 +293,21 @@ async function main() {
         });
     }
 
-    lobbyScreen.onRequestStart = async () => {
-        console.log("[Main] Admin requesting game start");
-        
-        const state = createInitialState();
-        state.players = state.players.slice(0, socketClient.players.length);
-        applyLobbySelectionsToState(state);
-        
-        const serializedState = {
-            currentPlayerIndex: state.currentPlayerIndex,
-            round: state.round,
-            actionPoints: state.actionPoints,
-            movedInCurrentSlot: state.movedInCurrentSlot,
-            actionUsedInCurrentSlot: state.actionUsedInCurrentSlot,
-            uiMode: state.uiMode,
-            pendingTileRotation: state.pendingTileRotation,
-            selectedPlacementPosition: state.selectedPlacementPosition,
-            eventLog: state.eventLog,
-            activeEvents: state.activeEvents,
-            eventDeck: state.eventDeck,
-            eventProgress: state.eventProgress,
-            moduleCostDiscount: state.moduleCostDiscount,
-            publicObjectives: state.publicObjectives,
-            publicObjectivesPhase: state.publicObjectivesPhase,
-            modifierId: state.modifierId,
-            componentMultiplier: state.componentMultiplier,
-            isFinalPhase: state.isFinalPhase,
-            isFinalPreparation: state.isFinalPreparation,
-            finalPrepRoundsLeft: state.finalPrepRoundsLeft,
-            finalRoundsLeft: state.finalRoundsLeft,
-            finalThreatHp: state.finalThreatHp,
-            finalTrialStarted: state.finalTrialStarted,
-            finalTrialResults: state.finalTrialResults,
-            gameOver: state.gameOver,
-            winnerId: state.winnerId,
-            missionFailed: state.missionFailed,
-            players: state.players,
-            tiles: state.board.getAllTiles(),
-            tileDeck: state.tileDeck.serialize(),
-        };
-        
-        const result = await socketClient.startGame(serializedState);
-        if (!result.success) {
-            console.error("[Main] Failed to start game:", result.error);
+    // Update lobby when players change
+    socketClient.onPlayersUpdate = (_players: any[]) => {
+        if (gameLobbyScreen && _currentScreen === "lobby") {
+            const lobbyState: Partial<GameLobbyState> = {
+                players: socketClient.players.map((p, i) => ({
+                    id: p.id,
+                    name: p.name,
+                    colorIndex: i,
+                    raceId: p.raceId as RaceId | undefined,
+                    raceOption: p.raceOption as RaceOption | undefined,
+                    isHost: p.isAdmin,
+                    isReady: p.ready,
+                })),
+            };
+            gameLobbyScreen.updateState(lobbyState);
         }
     };
 
@@ -248,36 +317,28 @@ async function main() {
 
     async function tryReconnect() {
         if (!socketClient.hasStoredSession()) {
-            if (USE_NEW_UI) {
-                showMainMenu();
-            } else {
-                lobbyScreen.show();
-            }
+            showMainMenu();
             return;
         }
 
         console.log("[Main] Attempting to reconnect...");
-        
+
         const result = await socketClient.tryReconnect();
-        
+
         if (result.success) {
             myPlayerId = socketClient.playerId;
             isMultiplayer = true;
-            
+
             if (result.gameStarted && result.gameState) {
                 console.log("[Main] Reconnected to active game");
                 startGameWithState(result.gameState, socketClient.players.length);
             } else {
                 console.log("[Main] Reconnected to lobby");
-                lobbyScreen.showLobby(socketClient.players);
+                showLobby();
             }
         } else {
             console.log("[Main] No active session, showing main menu");
-            if (USE_NEW_UI) {
-                showMainMenu();
-            } else {
-                lobbyScreen.show();
-            }
+            showMainMenu();
         }
     }
 
@@ -315,11 +376,7 @@ async function main() {
     socketClient.onGameReset = (_data: { reason: string }) => {
         game = null;
         renderer = null;
-        if (USE_NEW_UI) {
-            showMainMenu();
-        } else {
-            lobbyScreen.show();
-        }
+        showMainMenu();
     };
 
     // ========================================
