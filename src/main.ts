@@ -275,6 +275,21 @@ async function main() {
         myPlayerId = socketClient.playerId;
         isMultiplayer = true;
 
+        // Clean up all UI screens before starting game
+        app.stage.removeChildren();
+        if (gameLobbyScreen) {
+            gameLobbyScreen.destroy();
+            gameLobbyScreen = null;
+        }
+        if (createRoomScreen) {
+            createRoomScreen.destroy();
+            createRoomScreen = null;
+        }
+        if (mainMenuScreen) {
+            mainMenuScreen.destroy();
+            mainMenuScreen = null;
+        }
+
         if (data.initialState) {
             startGameWithState(data.initialState, data.playerCount);
         } else {
@@ -332,6 +347,20 @@ async function main() {
 
             if (result.gameStarted && result.gameState) {
                 console.log("[Main] Reconnected to active game");
+                // Clean up all UI screens before starting game
+                app.stage.removeChildren();
+                if (gameLobbyScreen) {
+                    gameLobbyScreen.destroy();
+                    gameLobbyScreen = null;
+                }
+                if (createRoomScreen) {
+                    createRoomScreen.destroy();
+                    createRoomScreen = null;
+                }
+                if (mainMenuScreen) {
+                    mainMenuScreen.destroy();
+                    mainMenuScreen = null;
+                }
                 startGameWithState(result.gameState, socketClient.players.length);
             } else {
                 console.log("[Main] Reconnected to lobby");

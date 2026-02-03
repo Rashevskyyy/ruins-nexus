@@ -148,18 +148,24 @@ class AnimationManager {
      */
     private update(deltaMs: number): void {
         for (const [id, anim] of this.animations) {
+            // Skip if target was destroyed
+            if (anim.target.destroyed) {
+                this.animations.delete(id);
+                continue;
+            }
+
             anim.elapsed += deltaMs;
             const progress = Math.min(1, anim.elapsed / anim.duration);
             const easedProgress = anim.easing(progress);
-            
+
             // Apply properties
             for (const [key, { start, end }] of Object.entries(anim.properties)) {
                 const value = start + (end - start) * easedProgress;
                 this.setProperty(anim.target, key, value);
             }
-            
+
             anim.onUpdate?.(easedProgress);
-            
+
             // Check if complete
             if (progress >= 1) {
                 this.animations.delete(id);
