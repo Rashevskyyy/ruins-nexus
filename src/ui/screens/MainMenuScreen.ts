@@ -309,7 +309,7 @@ export class MainMenuScreen extends PIXI.Container {
             { icon: '🌐', text: 'Online' },
         ];
         
-        const gap = 60;
+        const gap = 120;
         const totalWidth = (features.length - 1) * gap;
         
         features.forEach((feature, index) => {
@@ -483,7 +483,7 @@ export class MainMenuScreen extends PIXI.Container {
                     await signInWithGoogle();
                 },
             });
-            signInBtn.position.set(-75, 0);
+            signInBtn.position.set(-75, 30);
             this.userProfile.addChild(signInBtn);
         }
     }

@@ -158,7 +158,7 @@ export class CreateRoomScreen extends PIXI.Container {
     private buildForm(): void {
         let yOffset = 0;
         const contentWidth = this.card.contentWidth;
-        const gap = 20;
+        const gap = 30;
         
         // Card title
         const cardTitle = new PIXI.Text({
@@ -382,14 +382,14 @@ export class CreateRoomScreen extends PIXI.Container {
         // Position header
         const header = this.contentContainer.getChildByName('header');
         if (header) {
-            header.position.set(w / 2, 45);
+            header.position.set(w / 2, 35);
         }
         
         // Position card in center - taller to fit all content
         const cardWidth = Math.min(600, w - 60);
-        const cardHeight = Math.min(800, h - 130);
+        const cardHeight = Math.min(800, h - 100);
         this.card.resize(cardWidth, cardHeight);
-        this.card.position.set((w - cardWidth) / 2, 90);
+        this.card.position.set((w - cardWidth) / 2, 120);
     }
     
     show(): void {

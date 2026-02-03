@@ -24,6 +24,7 @@ async function main() {
     // ========================================
     
     const app = new PIXI.Application();
+    globalThis.__PIXI_APP__ = app;
     
     await app.init({
         resizeTo: window,
