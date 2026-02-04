@@ -7,6 +7,7 @@ import { canMoveBetween } from "../../board/BlockedEdges";
 import { type EdgeIndex, getEdgeVertices } from "../../board/HexEdges";
 import type { Tile } from "../../board/Tile";
 import { EnhancedTileRenderer, type TileRenderData } from "./EnhancedTileRenderer";
+import { TileHoverPreview } from "./TileHoverPreview";
 
 export type BoardRendererOptions = {
     app: PIXI.Application;
@@ -36,6 +37,9 @@ export class BoardRenderer {
     private hoverOverlays = new Map<string, PIXI.Graphics>();
     private hoveredKey: string | null = null;
 
+    private hoverPreviewLayer = new PIXI.Container();
+    private tileHoverPreview: TileHoverPreview;
+
     private zoom = 1;
     private minZoom = 0.5;
     private maxZoom = 2;
@@ -50,6 +54,20 @@ export class BoardRenderer {
         this.HEX_POINTS = this.buildHexPoints(this.HEX_SIZE);
         this.playerColors = options.playerColors;
         this.enhancedRenderer = new EnhancedTileRenderer(this.HEX_SIZE);
+
+        // Add hover preview layer above context menu layer
+        this.hoverPreviewLayer.zIndex = 160;
+        this.options.app.stage.addChild(this.hoverPreviewLayer);
+
+        this.tileHoverPreview = new TileHoverPreview({
+            app: this.options.app,
+            game: this.options.game,
+            layer: this.hoverPreviewLayer,
+            isMyTurn: this.options.isMyTurn,
+            hexToScreen: (coord) => this.screenFromHex(coord),
+            getHexSize: () => this.HEX_SIZE,
+            getZoom: () => this.zoom,
+        });
     }
 
     private toTileRenderData(tile: Tile): TileRenderData {
@@ -100,6 +118,10 @@ export class BoardRenderer {
             x: x * zoom + this.options.app.screen.width / 2 + panX,
             y: y * zoom + this.options.app.screen.height / 2 + panY,
         };
+    }
+
+    public hideHoverPreview(): void {
+        this.tileHoverPreview.hide();
     }
 
     public setupZoomAndPan(): void {
@@ -239,20 +261,30 @@ export class BoardRenderer {
             view.eventMode = this.options.isMyTurn() ? "static" : "none";
             view.cursor = this.options.isMyTurn() ? "pointer" : "default";
 
-            view.on("pointerdown", () => {
+            view.on("pointerdown", (e: PIXI.FederatedPointerEvent) => {
                 if (!this.options.isMyTurn()) return;
-                this.options.onShowContextMenu(tile.coord);
+                // Right-click shows full context menu
+                if (e.button === 2) {
+                    this.tileHoverPreview.hide();
+                    this.options.onShowContextMenu(tile.coord);
+                } else {
+                    // Left-click on tile - hide preview and show context menu
+                    this.tileHoverPreview.hide();
+                    this.options.onShowContextMenu(tile.coord);
+                }
             });
 
             view.on("pointerover", () => {
                 if (!this.options.isMyTurn()) return;
                 this.hoveredKey = key;
+                this.tileHoverPreview.show(tile.coord, tile);
                 this.renderBoard();
                 this.renderLabels();
             });
 
             view.on("pointerout", () => {
                 if (this.hoveredKey === key) this.hoveredKey = null;
+                this.tileHoverPreview.hide();
                 this.renderBoard();
                 this.renderLabels();
             });
@@ -494,6 +526,9 @@ export class BoardRenderer {
                 fogView!.fill({ color: 0x4a90d9, alpha: 0.3 });
                 fogView!.stroke({ color: 0x4a90d9, width: 3, alpha: 1 });
 
+                // Show hover preview for fog tile
+                this.tileHoverPreview.showForFog(coord);
+
                 const { x, y } = this.hexToPixel(coord);
                 const questionMark = new PIXI.Text({
                     text: "🔭",
@@ -507,6 +542,7 @@ export class BoardRenderer {
 
             fogView.on("pointerout", () => {
                 if (this.hoveredKey === key) this.hoveredKey = null;
+                this.tileHoverPreview.hide();
                 fogView!.clear();
                 fogView!.poly(this.HEX_POINTS);
                 fogView!.fill({ color: 0x2a2a4a, alpha: 0.4 });

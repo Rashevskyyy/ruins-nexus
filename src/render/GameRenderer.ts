@@ -21,6 +21,7 @@ import { DebugPanelRenderer } from "./gameRenderer/DebugPanelRenderer";
 import { SettingsRenderer } from "./gameRenderer/SettingsRenderer";
 import { RewardRenderer } from "./gameRenderer/RewardRenderer";
 import { HeroBoardLegacyRenderer } from "./gameRenderer/HeroBoardLegacyRenderer";
+import { PlayersBottomBar } from "./panels/PlayersBottomBar";
 
 export class GameRenderer {
     private boardLayer = new PIXI.Container();
@@ -69,6 +70,8 @@ export class GameRenderer {
     private eventLogPanel = new EventLogPanel();
     private deckInfoPanel = new DeckInfoPanel();
     private publicObjectivesPanel = new PublicObjectivesPanel();
+    private playersBottomBar = new PlayersBottomBar();
+    private playersBottomBarLayer = new PIXI.Container();
 
     private rotateButton = {
         bg: new PIXI.Graphics(),
@@ -200,6 +203,9 @@ export class GameRenderer {
         this.app.stage.addChild(this.settingsLayer);
         this.settingsLayer.zIndex = 470;
 
+        this.app.stage.addChild(this.playersBottomBarLayer);
+        this.playersBottomBarLayer.zIndex = 180;
+
         this.diceRollUI = new DiceRollUI(this.app, this.diceLayer);
         this.toastManager = new ToastManager(this.app, this.toastLayer);
         this.tutorialHints = new TutorialHintsManager(this.app, this.tutorialLayer, this.showToast.bind(this));
@@ -327,11 +333,22 @@ export class GameRenderer {
         this.renderCraftMenu();
         this.renderPreCombat();
         this.renderFinalPhaseBanner();
+        this.renderPlayersBottomBar();
         this.debugPanelRenderer.renderDebugPanel();
         this.rewardRenderer.checkPendingTokenRewards();
         this.settingsRenderer.renderSettingsMenu();
 
         this.checkTutorialHints();
+    }
+
+    private renderPlayersBottomBar(): void {
+        this.playersBottomBar.render({
+            app: this.app,
+            game: this.game,
+            layer: this.playersBottomBarLayer,
+            playerColors: this.PLAYER_COLORS,
+            myPlayerIndex: this.myPlayerIndex,
+        });
     }
 
     private createVersionLabel(): void {
@@ -344,7 +361,7 @@ export class GameRenderer {
                 fontFamily: "monospace",
             }),
         });
-        versionText.position.set(60, h - 38);
+        versionText.position.set(60, h - 82); // Above bottom bar
         this.hudLayer.addChild(versionText);
     }
 

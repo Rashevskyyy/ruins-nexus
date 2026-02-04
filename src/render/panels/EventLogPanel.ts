@@ -9,13 +9,14 @@ type EventLogContext = {
 };
 
 export class EventLogPanel {
-    render({ app, game, layer }: EventLogContext): void {
+    render({ app: _app, game, layer }: EventLogContext): void {
         layer.removeChildren();
 
         const logW = 360;
         const logH = 200;
         const logX = 16;
-        const logY = app.renderer.height - logH - 70;
+        // Position below Public Objectives (approx y=72 + ~220 for 3 objectives)
+        const logY = 300;
 
         // Background
         const bg = new PIXI.Graphics();

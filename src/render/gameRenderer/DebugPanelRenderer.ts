@@ -57,9 +57,8 @@ export class DebugPanelRenderer {
     }
 
     public renderDebugPanel(): void {
-        const h = this.options.app.renderer.height;
-
-        this.debugToggleButtonContainer.position.set(10, h - 45);
+        // Position debug button in top bar next to Round
+        this.debugToggleButtonContainer.position.set(100, 15);
 
         this.debugToggleButtonBg.clear();
         this.debugToggleButtonBg.roundRect(0, 0, 40, 30, 6);
@@ -73,7 +72,7 @@ export class DebugPanelRenderer {
         const panelW = 320;
         const panelH = 400;
         const panelX = 10;
-        const panelY = h - panelH - 55;
+        const panelY = 56; // Below top bar
 
         const panelBg = new PIXI.Graphics();
         panelBg.roundRect(panelX, panelY, panelW, panelH, 10);

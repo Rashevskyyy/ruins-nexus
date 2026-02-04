@@ -78,7 +78,6 @@ export class HudRenderer {
 
         const w = this.options.app.renderer.width;
         const h = 56;
-        const p = this.options.game.state.players[this.options.game.state.currentPlayerIndex];
 
         const bg = new PIXI.Graphics();
         bg.rect(0, 0, w, h);
@@ -184,39 +183,13 @@ export class HudRenderer {
             this.options.topStatusLayer.addChild(tilesText);
         }
 
-        const isMyTurn = this.options.isMyTurn();
-        const turnText = isMyTurn ? "YOUR TURN" : `${p.id}'s TURN`;
-        const turnColor = isMyTurn ? 0x00ff88 : 0xffaa00;
-
-        const turnLabel = new PIXI.Text({
-            text: turnText,
-            style: new PIXI.TextStyle({ fontSize: 18, fill: turnColor, fontWeight: "800" }),
-        });
-        turnLabel.position.set(16, 8);
-        this.options.topStatusLayer.addChild(turnLabel);
-
+        // Round label on the left (Your Turn and AP moved to bottom bar)
         const roundLabel = new PIXI.Text({
             text: `Round ${this.options.game.state.round}`,
-            style: new PIXI.TextStyle({ fontSize: 13, fill: 0x8b949e }),
+            style: new PIXI.TextStyle({ fontSize: 14, fill: 0x8b949e, fontWeight: "600" }),
         });
-        roundLabel.position.set(16, 30);
+        roundLabel.position.set(16, 20);
         this.options.topStatusLayer.addChild(roundLabel);
-
-        const apX = 160;
-        for (let i = 0; i < 2; i++) {
-            const dot = new PIXI.Graphics();
-            const filled = i < this.options.game.state.actionPoints;
-            dot.circle(apX + i * 28, 24, 10);
-
-            if (filled) {
-                dot.fill({ color: 0x00ff88 });
-                dot.stroke({ color: 0x00aa55, width: 2 });
-            } else {
-                dot.fill({ color: 0x21262d });
-                dot.stroke({ color: 0x484f58, width: 2 });
-            }
-            this.options.topStatusLayer.addChild(dot);
-        }
 
         const activeEvents = this.options.game.state.activeEvents;
         if (activeEvents.length > 0) {
@@ -261,28 +234,7 @@ export class HudRenderer {
             }
         }
 
-        const apLabel = new PIXI.Text({
-            text: "AP",
-            style: new PIXI.TextStyle({ fontSize: 11, fill: 0x8b949e }),
-        });
-        apLabel.anchor.set(0.5);
-        apLabel.position.set(apX + 14, 42);
-        this.options.topStatusLayer.addChild(apLabel);
-
-        const myPlayer = this.options.game.state.players[this.options.getMyPlayerIndex()];
-        const playerColor = this.options.playerColors[this.options.getMyPlayerIndex() % this.options.playerColors.length];
-
-        const playerLabel = new PIXI.Text({
-            text: myPlayer.id,
-            style: new PIXI.TextStyle({
-                fontSize: 22,
-                fill: playerColor,
-                fontWeight: "900",
-            }),
-        });
-        playerLabel.anchor.set(1, 0.5);
-        playerLabel.position.set(w - 70, h / 2);
-        this.options.topStatusLayer.addChild(playerLabel);
+        // Player name removed - shown in bottom bar now
 
         const settingsBtn = new PIXI.Container();
         const settingsBg = new PIXI.Graphics();
@@ -539,7 +491,7 @@ export class HudRenderer {
                 }),
             });
             hintText.anchor.set(0.5, 0);
-            hintText.position.set(this.options.app.renderer.width / 2, this.options.app.renderer.height - 80);
+            hintText.position.set(this.options.app.renderer.width / 2, this.options.app.renderer.height - 100);
             this.options.contextHintLayer.addChild(hintText);
         }
     }
