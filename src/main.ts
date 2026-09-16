@@ -794,7 +794,12 @@ async function main() {
             }
             renderer?.renderAll();
         };
-        
+
+        // Refresh UI when pre-combat panel opens (important for auto-combat at turn start)
+        game.onPreCombatOpened = () => {
+            renderer?.renderAll();
+        };
+
         // Connect toast notifications
         game.onToast = (message, type) => {
             renderer!.showToast(message, type);

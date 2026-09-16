@@ -57,6 +57,9 @@ export class Game {
     // Callback for syncing state after combat resolution (multiplayer)
     public onCombatResolved: (() => void) | null = null;
 
+    // Callback when pre-combat panel is opened (for UI refresh)
+    public onPreCombatOpened: (() => void) | null = null;
+
     constructor(public state: GameState) {
         this.exploration = new ExplorationSystem(state.tileDeck);
     }
@@ -365,6 +368,29 @@ export class Game {
         this.endTurn();
     }
 
+    /**
+     * Find a free adjacent tile for pushback when hunter came to player
+     * or player spawned on monster tile (from === player.position)
+     */
+    private findPushbackTile(playerPosition: HexCoord, monsterTile: Tile): HexCoord | null {
+        const adjacentCoords = neighbors(playerPosition);
+
+        for (const coord of adjacentCoords) {
+            const tile = this.state.board.getTile(coord);
+            if (!tile || !tile.discovered) continue;
+
+            // Skip tiles with active encounters
+            if (tile.encounterActive) continue;
+
+            // Check if we can actually move there (blocked edges)
+            if (!canMoveBetween(monsterTile, coord, tile)) continue;
+
+            return coord;
+        }
+
+        return null;
+    }
+
     private createDefaultPreCombatSpend(): PreCombatSpend {
         return {
             componentSwords: 0,
@@ -390,6 +416,11 @@ export class Game {
             spend: this.createDefaultPreCombatSpend(),
         };
         this.state.uiMode = "PRE_COMBAT";
+
+        // Notify UI to refresh (important for auto-combat at turn start)
+        if (this.onPreCombatOpened) {
+            this.onPreCombatOpened();
+        }
     }
 
     public confirmPreCombat(applySpend: boolean): void {
@@ -495,7 +526,20 @@ export class Game {
                 this.showVictoryResult(outcome);
             } else {
                 if (!preCombat.cancelRetreat) {
-                    player.position = { q: from.q, r: from.r };
+                    // Check if hunter came to player (from === tile position)
+                    // In this case, we need to find a free adjacent tile for pushback
+                    const hunterCameToPlayer = from.q === tile.coord.q && from.r === tile.coord.r;
+
+                    if (hunterCameToPlayer) {
+                        const pushbackTile = this.findPushbackTile(player.position, tile);
+                        if (pushbackTile) {
+                            player.position = { q: pushbackTile.q, r: pushbackTile.r };
+                            this.addLog(`${player.id} pushed back to ${pushbackTile.q},${pushbackTile.r}`);
+                        }
+                        // If no free tile found, player stays (edge case)
+                    } else {
+                        player.position = { q: from.q, r: from.r };
+                    }
                     player.pushedBackFromTile = { q: tile.coord.q, r: tile.coord.r };
                 }
                 this.showDefeatResult(outcome, { cancelRetreat: preCombat.cancelRetreat });
@@ -604,12 +648,22 @@ export class Game {
         return bestStep;
     }
 
-    private startHunterAutoCombatIfNeeded(player: Player): boolean {
+    /**
+     * Start auto-combat if player is on a tile with an active monster.
+     * This handles cases when:
+     * - Hunter moved to player's position
+     * - Player spawned on a tile with a monster
+     * - Player was pushed back onto a tile with a monster
+     */
+    private startAutoCombatIfNeeded(player: Player): boolean {
         const tile = this.state.board.getTile(player.position);
-        if (!tile || !tile.encounterActive || tile.monsterType !== "hunter") return false;
+        console.log("[startAutoCombatIfNeeded] player:", player.id, "tile:", tile?.coord, "encounterActive:", tile?.encounterActive);
+        if (!tile || !tile.encounterActive) return false;
 
+        console.log("[startAutoCombatIfNeeded] Starting auto-combat for", player.id);
         this.state.phase = Phase.ResolveAction;
         this.openPreCombat(player, tile, player.position);
+        console.log("[startAutoCombatIfNeeded] After openPreCombat, uiMode:", this.state.uiMode, "pendingCombat:", !!this.state.pendingCombat);
         return true;
     }
 
@@ -1807,7 +1861,8 @@ export class Game {
             this.state.pendingTileTier = 1; // Will be determined by deck
             this.state.pendingTileRotation = 0;
 
-            const hasThreatScanner = player.inventory.spells.some(s => s?.effectId === "threat_scanner");
+            const currentPlayer = this.currentPlayer;
+            const hasThreatScanner = currentPlayer.inventory.spells.some((s: { effectId?: string } | null) => s?.effectId === "threat_scanner");
             const nextTile = hasThreatScanner ? this.state.tileDeck.peekNextTile() : null;
             if (nextTile) {
                 const scanMsg = `📡 Threat Scanner: ${nextTile.monsterType?.toUpperCase()} (Tier ${nextTile.monsterTier})`;
@@ -2520,7 +2575,7 @@ export class Game {
 
         this.state.phase = Phase.AwaitInput;
 
-        if (this.startHunterAutoCombatIfNeeded(currentPlayer)) {
+        if (this.startAutoCombatIfNeeded(currentPlayer)) {
             return;
         }
         

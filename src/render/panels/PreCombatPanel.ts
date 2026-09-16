@@ -14,16 +14,30 @@ export class PreCombatPanel {
     render({ app, game, layer, playerColors, renderAll }: PreCombatContext): void {
         layer.removeChildren();
 
+        // Debug logging
+        console.log("[PreCombatPanel] uiMode:", game.state.uiMode, "pendingCombat:", !!game.state.pendingCombat);
+
         if (game.state.uiMode !== "PRE_COMBAT") return;
 
         const pending = game.state.pendingCombat;
-        if (!pending) return;
+        if (!pending) {
+            console.log("[PreCombatPanel] No pending combat!");
+            return;
+        }
 
         const p = game.state.players[game.state.currentPlayerIndex];
-        if (p.id !== pending.playerId) return;
+        if (p.id !== pending.playerId) {
+            console.log("[PreCombatPanel] Player mismatch:", p.id, "!==", pending.playerId);
+            return;
+        }
 
         const tile = game.state.board.getTile(pending.tileCoord);
-        if (!tile) return;
+        if (!tile) {
+            console.log("[PreCombatPanel] No tile at", pending.tileCoord);
+            return;
+        }
+
+        console.log("[PreCombatPanel] Rendering panel for", p.id, "at", pending.tileCoord);
 
         const spend = pending.spend;
         const playerIndex = game.state.currentPlayerIndex;
