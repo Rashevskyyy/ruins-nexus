@@ -1,6 +1,10 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  server: {
+    host: "0.0.0.0",
+    proxy: { "/socket.io": { target: "http://localhost:3001", ws: true } },
+  },
   build: {
     target: 'esnext', // Support top-level await
     sourcemap: false,

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { validateGameState, validateAction, assertValidState } from "../../src/core/StateValidator";
+import { Phase } from "../../src/core/Phase";
+import { TileType } from "../../src/board/TileTypes";
 import { createInitialState, type GameState } from "../../src/core/GameState";
 
 describe("StateValidator", () => {
@@ -91,7 +93,7 @@ describe("StateValidator", () => {
         });
 
         it("should return warnings for unusual but valid states", () => {
-            state.players[0].actionPoints = 50; // Unusual but not impossible
+            state.actionPoints = 50; // Unusual but not impossible
             
             const result = validateGameState(state);
             
@@ -103,7 +105,7 @@ describe("StateValidator", () => {
     describe("validateAction", () => {
         it("should validate action for current player", () => {
             state.currentPlayerIndex = 0;
-            state.players[0].actionPoints = 2;
+            state.actionPoints = 2;
             
             const result = validateAction(state, "move", state.players[0].id);
             
@@ -121,7 +123,7 @@ describe("StateValidator", () => {
 
         it("should reject action with no action points", () => {
             state.currentPlayerIndex = 0;
-            state.players[0].actionPoints = 0;
+            state.actionPoints = 0;
             
             const result = validateAction(state, "move", state.players[0].id);
             
@@ -130,7 +132,7 @@ describe("StateValidator", () => {
         });
 
         it("should reject action when game is over", () => {
-            state.phase = "GAME_OVER";
+            state.gameOver = true;
             
             const result = validateAction(state, "move", state.players[0].id);
             
@@ -141,7 +143,7 @@ describe("StateValidator", () => {
         it("should reject explore during final preparation", () => {
             state.isFinalPreparation = true;
             state.currentPlayerIndex = 0;
-            state.players[0].actionPoints = 2;
+            state.actionPoints = 2;
             
             const result = validateAction(state, "explore", state.players[0].id);
             
@@ -187,8 +189,8 @@ describe("StateValidator", () => {
             // Clear all tiles and add a non-hub tile
             const tiles = state.board.getAllTiles();
             for (const tile of tiles) {
-                if (tile.type === "Hub") {
-                    tile.type = "Resource" as any;
+                if (tile.type === TileType.LandingHub) {
+                    tile.type = TileType.Resource;
                 }
             }
             
@@ -200,7 +202,7 @@ describe("StateValidator", () => {
 
     describe("phase validation", () => {
         it("should accept valid phases", () => {
-            const validPhases = ["EXPLORATION", "ORBITAL", "FINAL_TRIAL", "GAME_OVER"];
+            const validPhases = Object.values(Phase);
             
             for (const phase of validPhases) {
                 state.phase = phase as any;

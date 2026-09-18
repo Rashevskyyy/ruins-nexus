@@ -883,6 +883,11 @@ export class BotGameRunner {
             actionCount < maxActions &&
             failedActions < maxFailedActions
         ) {
+            if (this.game.state.pendingCombat) {
+                this.game.confirmPreCombat(false);
+                actionCount++;
+                continue;
+            }
             const decision = bot.decideAction(this.game);
             const success = bot.executeAction(this.game, decision);
 

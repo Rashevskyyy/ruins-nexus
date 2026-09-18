@@ -24,7 +24,7 @@ async function main() {
     // ========================================
     
     const app = new PIXI.Application();
-    globalThis.__PIXI_APP__ = app;
+    (globalThis as typeof globalThis & { __PIXI_APP__?: PIXI.Application }).__PIXI_APP__ = app;
     
     await app.init({
         resizeTo: window,
@@ -182,8 +182,7 @@ async function main() {
     async function handleRequestStart(): Promise<void> {
         console.log("[Main] Admin requesting game start");
 
-        const state = createInitialState();
-        state.players = state.players.slice(0, socketClient.players.length);
+        const state = createInitialState(socketClient.players.length);
         applyLobbySelectionsToState(state);
 
         const serializedState = {
@@ -222,6 +221,7 @@ async function main() {
         const result = await socketClient.startGame(serializedState);
         if (!result.success) {
             console.error("[Main] Failed to start game:", result.error);
+            alert(result.error || "Failed to start game");
         }
     }
     
@@ -339,7 +339,7 @@ async function main() {
 
         console.log("[Main] Attempting to reconnect...");
 
-        const result = await socketClient.tryReconnect();
+        const result = await socketClient.tryReconnect().catch(() => ({ success: false, gameStarted: false, gameState: null }));
 
         if (result.success) {
             myPlayerId = socketClient.playerId;
@@ -376,6 +376,11 @@ async function main() {
     // MULTIPLAYER SYNC
     // ========================================
 
+    socketClient.onError = (message) => {
+        if (renderer) renderer.showToast(message, "warning");
+        else alert(message);
+    };
+
     socketClient.onGameUpdate = (data: { action: any; state: any; fromPlayer: string }) => {
         if (!game || !renderer) return;
         
@@ -406,7 +411,8 @@ async function main() {
     socketClient.onGameReset = (_data: { reason: string }) => {
         game = null;
         renderer = null;
-        showMainMenu();
+        isMultiplayer = false;
+        showLobby();
     };
 
     // ========================================
@@ -414,8 +420,7 @@ async function main() {
     // ========================================
 
     function startGame(playerCount: number) {
-        const state = createInitialState();
-        state.players = state.players.slice(0, playerCount);
+        const state = createInitialState(playerCount);
         applyLobbySelectionsToState(state);
         
         game = new Game(state);
@@ -438,8 +443,7 @@ async function main() {
     }
 
     function startGameWithState(serverState: any, playerCount: number) {
-        const state = createInitialState();
-        state.players = state.players.slice(0, playerCount);
+        const state = createInitialState(playerCount);
         
         game = new Game(state);
         applyServerState(serverState, true); // isReconnect = true
@@ -477,7 +481,7 @@ async function main() {
             // On reconnect, don't restore modal modes (CRAFT_MENU, BUILD_MENU) - they should not auto-open
             // On regular updates, restore them normally
             if (isReconnect) {
-                const isModalMode = restoredMode === "CRAFT_MENU" || restoredMode === "BUILD_MENU" || restoredMode === "PRE_COMBAT";
+                const isModalMode = restoredMode === "CRAFT_MENU" || restoredMode === "BUILD_MENU";
                 game.state.uiMode = isModalMode ? "NONE" : restoredMode;
             } else {
                 game.state.uiMode = restoredMode;
@@ -584,6 +588,7 @@ async function main() {
             winnerId: game.state.winnerId,
             missionFailed: game.state.missionFailed,
             pendingRewardChoice: game.state.pendingRewardChoice,
+            pendingCombat: game.state.pendingCombat,
             phase: game.state.phase,
             players: game.state.players,
             tiles: game.state.board.getAllTiles(),
@@ -598,13 +603,19 @@ async function main() {
     function wrapGameForMultiplayer() {
         if (!game) return;
         
+        const originalConfirmPreCombat = game.confirmPreCombat.bind(game);
+        game.confirmPreCombat = (applySpend) => {
+            if (!isMyTurn()) return;
+            originalConfirmPreCombat(applySpend);
+        };
+
         const originalHandleHexClick = game.handleHexClick.bind(game);
         game.handleHexClick = (target) => {
             if (!isMyTurn()) return;
             originalHandleHexClick(target);
-            // Don't send state immediately if combat is pending (will be sent after dice)
-            // Combat sets phase to ResolveAction
-            if (game!.state.phase !== Phase.ResolveAction) {
+            // Persist the pre-combat decision so reconnects can resume it.
+            // During the dice animation, send only after combat resolves.
+            if (game!.state.phase !== Phase.ResolveAction || game!.state.pendingCombat) {
                 sendActionToServer({ type: "hex-click", target });
             }
             // If combat started, state will be synced via onCombatResolved
@@ -660,12 +671,9 @@ async function main() {
         const originalPlaceTile = game.placeTileAtSelected.bind(game);
         game.placeTileAtSelected = () => {
             if (!isMyTurn()) return false;
-            const result = originalPlaceTile();
-            // Don't send state if combat is pending (will be sent via combat-resolved)
-            if (result && game!.state.phase !== Phase.ResolveAction) {
-                sendActionToServer({ type: "place-tile" });
-            }
-            return result;
+            // placeTileAtSelected calls the wrapped handleHexClick, which sends
+            // exactly one update (including a pending combat, if any).
+            return originalPlaceTile();
         };
         
         const originalBuildBase = game.doBuildBase.bind(game);

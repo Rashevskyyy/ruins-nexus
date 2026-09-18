@@ -34,7 +34,7 @@ export class HeroBoardModulesSection {
         return 26 + 12 + 50 + 8 + 50 + 12; // 158px for 2 rows
     }
 
-    render({ layer, panelX, panelW, y, moduleOrder, builtModules, tooltip }: ModulesContext): number {
+    render({ layer, panelX, panelW, y, builtModules, tooltip }: ModulesContext): number {
         const totalSlots = 8; // 2 rows x 4 columns
 
         // Section Header
