@@ -579,6 +579,14 @@ export class GameLobbyScreen extends PIXI.Container {
     }
 
     show(): void {
+        const me = this.state.players.find(p => p.id === this.state.myPlayerId);
+        if (me?.raceId) {
+            this.setSelectedRace(me.raceId, me.raceOption);
+        } else if (this.raceCarousel) {
+            this.callbacks.onRaceSelect(this.raceCarousel.getCurrentRace().id, this.raceCarousel.getSelectedOption());
+        }
+        this.isReady = me?.isReady ?? false;
+        this.updateReadyButton();
         this.visible = true;
         this.layout();
 

@@ -184,6 +184,10 @@ describe('Game Integration Tests', () => {
     });
 
     describe('endTurn', () => {
+        beforeEach(() => {
+            // Test turn rotation independently of randomly generated encounters.
+            for (const tile of game.state.board.getAllTiles()) tile.encounterActive = false;
+        });
         it('should switch to next player', () => {
             expect(game.state.currentPlayerIndex).toBe(0);
             

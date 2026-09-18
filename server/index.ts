@@ -11,6 +11,8 @@
  */
 
 import express from "express";
+import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { createServer } from "http";
 import { Server, Socket } from "socket.io";
 import { z } from "zod";
@@ -41,7 +43,7 @@ const GameActionSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("heal") }),
     z.object({ type: z.literal("explore") }),
     z.object({ type: z.literal("rotate") }),
-    z.object({ type: z.literal("select-placement"), coord: HexCoordSchema }),
+    z.object({ type: z.literal("select-placement"), coord: HexCoordSchema.nullable() }),
     z.object({ type: z.literal("place-tile") }),
     z.object({ type: z.literal("build-base") }),
     z.object({ type: z.literal("build-modules"), modules: z.array(z.string()) }),
@@ -56,6 +58,7 @@ const GameActionSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("combat-resolved") }),
     // Debug
     z.object({ type: z.literal("debug-add-resources"), playerId: z.string().optional() }),
+    z.object({ type: z.literal("debug-add-components"), playerId: z.string().optional() }),
     z.object({ type: z.literal("debug-heal"), playerId: z.string().optional() }),
     z.object({ type: z.literal("debug-skip-turn") }),
     z.object({ type: z.literal("reset-game") }),
@@ -181,11 +184,7 @@ function generateRoomCode(): string {
 
 // v0.6: Crypto-quality session ID
 function generateSessionId(): string {
-    const bytes = new Uint8Array(24);
-    for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = Math.floor(Math.random() * 256);
-    }
-    return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+    return randomBytes(24).toString("hex");
 }
 
 function generateGameSeed(): number {
@@ -562,6 +561,10 @@ io.on("connection", (socket: Socket) => {
         const action = actionResult.data;
 
         // Handle special debug actions
+        if ((action.type.startsWith("debug-") || action.type === "reset-game") && !player.isAdmin) {
+            socket.emit("action-rejected", { error: "Only the host can use debug actions" });
+            return;
+        }
         if (action.type === "reset-game") {
             room.gameStarted = false;
             room.gameState = null;
@@ -677,9 +680,12 @@ io.on("connection", (socket: Socket) => {
             console.log(`[Server] New admin: ${room.players[0].name}`);
         }
 
-        room.players.forEach((p, i) => {
-            p.id = `P${i + 1}`;
-        });
+        if (!room.gameStarted) {
+            room.players.forEach((p, i) => {
+                p.id = `P${i + 1}`;
+                sessions.set(p.sessionId, { roomCode: room.code, playerId: p.id });
+            });
+        }
 
         io.to(data.roomCode).emit("player-left", {
             players: room.players,
@@ -750,6 +756,9 @@ app.get("/health", (req, res) => {
 // ========================================
 // START SERVER
 // ========================================
+
+app.use("/docs", express.static(fileURLToPath(new URL("../docs", import.meta.url))));
+app.use(express.static(fileURLToPath(new URL("../dist", import.meta.url))));
 
 const PORT = process.env.PORT || 3001;
 

@@ -402,8 +402,10 @@ export class Game {
         };
     }
 
+    private resolvingCombat = false;
+
     private openPreCombat(player: Player, tile: Tile, from: HexCoord): void {
-        if (!this.onDiceRoll) {
+        if (!this.onDiceRoll && !this.resolvingCombat) {
             const preCombat = this.applyPreCombatSpend(player, this.createDefaultPreCombatSpend());
             this.resolveCombat(player, tile, from, preCombat);
             return;
@@ -556,7 +558,12 @@ export class Game {
             return;
         }
 
-        finalizeCombat();
+        this.resolvingCombat = true;
+        try {
+            finalizeCombat();
+        } finally {
+            this.resolvingCombat = false;
+        }
     }
 
     private moveHuntersAtEndOfRound(): void {

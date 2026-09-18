@@ -28,7 +28,7 @@ const ROOM_KEY = "cosmic-frontier-room";
 
 export class SocketClient {
     private socket: Socket | null = null;
-    private serverUrl = import.meta.env.VITE_SERVER_URL || "http://localhost:3001";
+    private serverUrl = import.meta.env.VITE_SERVER_URL || window.location.origin;
 
     // State
     public connectionState: ConnectionState = "disconnected";
@@ -65,6 +65,8 @@ export class SocketClient {
             this.connectionState = "connecting";
             this.onStateChange?.();
 
+            this.socket?.removeAllListeners();
+            this.socket?.disconnect();
             this.socket = io(this.serverUrl, {
                 transports: ["websocket"],
                 reconnection: true,
@@ -101,7 +103,7 @@ export class SocketClient {
 
             this.socket.on("player-left", (data) => {
                 this.players = data.players;
-                const me = this.players.find((p) => p.id === this.playerId);
+                const me = this.players.find((p) => p.socketId === this.socket?.id);
                 if (me) {
                     this.isAdmin = me.isAdmin;
                     this.playerId = me.id; // Update in case IDs were reassigned
@@ -137,6 +139,14 @@ export class SocketClient {
                 this.onGameUpdate?.(data);
             });
             
+            this.socket.on("action-rejected", async (data) => {
+                this.onError?.(data.error || "Action rejected");
+                const response = await this.requestState();
+                if (response.success && response.gameState) {
+                    this.onGameUpdate?.({ action: { type: "resync" }, state: response.gameState, fromPlayer: "server" });
+                }
+            });
+
             // Game reset
             this.socket.on("game-reset", (data) => {
                 this.onGameReset?.(data);
@@ -148,12 +158,15 @@ export class SocketClient {
     // RECONNECT
     // ========================================
 
-    async tryReconnect(): Promise<{ success: boolean; gameStarted?: boolean; gameState?: any }> {
+    async tryReconnect(): Promise<{ success: boolean; error?: string; gameStarted?: boolean; gameState?: any }> {
         if (!this.sessionId) {
             return { success: false };
         }
 
-        if (!this.socket) await this.connect();
+        if (!this.socket?.connected) {
+            try { await this.connect(); }
+            catch { return { success: false, error: "Cannot connect to game server. Please try again." }; }
+        }
 
         return new Promise((resolve) => {
             this.socket!.emit("check-session", { sessionId: this.sessionId }, (response: any) => {
@@ -199,7 +212,10 @@ export class SocketClient {
     // ========================================
 
     async createRoom(playerName: string, maxPlayers: number = 4): Promise<{ success: boolean; error?: string }> {
-        if (!this.socket) await this.connect();
+        if (!this.socket?.connected) {
+            try { await this.connect(); }
+            catch { return { success: false, error: "Cannot connect to game server. Please try again." }; }
+        }
 
         return new Promise((resolve) => {
             this.socket!.emit("create-room", { playerName, maxPlayers }, (response: any) => {
@@ -224,7 +240,10 @@ export class SocketClient {
     }
 
     async joinRoom(roomCode: string, playerName: string): Promise<{ success: boolean; error?: string }> {
-        if (!this.socket) await this.connect();
+        if (!this.socket?.connected) {
+            try { await this.connect(); }
+            catch { return { success: false, error: "Cannot connect to game server. Please try again." }; }
+        }
 
         return new Promise((resolve) => {
             this.socket!.emit("join-room", { roomCode, playerName }, (response: any) => {

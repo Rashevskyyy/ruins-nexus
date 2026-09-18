@@ -231,6 +231,7 @@ export class Button extends PIXI.Container {
         
         // Simple animation using interval (could use ticker instead)
         const animate = () => {
+            if (this.destroyed || this.shineEffect.destroyed) return;
             shineX += 15;
             
             this.shineEffect.clear();
