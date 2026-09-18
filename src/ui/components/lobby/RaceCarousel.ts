@@ -325,6 +325,7 @@ export class RaceCarousel extends PIXI.Container {
         button.on('pointerdown', () => {
             this.selectedOption = option;
             this.updateOptionButtons();
+            this.selectCurrentRace();
         });
 
         button.on('pointerover', () => {
